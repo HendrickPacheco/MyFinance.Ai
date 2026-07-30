@@ -48,19 +48,33 @@ export async function obterAnalise(deps: Deps, nCiclos = 3): Promise<EstadoAnali
   transacoesPorCiclo.forEach((txs, idx) => {
     const ciclo = ciclosCronologicos[idx];
     if (!ciclo) return;
-    const acumPorCat = new Map<string, number[]>();
+    const despesasPorCat = new Map<string, number[]>();
+    const estornosPorCat = new Map<string, number[]>();
     for (const t of txs) {
-      if (t.tipo !== 'DESPESA' || !t.categoriaId) continue;
+      if (!t.categoriaId) continue;
       const cat = catById.get(t.categoriaId);
       if (!cat || cat.grupo !== 'VARIAVEL' || t.provisaoId) continue;
-      const lista = acumPorCat.get(t.categoriaId) ?? [];
-      lista.push(t.valorCents);
-      acumPorCat.set(t.categoriaId, lista);
-      assinaturaTx.push({ descricao: t.descricao, valorCents: t.valorCents, cicloId: ciclo.id });
+
+      if (t.tipo === 'DESPESA') {
+        const lista = despesasPorCat.get(t.categoriaId) ?? [];
+        lista.push(t.valorCents);
+        despesasPorCat.set(t.categoriaId, lista);
+        assinaturaTx.push({ descricao: t.descricao, valorCents: t.valorCents, cicloId: ciclo.id });
+      } else if (t.tipo === 'ESTORNO') {
+        const lista = estornosPorCat.get(t.categoriaId) ?? [];
+        lista.push(t.valorCents);
+        estornosPorCat.set(t.categoriaId, lista);
+      }
     }
-    for (const [categoriaId, valores] of acumPorCat) {
+    // Categorias com despesa OU estorno no ciclo entram no agrupamento.
+    const categoriasNoCiclo = new Set([...despesasPorCat.keys(), ...estornosPorCat.keys()]);
+    for (const categoriaId of categoriasNoCiclo) {
       const lista = porCategoria.get(categoriaId) ?? [];
-      lista.push({ cicloId: ciclo.id, valoresCents: valores });
+      lista.push({
+        cicloId: ciclo.id,
+        valoresCents: despesasPorCat.get(categoriaId) ?? [],
+        estornosCents: estornosPorCat.get(categoriaId) ?? [],
+      });
       porCategoria.set(categoriaId, lista);
     }
   });
