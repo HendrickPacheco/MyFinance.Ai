@@ -1,0 +1,93 @@
+@import 'tailwindcss';
+
+/*
+  Direção de design (SPEC seção 11): "painel de instrumentos noturno".
+  Fundo quase-preto, neutros frios e quietos, UM acento (azul calmo) para
+  interação, e cores semânticas reservadas para o estado do dinheiro. Toda a
+  ousadia é gasta no número herói da tela Hoje; o resto é disciplinado.
+  Dark-first porque o app é aberto à noite, na fila do caixa.
+*/
+
+@theme {
+  --color-bg: #0a0c11;
+  --color-surface: #14171f;
+  --color-surface-2: #1b1f29;
+  --color-border: #272c38;
+  --color-border-strong: #37404f;
+
+  --color-fg: #f3f5f9;
+  --color-muted: #99a1b0;
+  --color-faint: #626b7a;
+
+  /* acento único de interação */
+  --color-accent: #6ea8fe;
+  --color-accent-fg: #08101f;
+
+  /* estados semânticos do saldo */
+  --color-positivo: #35d0a5;
+  --color-atencao: #f4b740;
+  --color-negativo: #ff6b6b;
+  --color-recuperacao: #ff8f5e;
+
+  --radius-card: 1rem;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html,
+body {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  min-height: 100dvh;
+}
+
+/* Todo número monetário usa figuras tabulares (SPEC 11) — dígitos não dançam. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Alvos de toque confortáveis no mobile (SPEC 11: >= 44px). */
+@layer base {
+  button,
+  [role='button'],
+  a {
+    touch-action: manipulation;
+  }
+}
+
+/* Foco visível e acessível em tudo que é interativo. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Esconde spinners de input number no teclado numérico. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

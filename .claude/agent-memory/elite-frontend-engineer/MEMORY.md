@@ -1,0 +1,3 @@
+- [Project architecture](project_architecture.md) — hexagonal layering (domain/application/composition/actions), money & date kernels, how pages wire to use cases.
+- [Design system](design_system.md) — dark-only tokens, tone classes (incl. `text-recuperacao` for déficit), `tnum`, 44px touch targets, no gamification.
+- [UI primitives](ui_primitives.md) — exact API of `src/components/ui/index.tsx` (Button/Card/Input/Select/Label/Badge/EmptyState); no form library; no shared MoneyInput yet.

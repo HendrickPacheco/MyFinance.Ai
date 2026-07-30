@@ -7,8 +7,11 @@ antes de mudanças estruturais.
 
 ## Estado atual
 
-- **Fase 0 (Fundação)** e **Fase 1 (Motor de cálculo + testes)** concluídas.
-- Fases 2+ (UI, server actions, telas) ainda **não** implementadas. Não avance sem pedido.
+- **Fases 0 a 8 concluídas** — app funcional de ponta a ponta.
+- Telas: Hoje (`/`), Ciclo (`/ciclo`), Análise (`/analise`), Patrimônio (`/patrimonio`),
+  Fechamento (`/fechar-ciclo`), Configuração (`/config`), Backup (`/config/backup`).
+- Motor: 68 testes Vitest verdes · `tsc --noEmit` limpo · `next build` verde.
+- Entregue em estado de instalação limpa (renda 0 → onboarding). Sem repositório remoto.
 
 ## Regras invioláveis (SPEC seção 13 — "Não faça")
 
