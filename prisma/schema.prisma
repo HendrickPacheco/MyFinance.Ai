@@ -1,0 +1,163 @@
+// Schema do app de controle financeiro pessoal (SPEC seção 4).
+//
+// REGRAS INVIOLÁVEIS DESTE SCHEMA:
+//  - Todo valor monetário é Int em centavos. Nunca Float/Decimal. Campo termina em `Cents`.
+//  - Toda data civil é String "YYYY-MM-DD". DateTime só para createdAt/updatedAt.
+//
+// Deltas acordados sobre a SPEC original (rodada de perguntas):
+//  - Config.destinoSobraContaId  -> aponta a conta/bucket específico que recebe a sobra (item 6)
+//  - Ciclo.rolloverRecebidoCents -> sobra (±) herdada do ciclo anterior quando destino=ROLLOVER (item 5)
+//  - Transacao.provisaoId (+FK)  -> marca gasto de provisão: abate acumulado e NÃO consome verba (item 3)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Singleton de configuração (id = 1 sempre).
+model Config {
+  id                   Int      @id @default(1)
+  rendaBaseCents       Int // renda LÍQUIDA (o que cai na conta)
+  rendaVariavel        Boolean  @default(false)
+  diaRecebimento       Int // 1-31, define o corte do ciclo
+  metaPoupancaCents    Int // valor absoluto
+  metaPoupancaPercent  Float? // alternativa; se preenchido, tem precedência (incide sobre a renda do mês)
+  moeda                String   @default("BRL")
+  timezone             String   @default("America/Bahia")
+  destinoSobra         String   @default("RESERVA") // RESERVA | INVESTIMENTO | ROLLOVER
+  destinoSobraContaId  String? // bucket específico que recebe a sobra (RESERVA/INVESTIMENTO)
+  destinoSobraConta    Conta?   @relation(fields: [destinoSobraContaId], references: [id])
+  updatedAt            DateTime @updatedAt
+}
+
+model Conta {
+  id               String  @id @default(cuid())
+  nome             String
+  tipo             String // FIXOS | VARIAVEL | RESERVA | INVESTIMENTO
+  saldoCents       Int     @default(0)
+  incluiPatrimonio Boolean @default(true)
+  arquivada        Boolean @default(false)
+
+  transacoes      Transacao[] @relation("ContaOrigem")
+  transacoesDestino Transacao[] @relation("ContaDestino")
+  custosFixos     CustoFixo[]
+  configDestino   Config[]
+}
+
+model CustoFixo {
+  id            String  @id @default(cuid())
+  nome          String
+  valorCents    Int
+  diaVencimento Int // 1-31
+  ativo         Boolean @default(true)
+  contaId       String?
+  conta         Conta?  @relation(fields: [contaId], references: [id])
+}
+
+model ProvisaoAnual {
+  id              String      @id @default(cuid())
+  nome            String // "IPVA", "Presentes de Natal"
+  valorAnualCents Int
+  mesEsperado     Int? // 1-12, quando o gasto costuma acontecer
+  acumuladoCents  Int         @default(0)
+  ativo           Boolean     @default(true)
+  transacoes      Transacao[]
+}
+
+model Categoria {
+  id         String      @id @default(cuid())
+  nome       String      @unique
+  grupo      String // VARIAVEL | FIXO | RENDA
+  essencial  Boolean     @default(false) // usado na análise de corte
+  icone      String?
+  cor        String?
+  ordem      Int         @default(0)
+  transacoes Transacao[]
+}
+
+model Transacao {
+  id             String  @id @default(cuid())
+  data           String // YYYY-MM-DD — data de COMPETÊNCIA (quando o gasto ocorreu)
+  valorCents     Int // sempre positivo; o sinal vem do tipo
+  tipo           String // DESPESA | RENDA | TRANSFERENCIA | ESTORNO
+  descricao      String?
+  metodo         String? // PIX | DEBITO | CREDITO | DINHEIRO | BOLETO
+  categoriaId    String?
+  categoria      Categoria? @relation(fields: [categoriaId], references: [id])
+  contaId        String?
+  conta          Conta?     @relation("ContaOrigem", fields: [contaId], references: [id])
+  contaDestinoId String? // só para TRANSFERENCIA
+  contaDestino   Conta?     @relation("ContaDestino", fields: [contaDestinoId], references: [id])
+
+  // Gasto de provisão anual (item 3): se preenchido, abate acumulado e NÃO consome verba variável.
+  provisaoId String?
+  provisao   ProvisaoAnual? @relation(fields: [provisaoId], references: [id])
+
+  // Parcelamento
+  parcelamentoId String?
+  parcelamento   Parcelamento? @relation(fields: [parcelamentoId], references: [id])
+  parcelaNum     Int?
+
+  // Estorno: aponta para a transação original
+  estornoDeId String?
+
+  cicloId   String?
+  ciclo     Ciclo?   @relation(fields: [cicloId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([data])
+  @@index([cicloId])
+  @@index([categoriaId])
+  @@index([provisaoId])
+}
+
+model Parcelamento {
+  id              String      @id @default(cuid())
+  descricao       String
+  valorTotalCents Int
+  numParcelas     Int
+  dataCompra      String
+  categoriaId     String?
+  transacoes      Transacao[]
+}
+
+// Snapshot dos parâmetros no início do ciclo — CONGELADO (SPEC 5.2).
+model Ciclo {
+  id                    String  @id @default(cuid())
+  dataInicio            String
+  dataFim               String
+  rendaPrevistaCents    Int
+  rendaRealizadaCents   Int? // preenchido no fechamento (input do usuário)
+  poupancaAlvoCents     Int
+  fixosCents            Int // soma congelada
+  provisaoMensalCents   Int // soma congelada
+  verbaVariavelCents    Int // derivado e congelado
+  rolloverRecebidoCents Int     @default(0) // sobra (±) herdada do ciclo anterior (destino=ROLLOVER)
+  fechado               Boolean @default(false)
+  fechadoEm             String?
+  sobraCents            Int?
+  observacao            String?
+  transacoes            Transacao[]
+
+  @@unique([dataInicio])
+}
+
+model SnapshotPatrimonio {
+  id         String           @id @default(cuid())
+  data       String           @unique // YYYY-MM-DD, 1 por mês
+  itens      ItemPatrimonio[]
+  totalCents Int
+}
+
+model ItemPatrimonio {
+  id         String             @id @default(cuid())
+  snapshotId String
+  snapshot   SnapshotPatrimonio @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  nome       String
+  classe     String // CONTA | RENDA_FIXA | RENDA_VARIAVEL | CRIPTO | IMOVEL | OUTRO
+  valorCents Int
+}

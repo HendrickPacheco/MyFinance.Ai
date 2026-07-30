@@ -1,0 +1,25 @@
+# deps
+node_modules/
+
+# build
+.next/
+dist/
+out/
+
+# banco local (fonte de verdade do usuário; nunca versionar)
+data/
+*.db
+*.db-journal
+
+# prisma shadow / logs
+prisma/*.db
+
+# env
+.env
+.env.local
+
+# editores / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
