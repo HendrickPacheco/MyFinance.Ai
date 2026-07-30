@@ -1,0 +1,33 @@
+{
+  "name": "controle-financeiro",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "App pessoal de controle financeiro — limitador de gastos por ciclo. Fase 0 + Fase 1 (motor de cálculo).",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.2.1",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "prisma": "^6.2.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.2"
+  }
+}
