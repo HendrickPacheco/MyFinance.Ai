@@ -71,6 +71,12 @@ export interface CicloRepository {
   ultimosFechados(n: number): Promise<Ciclo[]>;
   criar(ciclo: Ciclo): Promise<Ciclo>;
   atualizar(id: string, patch: Partial<Ciclo>): Promise<Ciclo>;
+  /**
+   * Marca o ciclo como fechado SÓ se ainda estiver aberto (transição atômica).
+   * Devolve true se este chamado foi quem fechou; false se já estava fechado.
+   * Evita crédito de provisão/sobra em dobro num duplo-clique/retry.
+   */
+  fecharSePendente(id: string, patch: Partial<Ciclo>): Promise<boolean>;
 }
 
 export interface PatrimonioRepository {

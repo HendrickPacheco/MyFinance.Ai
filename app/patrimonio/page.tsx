@@ -14,6 +14,7 @@ export default async function PatrimonioPage() {
     obterPatrimonio(deps),
     sugestaoItensSnapshot(deps),
   ]);
+  const hojeISO = deps.relogio.hoje();
 
   return (
     <div className="space-y-8">
@@ -50,7 +51,7 @@ export default async function PatrimonioPage() {
         </Card>
       )}
 
-      <NovoSnapshotForm itensSugeridos={itensSugeridos} />
+      <NovoSnapshotForm itensSugeridos={itensSugeridos} hojeISO={hojeISO} />
     </div>
   );
 }

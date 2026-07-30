@@ -41,6 +41,22 @@ describe('analiseCategoria (SPEC 5.5)', () => {
     expect(r.totalMedioMensalCents).toBe(0);
     expect(r.tendencia).toBe('ESTAVEL');
   });
+
+  it('abate ESTORNO do total (consistente com o motor de gasto)', () => {
+    const r = analiseCategoria({
+      ciclos: [
+        // 3 despesas de 40,00 (120,00) menos um estorno de 40,00 = 80,00 líquido.
+        { cicloId: 'c1', valoresCents: [4000, 4000, 4000], estornosCents: [4000] },
+      ],
+      essencial: false,
+    });
+    // total líquido do mês = 8000
+    expect(r.totalMedioMensalCents).toBe(8000);
+    expect(r.custoAnualizadoCents).toBe(8000 * 12);
+    // ticket médio continua bruto (média da compra): 12000 / 3 = 4000
+    expect(r.ticketMedioCents).toBe(4000);
+    expect(r.frequenciaMedia).toBe(3);
+  });
 });
 
 describe('normalizarDescricao', () => {

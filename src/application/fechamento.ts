@@ -100,14 +100,18 @@ export async function fecharCiclo(
   const { sobra } = await calcularSobra(deps, cicloAtual);
   const hoje = deps.relogio.hoje();
 
-  // 1) Marca o ciclo como fechado, congelando sobra e renda realizada.
-  const cicloFechado = await deps.ciclos.atualizar(cicloId, {
+  // 1) Reivindica o fechamento de forma ATÔMICA. Se outro clique/retry já
+  //    fechou, aborta ANTES de creditar provisão/sobra (evita dobra — A2).
+  const fechou = await deps.ciclos.fecharSePendente(cicloId, {
     fechado: true,
     fechadoEm: hoje,
     sobraCents: sobra,
     rendaRealizadaCents: input.rendaRealizadaCents,
     observacao: input.observacao ?? null,
   });
+  if (!fechou) throw new Error('Este ciclo já foi fechado.');
+
+  const cicloFechado = (await deps.ciclos.obter(cicloId)) ?? cicloAtual;
 
   // 2) Credita a provisão do mês no acumulado de cada provisão ativa (decisão 4).
   const provisoes = await deps.provisoes.listarAtivas();

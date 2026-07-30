@@ -341,6 +341,15 @@ export class PrismaCicloRepository implements CicloRepository {
     const r = await this.db.ciclo.update({ where: { id }, data: patch });
     return toCiclo(r);
   }
+
+  async fecharSePendente(id: string, patch: Partial<Ciclo>): Promise<boolean> {
+    // Condição no WHERE torna a transição fechado:false -> true atômica.
+    const r = await this.db.ciclo.updateMany({
+      where: { id, fechado: false },
+      data: patch,
+    });
+    return r.count === 1;
+  }
 }
 
 function dadosCiclo(c: Ciclo) {

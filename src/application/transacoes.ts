@@ -48,6 +48,17 @@ async function aplicarEfeitoSaldo(deps: Deps, t: Transacao, sinal: 1 | -1): Prom
   }
 }
 
+/**
+ * Efeito de um gasto de provisão sobre o acumulado da provisão. sinal +1
+ * abate (gasto novo), sinal -1 devolve (reversão). Só DESPESA marcada com
+ * provisaoId mexe no acumulado — e nunca consome verba (item 3 / regra 8).
+ */
+async function aplicarEfeitoProvisao(deps: Deps, t: Transacao, sinal: 1 | -1): Promise<void> {
+  if (t.provisaoId && t.tipo === 'DESPESA') {
+    await deps.provisoes.ajustarAcumulado(t.provisaoId, -t.valorCents * sinal);
+  }
+}
+
 async function resolverCicloId(deps: Deps, data: string): Promise<string | null> {
   const ciclo = await deps.ciclos.obterAtual(data);
   return ciclo?.id ?? null;
@@ -75,11 +86,7 @@ export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise
   });
 
   await aplicarEfeitoSaldo(deps, t, +1);
-
-  // Gasto de provisão abate o acumulado (item 3 / regra 8).
-  if (t.provisaoId && t.tipo === 'DESPESA') {
-    await deps.provisoes.ajustarAcumulado(t.provisaoId, -t.valorCents);
-  }
+  await aplicarEfeitoProvisao(deps, t, +1);
   return t;
 }
 
@@ -131,24 +138,31 @@ export async function editarTransacao(
   const atual = await deps.transacoes.obter(id);
   if (!atual) throw new Error('Transação não encontrada.');
 
-  await aplicarEfeitoSaldo(deps, atual, -1); // reverte efeito antigo
+  // Reverte os efeitos antigos (saldo e provisão) antes de reescrever.
+  await aplicarEfeitoSaldo(deps, atual, -1);
+  await aplicarEfeitoProvisao(deps, atual, -1);
 
-  const data = input.data ?? atual.data;
+  // `undefined` = campo não enviado (preserva); `null` = limpar de propósito.
+  const manter = <T>(entrada: T | undefined, atualValor: T): T =>
+    entrada !== undefined ? entrada : atualValor;
+
+  const data = manter(input.data, atual.data);
   const patch: Partial<Transacao> = {
     data,
     valorCents: input.valorCents,
-    tipo: input.tipo ?? atual.tipo,
-    descricao: input.descricao ?? atual.descricao,
-    metodo: input.metodo ?? atual.metodo,
-    categoriaId: input.categoriaId ?? atual.categoriaId,
-    contaId: input.contaId ?? atual.contaId,
-    contaDestinoId: input.contaDestinoId ?? atual.contaDestinoId,
-    provisaoId: input.provisaoId ?? atual.provisaoId,
+    tipo: manter(input.tipo, atual.tipo),
+    descricao: manter(input.descricao, atual.descricao),
+    metodo: manter(input.metodo, atual.metodo),
+    categoriaId: manter(input.categoriaId, atual.categoriaId),
+    contaId: manter(input.contaId, atual.contaId),
+    contaDestinoId: manter(input.contaDestinoId, atual.contaDestinoId),
+    provisaoId: manter(input.provisaoId, atual.provisaoId),
     cicloId: await resolverCicloId(deps, data),
   };
 
   const novo = await deps.transacoes.atualizar(id, patch);
   await aplicarEfeitoSaldo(deps, novo, +1);
+  await aplicarEfeitoProvisao(deps, novo, +1);
   return novo;
 }
 
@@ -156,9 +170,7 @@ export async function excluirTransacao(deps: Deps, id: string): Promise<void> {
   const atual = await deps.transacoes.obter(id);
   if (atual) {
     await aplicarEfeitoSaldo(deps, atual, -1);
-    if (atual.provisaoId && atual.tipo === 'DESPESA') {
-      await deps.provisoes.ajustarAcumulado(atual.provisaoId, +atual.valorCents);
-    }
+    await aplicarEfeitoProvisao(deps, atual, -1);
   }
   await deps.transacoes.excluir(id);
 }
@@ -196,5 +208,10 @@ export async function estornarTransacao(
   });
 
   await aplicarEfeitoSaldo(deps, estorno, +1);
+
+  // Estorno de um gasto de provisão devolve o valor ao acumulado da provisão.
+  if (original?.provisaoId && original.tipo === 'DESPESA') {
+    await deps.provisoes.ajustarAcumulado(original.provisaoId, +valor);
+  }
   return estorno;
 }

@@ -10,7 +10,8 @@ import type { Tendencia } from '@/domain/model/enums';
 /** Transações de UMA categoria agrupadas por ciclo (ordem cronológica: 1º = mais antigo). */
 export interface CicloDaCategoria {
   cicloId: string;
-  valoresCents: readonly number[]; // um por transação de despesa no ciclo
+  valoresCents: readonly number[]; // uma por DESPESA no ciclo
+  estornosCents?: readonly number[]; // uma por ESTORNO no ciclo (abate o total)
 }
 
 export interface ResultadoAnaliseCategoria {
@@ -52,19 +53,24 @@ export function analiseCategoria(params: {
     };
   }
 
-  const totaisPorCiclo = ciclos.map((c) => somaCents(c.valoresCents));
+  // Total líquido por ciclo = despesas − estornos (consistente com o motor de
+  // gasto). Ticket e frequência descrevem as compras (despesas brutas).
+  const despesasPorCiclo = ciclos.map((c) => somaCents(c.valoresCents));
+  const estornosPorCiclo = ciclos.map((c) => somaCents(c.estornosCents ?? []));
+  const liquidoPorCiclo = despesasPorCiclo.map((d, i) => d - (estornosPorCiclo[i] ?? 0));
   const contagensPorCiclo = ciclos.map((c) => c.valoresCents.length);
 
-  const totalGeral = totaisPorCiclo.reduce((a, b) => a + b, 0);
+  const despesasGeral = despesasPorCiclo.reduce((a, b) => a + b, 0);
+  const liquidoGeral = liquidoPorCiclo.reduce((a, b) => a + b, 0);
   const contagemGeral = contagensPorCiclo.reduce((a, b) => a + b, 0);
 
-  const totalMedioMensalCents = Math.round(totalGeral / ciclos.length);
+  const totalMedioMensalCents = Math.round(liquidoGeral / ciclos.length);
   const frequenciaMedia = contagemGeral / ciclos.length;
-  const ticketMedioCents = contagemGeral > 0 ? Math.round(totalGeral / contagemGeral) : 0;
+  const ticketMedioCents = contagemGeral > 0 ? Math.round(despesasGeral / contagemGeral) : 0;
   const custoAnualizadoCents = totalMedioMensalCents * 12;
 
-  const primeiro = totaisPorCiclo[0] ?? 0;
-  const ultimo = totaisPorCiclo[totaisPorCiclo.length - 1] ?? 0;
+  const primeiro = liquidoPorCiclo[0] ?? 0;
+  const ultimo = liquidoPorCiclo[liquidoPorCiclo.length - 1] ?? 0;
 
   return {
     totalMedioMensalCents,

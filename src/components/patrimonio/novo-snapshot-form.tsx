@@ -49,13 +49,15 @@ function linhasIniciais(itens: ItemSnapshotInput[]): LinhaItem[] {
   }));
 }
 
-function hojeCivil(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-export function NovoSnapshotForm({ itensSugeridos }: { itensSugeridos: ItemSnapshotInput[] }) {
+export function NovoSnapshotForm({
+  itensSugeridos,
+  hojeISO,
+}: {
+  itensSugeridos: ItemSnapshotInput[];
+  hojeISO: string;
+}) {
   const router = useRouter();
-  const [data, setData] = useState<string>(hojeCivil);
+  const [data, setData] = useState<string>(hojeISO);
   const [linhas, setLinhas] = useState<LinhaItem[]>(() => linhasIniciais(itensSugeridos));
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);

@@ -85,7 +85,17 @@ export async function importarTudo(db: PrismaClient, payload: unknown): Promise<
     if (d.custosFixos.length) await tx.custoFixo.createMany({ data: d.custosFixos as never });
     if (d.parcelamentos.length) await tx.parcelamento.createMany({ data: d.parcelamentos as never });
     if (d.ciclos.length) await tx.ciclo.createMany({ data: d.ciclos as never });
-    if (d.transacoes.length) await tx.transacao.createMany({ data: d.transacoes as never });
+    if (d.transacoes.length) {
+      // Transacao.estornoDeId referencia outra Transacao: insere primeiro as
+      // que não são estorno (originais), depois as estornadoras, senão a FK
+      // auto-referente pode falhar por ordem do array.
+      const ordenadas = [...d.transacoes].sort((a, b) => {
+        const ae = (a as { estornoDeId?: unknown }).estornoDeId ? 1 : 0;
+        const be = (b as { estornoDeId?: unknown }).estornoDeId ? 1 : 0;
+        return ae - be;
+      });
+      await tx.transacao.createMany({ data: ordenadas as never });
+    }
 
     for (const s of d.snapshots) {
       const { itens, ...snap } = s as { itens?: unknown[] } & Record<string, unknown>;
