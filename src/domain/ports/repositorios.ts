@@ -49,6 +49,7 @@ export interface ProvisaoRepository {
 }
 
 export interface TransacaoRepository {
+  obter(id: string): Promise<Transacao | null>;
   listarPorCiclo(cicloId: string): Promise<Transacao[]>;
   listarPorIntervalo(inicio: DataCivil, fim: DataCivil): Promise<Transacao[]>;
   criar(transacao: Transacao): Promise<Transacao>;
@@ -63,6 +64,7 @@ export interface ParcelamentoRepository {
 }
 
 export interface CicloRepository {
+  obter(id: string): Promise<Ciclo | null>;
   obterPorInicio(dataInicio: DataCivil): Promise<Ciclo | null>;
   obterAtual(hoje: DataCivil): Promise<Ciclo | null>;
   ultimoFechado(): Promise<Ciclo | null>;

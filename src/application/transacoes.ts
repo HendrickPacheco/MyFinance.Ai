@@ -1,0 +1,200 @@
+/**
+ * Casos de uso de transações (SPEC 8 e regras 1–5). Regras de negócio críticas:
+ * competência na data da compra, TRANSFERENCIA nunca é gasto, estorno abate na
+ * data original, parcelamento por competência mensal.
+ */
+import type { Deps } from './deps';
+import type { Transacao } from '@/domain/model/entidades';
+import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
+import { gerarParcelas } from '@/domain/finance';
+
+export interface TransacaoInput {
+  valorCents: number;
+  categoriaId?: string | null;
+  tipo?: TipoTransacao;
+  data?: string; // default: hoje
+  descricao?: string | null;
+  metodo?: MetodoPagamento | null;
+  contaId?: string | null;
+  contaDestinoId?: string | null;
+  provisaoId?: string | null;
+}
+
+export interface ParcelamentoInput {
+  descricao: string;
+  valorTotalCents: number;
+  numParcelas: number;
+  dataCompra?: string; // default: hoje
+  categoriaId?: string | null;
+  contaId?: string | null;
+  metodo?: MetodoPagamento | null;
+}
+
+/** Efeito de uma transação sobre o saldo dos buckets. sinal +1 aplica, -1 reverte. */
+async function aplicarEfeitoSaldo(deps: Deps, t: Transacao, sinal: 1 | -1): Promise<void> {
+  const v = t.valorCents * sinal;
+  switch (t.tipo) {
+    case 'DESPESA':
+      if (t.contaId) await deps.contas.ajustarSaldo(t.contaId, -v);
+      break;
+    case 'RENDA':
+    case 'ESTORNO':
+      if (t.contaId) await deps.contas.ajustarSaldo(t.contaId, +v);
+      break;
+    case 'TRANSFERENCIA':
+      if (t.contaId) await deps.contas.ajustarSaldo(t.contaId, -v);
+      if (t.contaDestinoId) await deps.contas.ajustarSaldo(t.contaDestinoId, +v);
+      break;
+  }
+}
+
+async function resolverCicloId(deps: Deps, data: string): Promise<string | null> {
+  const ciclo = await deps.ciclos.obterAtual(data);
+  return ciclo?.id ?? null;
+}
+
+export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise<Transacao> {
+  const data = input.data ?? deps.relogio.hoje();
+  const cicloId = await resolverCicloId(deps, data);
+
+  const t = await deps.transacoes.criar({
+    id: '',
+    data,
+    valorCents: input.valorCents,
+    tipo: input.tipo ?? 'DESPESA',
+    descricao: input.descricao ?? null,
+    metodo: input.metodo ?? null,
+    categoriaId: input.categoriaId ?? null,
+    contaId: input.contaId ?? null,
+    contaDestinoId: input.contaDestinoId ?? null,
+    provisaoId: input.provisaoId ?? null,
+    parcelamentoId: null,
+    parcelaNum: null,
+    estornoDeId: null,
+    cicloId,
+  });
+
+  await aplicarEfeitoSaldo(deps, t, +1);
+
+  // Gasto de provisão abate o acumulado (item 3 / regra 8).
+  if (t.provisaoId && t.tipo === 'DESPESA') {
+    await deps.provisoes.ajustarAcumulado(t.provisaoId, -t.valorCents);
+  }
+  return t;
+}
+
+export async function criarParcelamento(deps: Deps, input: ParcelamentoInput): Promise<Transacao[]> {
+  const dataCompra = input.dataCompra ?? deps.relogio.hoje();
+
+  const parcelamento = await deps.parcelamentos.criar({
+    id: '',
+    descricao: input.descricao,
+    valorTotalCents: input.valorTotalCents,
+    numParcelas: input.numParcelas,
+    dataCompra,
+    categoriaId: input.categoriaId ?? null,
+  });
+
+  const parcelas = gerarParcelas({
+    valorTotalCents: input.valorTotalCents,
+    numParcelas: input.numParcelas,
+    dataCompra,
+  });
+
+  const transacoes: Transacao[] = [];
+  for (const p of parcelas) {
+    transacoes.push({
+      id: '',
+      data: p.data,
+      valorCents: p.valorCents,
+      tipo: 'DESPESA',
+      descricao: `${input.descricao} (${p.parcelaNum}/${input.numParcelas})`,
+      metodo: input.metodo ?? 'CREDITO',
+      categoriaId: input.categoriaId ?? null,
+      contaId: null,
+      contaDestinoId: null,
+      provisaoId: null,
+      parcelamentoId: parcelamento.id,
+      parcelaNum: p.parcelaNum,
+      estornoDeId: null,
+      cicloId: await resolverCicloId(deps, p.data),
+    });
+  }
+  return deps.transacoes.criarVarias(transacoes);
+}
+
+export async function editarTransacao(
+  deps: Deps,
+  id: string,
+  input: TransacaoInput,
+): Promise<Transacao> {
+  const atual = await deps.transacoes.obter(id);
+  if (!atual) throw new Error('Transação não encontrada.');
+
+  await aplicarEfeitoSaldo(deps, atual, -1); // reverte efeito antigo
+
+  const data = input.data ?? atual.data;
+  const patch: Partial<Transacao> = {
+    data,
+    valorCents: input.valorCents,
+    tipo: input.tipo ?? atual.tipo,
+    descricao: input.descricao ?? atual.descricao,
+    metodo: input.metodo ?? atual.metodo,
+    categoriaId: input.categoriaId ?? atual.categoriaId,
+    contaId: input.contaId ?? atual.contaId,
+    contaDestinoId: input.contaDestinoId ?? atual.contaDestinoId,
+    provisaoId: input.provisaoId ?? atual.provisaoId,
+    cicloId: await resolverCicloId(deps, data),
+  };
+
+  const novo = await deps.transacoes.atualizar(id, patch);
+  await aplicarEfeitoSaldo(deps, novo, +1);
+  return novo;
+}
+
+export async function excluirTransacao(deps: Deps, id: string): Promise<void> {
+  const atual = await deps.transacoes.obter(id);
+  if (atual) {
+    await aplicarEfeitoSaldo(deps, atual, -1);
+    if (atual.provisaoId && atual.tipo === 'DESPESA') {
+      await deps.provisoes.ajustarAcumulado(atual.provisaoId, +atual.valorCents);
+    }
+  }
+  await deps.transacoes.excluir(id);
+}
+
+/**
+ * Estorno (regra 5): abate na data da transação original quando ela existe.
+ * Cria uma transação ESTORNO ligada à original.
+ */
+export async function estornarTransacao(
+  deps: Deps,
+  id: string,
+  valorCents?: number,
+  data?: string,
+): Promise<Transacao> {
+  const original = await deps.transacoes.obter(id);
+
+  const valor = valorCents ?? original?.valorCents ?? 0;
+  const dataEstorno = data ?? original?.data ?? deps.relogio.hoje();
+
+  const estorno = await deps.transacoes.criar({
+    id: '',
+    data: dataEstorno,
+    valorCents: valor,
+    tipo: 'ESTORNO',
+    descricao: original ? `Estorno: ${original.descricao ?? 'transação'}` : 'Estorno',
+    metodo: original?.metodo ?? null,
+    categoriaId: original?.categoriaId ?? null,
+    contaId: original?.contaId ?? null,
+    contaDestinoId: null,
+    provisaoId: original?.provisaoId ?? null,
+    parcelamentoId: null,
+    parcelaNum: null,
+    estornoDeId: id,
+    cicloId: await resolverCicloId(deps, dataEstorno),
+  });
+
+  await aplicarEfeitoSaldo(deps, estorno, +1);
+  return estorno;
+}
