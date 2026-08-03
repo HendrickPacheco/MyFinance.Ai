@@ -11,6 +11,7 @@ import type {
   ContaRepository,
   CategoriaRepository,
   CustoFixoRepository,
+  PagamentoFixoRepository,
   ProvisaoRepository,
   TransacaoRepository,
   ParcelamentoRepository,
@@ -23,6 +24,7 @@ import type {
   Config,
   Conta,
   CustoFixo,
+  PagamentoFixo,
   Parcelamento,
   ProvisaoAnual,
   SnapshotPatrimonio,
@@ -211,6 +213,39 @@ export class FakeCustoFixoRepo implements CustoFixoRepository {
   }
 }
 
+/**
+ * Fake do rastreamento de "custo fixo pago no ciclo". Reproduz a idempotência
+ * da constraint única (custoFixoId, cicloId) do schema real: marcar duas
+ * vezes o mesmo par nunca duplica, só atualiza `pagoEm`.
+ */
+export class FakePagamentoFixoRepo implements PagamentoFixoRepository {
+  private seq = 0;
+  constructor(public itens: PagamentoFixo[] = []) {}
+
+  async listarPorCiclo(cicloId: string): Promise<PagamentoFixo[]> {
+    return this.itens.filter((p) => p.cicloId === cicloId).map(clone);
+  }
+
+  async marcarPago(custoFixoId: string, cicloId: string, pagoEm: DataCivil): Promise<PagamentoFixo> {
+    const i = this.itens.findIndex((p) => p.custoFixoId === custoFixoId && p.cicloId === cicloId);
+    if (i >= 0) {
+      const atualizado: PagamentoFixo = { ...em(this.itens, i), pagoEm };
+      this.itens[i] = atualizado;
+      return clone(atualizado);
+    }
+    this.seq += 1;
+    const novo: PagamentoFixo = { id: `pgto-${this.seq}`, custoFixoId, cicloId, pagoEm };
+    this.itens.push(novo);
+    return clone(novo);
+  }
+
+  async desmarcarPago(custoFixoId: string, cicloId: string): Promise<void> {
+    this.itens = this.itens.filter(
+      (p) => !(p.custoFixoId === custoFixoId && p.cicloId === cicloId),
+    );
+  }
+}
+
 export class FakeProvisaoRepo implements ProvisaoRepository {
   public ajustes: Array<{ id: string; deltaCents: number }> = [];
   constructor(public itens: ProvisaoAnual[] = []) {}
@@ -293,6 +328,15 @@ export class FakeTransacaoRepo implements TransacaoRepository {
     });
     return n;
   }
+
+  async marcarPaga(transacaoId: string, pagoEm: DataCivil | null): Promise<Transacao> {
+    const i = this.itens.findIndex((t) => t.id === transacaoId);
+    const alvo = this.itens[i];
+    if (!alvo) throw new Error(`transação inexistente: ${transacaoId}`);
+    const atualizada: Transacao = { ...alvo, pagoEm };
+    this.itens[i] = atualizada;
+    return clone(atualizada);
+  }
 }
 
 export class FakeParcelamentoRepo implements ParcelamentoRepository {
@@ -343,6 +387,7 @@ export interface FakeDeps extends Deps {
   contas: FakeContaRepo;
   categorias: FakeCategoriaRepo;
   custosFixos: FakeCustoFixoRepo;
+  pagamentosFixos: FakePagamentoFixoRepo;
   provisoes: FakeProvisaoRepo;
   transacoes: FakeTransacaoRepo;
   parcelamentos: FakeParcelamentoRepo;
@@ -396,6 +441,7 @@ export interface OpcoesFakeDeps {
   transacoes?: Transacao[];
   ciclos?: Ciclo[];
   snapshots?: SnapshotPatrimonio[];
+  pagamentosFixos?: PagamentoFixo[];
 }
 
 export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
@@ -406,6 +452,7 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     contas: new FakeContaRepo(opcoes.contas ?? []),
     categorias: new FakeCategoriaRepo(opcoes.categorias ?? [CATEGORIA_VARIAVEL, CATEGORIA_FIXA]),
     custosFixos: new FakeCustoFixoRepo(opcoes.custosFixos ?? []),
+    pagamentosFixos: new FakePagamentoFixoRepo(opcoes.pagamentosFixos ?? []),
     provisoes: new FakeProvisaoRepo(opcoes.provisoes ?? []),
     transacoes: new FakeTransacaoRepo(opcoes.transacoes ?? []),
     parcelamentos: new FakeParcelamentoRepo(),
@@ -452,6 +499,7 @@ export function transacaoFake(patch: Partial<Transacao> = {}): Transacao {
     parcelaNum: null,
     estornoDeId: null,
     cicloId: 'ciclo-x',
+    pagoEm: null,
     ...patch,
   };
 }

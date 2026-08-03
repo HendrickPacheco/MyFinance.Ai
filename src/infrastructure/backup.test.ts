@@ -8,7 +8,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import type { PrismaClient } from '@prisma/client';
-import { exportarTudo, importarTudo, BACKUP_VERSION, BackupSalvaguardaError } from './backup';
+import {
+  exportarTudo,
+  importarTudo,
+  BACKUP_VERSION,
+  BackupSalvaguardaError,
+  BackupVersaoIncompativelError,
+} from './backup';
 
 vi.mock('node:fs', () => ({
   promises: { mkdir: vi.fn(async () => undefined), writeFile: vi.fn(async () => undefined) },
@@ -27,6 +33,7 @@ const NOMES_TABELAS = [
   'provisaoAnual',
   'parcelamento',
   'ciclo',
+  'pagamentoFixo',
   'transacao',
   'snapshotPatrimonio',
   'itemPatrimonio',
@@ -49,6 +56,41 @@ interface FakePrisma {
   ordemInsercaoTransacao: string[];
 }
 
+/**
+ * Espelha as FKs reais das migrations (`prisma/migrations/*\/migration.sql`)
+ * para o fake em memória simular o mesmo comportamento do PostgreSQL:
+ * `RESTRICT` na deleção (linha filha viva bloqueia apagar o pai) e violação
+ * de integridade na inserção (FK apontando para um pai que ainda não
+ * existe, verificado independente da ação de `ON DELETE`). Isto é o que
+ * torna os testes de ORDEM de import/export (FKs impostas pelo Postgres,
+ * diferente do SQLite antigo) capazes de FALHAR de verdade quando alguém
+ * inverte a ordem — sem isso, um fake "burro" deixaria a ordem errada
+ * passar silenciosamente.
+ *
+ * `restrict: true` só em `PagamentoFixo.custoFixoId`/`cicloId` — são as
+ * ÚNICAS FKs `ON DELETE RESTRICT` do schema hoje (migration
+ * `20260803213122_pagamento_fixo`). Todas as demais são `SET NULL` (ou
+ * `CASCADE` em `ItemPatrimonio.snapshotId`), que nunca bloqueiam a deleção
+ * do pai — por isso não entram na checagem de RESTRICT abaixo.
+ */
+const FKS: ReadonlyArray<{ tabela: NomeTabela; campo: string; pai: NomeTabela; restrict: boolean }> = [
+  { tabela: 'custoFixo', campo: 'contaId', pai: 'conta', restrict: false },
+  { tabela: 'config', campo: 'destinoSobraContaId', pai: 'conta', restrict: false },
+  { tabela: 'parcelamento', campo: 'categoriaId', pai: 'categoria', restrict: false },
+  { tabela: 'pagamentoFixo', campo: 'custoFixoId', pai: 'custoFixo', restrict: true },
+  { tabela: 'pagamentoFixo', campo: 'cicloId', pai: 'ciclo', restrict: true },
+  { tabela: 'transacao', campo: 'categoriaId', pai: 'categoria', restrict: false },
+  { tabela: 'transacao', campo: 'contaId', pai: 'conta', restrict: false },
+  { tabela: 'transacao', campo: 'contaDestinoId', pai: 'conta', restrict: false },
+  { tabela: 'transacao', campo: 'provisaoId', pai: 'provisaoAnual', restrict: false },
+  { tabela: 'transacao', campo: 'parcelamentoId', pai: 'parcelamento', restrict: false },
+  { tabela: 'transacao', campo: 'estornoDeId', pai: 'transacao', restrict: false },
+  { tabela: 'transacao', campo: 'cicloId', pai: 'ciclo', restrict: false },
+  { tabela: 'itemPatrimonio', campo: 'snapshotId', pai: 'snapshotPatrimonio', restrict: false },
+];
+
+class ViolacaoDeChaveEstrangeiraSimulada extends Error {}
+
 function criarFakePrisma(): FakePrisma {
   const tabelas: Tabelas = {
     config: [],
@@ -58,11 +100,52 @@ function criarFakePrisma(): FakePrisma {
     provisaoAnual: [],
     parcelamento: [],
     ciclo: [],
+    pagamentoFixo: [],
     transacao: [],
     snapshotPatrimonio: [],
     itemPatrimonio: [],
   };
   const estado = { transacoesAbertas: 0, ordemInsercaoTransacao: [] as string[] };
+
+  /** Rejeita o insert se alguma FK apontar para um pai que ainda não existe. */
+  function validarFksDeInsercao(nome: NomeTabela, linha: Linha): void {
+    for (const fk of FKS) {
+      if (fk.tabela !== nome) continue;
+      const valor = linha[fk.campo];
+      if (valor === null || valor === undefined) continue;
+      const paiExiste = tabelas[fk.pai].some((p) => p.id === valor);
+      if (!paiExiste) {
+        throw new ViolacaoDeChaveEstrangeiraSimulada(
+          `FK violation: ${nome}.${fk.campo}=${String(valor)} não existe em ${fk.pai} — ` +
+            'insert fora de ordem (pai precisa existir antes do filho).',
+        );
+      }
+    }
+  }
+
+  /** Rejeita o deleteMany se alguma linha filha `ON DELETE RESTRICT` ainda referenciar esta tabela. */
+  function validarFksDeDelecao(nome: NomeTabela): void {
+    const idsDoPai = new Set(tabelas[nome].map((l) => l.id));
+    if (idsDoPai.size === 0) return;
+    for (const fk of FKS) {
+      if (fk.pai !== nome || !fk.restrict) continue;
+      // Auto-referência: o deleteMany desta tabela apaga TODAS as linhas de
+      // uma vez, incluindo as que se referenciam entre si — não há órfão
+      // intermediário. (Nenhuma FK restrict hoje é auto-referente, mas a
+      // guarda fica por segurança caso uma seja adicionada no futuro.)
+      if (fk.tabela === fk.pai) continue;
+      const filhoOrfaoRestante = tabelas[fk.tabela].some((l) => {
+        const valor = l[fk.campo];
+        return valor !== null && valor !== undefined && idsDoPai.has(valor as string);
+      });
+      if (filhoOrfaoRestante) {
+        throw new ViolacaoDeChaveEstrangeiraSimulada(
+          `FK violation: não é possível apagar ${nome} — ${fk.tabela}.${fk.campo} ainda referencia ` +
+            'linhas existentes (delete fora de ordem, filho precisa sumir antes do pai).',
+        );
+      }
+    }
+  }
 
   function delegate(nome: NomeTabela) {
     return {
@@ -83,18 +166,21 @@ function criarFakePrisma(): FakePrisma {
         return achado ? { ...achado } : null;
       },
       create: async (args: { data: Linha }): Promise<Linha> => {
+        validarFksDeInsercao(nome, args.data);
         const linha = { ...args.data };
         tabelas[nome].push(linha);
         return linha;
       },
       createMany: async (args: { data: Linha[] }): Promise<{ count: number }> => {
         for (const l of args.data) {
+          validarFksDeInsercao(nome, l);
           tabelas[nome].push({ ...l });
           if (nome === 'transacao') estado.ordemInsercaoTransacao.push(String(l.id));
         }
         return { count: args.data.length };
       },
       deleteMany: async (): Promise<{ count: number }> => {
+        validarFksDeDelecao(nome);
         const n = tabelas[nome].length;
         tabelas[nome] = [];
         return { count: n };
@@ -189,6 +275,13 @@ function semear(tabelas: Tabelas): void {
     sobraCents: 12_345,
     observacao: null,
   });
+  tabelas.pagamentoFixo.push({
+    id: 'pag-aluguel-julho',
+    custoFixoId: 'fixo-aluguel',
+    cicloId: 'ciclo-julho',
+    pagoEm: '2026-07-09',
+    createdAt: '2026-07-09T12:00:00.000Z',
+  });
   tabelas.transacao.push(
     {
       id: 'tx-original',
@@ -205,6 +298,7 @@ function semear(tabelas: Tabelas): void {
       parcelaNum: null,
       estornoDeId: null,
       cicloId: 'ciclo-julho',
+      pagoEm: '2026-07-31',
     },
     {
       id: 'tx-estorno',
@@ -221,6 +315,7 @@ function semear(tabelas: Tabelas): void {
       parcelaNum: null,
       estornoDeId: 'tx-original',
       cicloId: 'ciclo-julho',
+      pagoEm: null,
     },
   );
   tabelas.snapshotPatrimonio.push({ id: 'snap-1', data: '2026-08-05', totalCents: 1_234_568 });
@@ -265,12 +360,30 @@ describe('exportarTudo', () => {
         'config',
         'contas',
         'custosFixos',
+        'pagamentosFixos',
         'parcelamentos',
         'provisoes',
         'snapshots',
         'transacoes',
       ].sort(),
     );
+  });
+
+  it('inclui os pagamentos de custo fixo (rastreamento de "pago?")', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+
+    const payload = (await exportarTudo(db.client)) as {
+      dados: { pagamentosFixos: Array<{ id: string; custoFixoId: string; cicloId: string; pagoEm: string }> };
+    };
+
+    expect(payload.dados.pagamentosFixos).toHaveLength(1);
+    expect(payload.dados.pagamentosFixos[0]).toMatchObject({
+      id: 'pag-aluguel-julho',
+      custoFixoId: 'fixo-aluguel',
+      cicloId: 'ciclo-julho',
+      pagoEm: '2026-07-09',
+    });
   });
 
   it('exporta os itens do snapshot aninhados', async () => {
@@ -375,6 +488,43 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     expect(db.ordemInsercaoTransacao).toEqual(['tx-original', 'tx-estorno']);
   });
 
+  it('restaura com sucesso mesmo havendo PagamentoFixo (FK ON DELETE RESTRICT p/ CustoFixo e Ciclo)', async () => {
+    // Regressão do problema #2 da auditoria: com linhas em PagamentoFixo,
+    // apagar Ciclo/CustoFixo antes de PagamentoFixo bate na FK RESTRICT e
+    // aborta a transação. O fake simula essa mesma constraint (ver FKS).
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    expect(db.tabelas.pagamentoFixo).toHaveLength(1);
+
+    const payload = await exportarTudo(db.client);
+    zerar(db.tabelas);
+
+    await expect(importarTudo(db.client, JSON.parse(JSON.stringify(payload)))).resolves.toMatchObject({
+      backupCriado: expect.stringMatching(/data[\\/]app\.backup-.*\.json$/) as unknown as string,
+    });
+    expect(primeiraLinha(db.tabelas.pagamentoFixo)).toMatchObject({
+      id: 'pag-aluguel-julho',
+      custoFixoId: 'fixo-aluguel',
+      cicloId: 'ciclo-julho',
+      pagoEm: '2026-07-09',
+    });
+  });
+
+  it('preserva Transacao.pagoEm no round-trip (nulo e preenchido)', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+
+    const payload = await exportarTudo(db.client);
+    zerar(db.tabelas);
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)));
+
+    const original = db.tabelas.transacao.find((t) => t.id === 'tx-original');
+    const estorno = db.tabelas.transacao.find((t) => t.id === 'tx-estorno');
+    expect(original?.pagoEm).toBe('2026-07-31');
+    expect(typeof original?.pagoEm).toBe('string');
+    expect(estorno?.pagoEm).toBeNull();
+  });
+
   it('grava a salvaguarda em JSON (./data) ANTES de qualquer escrita destrutiva', async () => {
     const db = criarFakePrisma();
     semear(db.tabelas);
@@ -406,6 +556,38 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
       expect(db.tabelas[nome]).toEqual(antes[nome]);
     }
     expect(db.transacoesAbertas).toBe(0);
+  });
+
+  it('importa um backup versão 1 (sem pagamentosFixos) sem quebrar — compatibilidade retroativa', async () => {
+    // O usuário pode ter gerado backups na v1 (antes de PagamentoFixo
+    // existir) minutos antes desta mudança. Recusá-los o deixaria sem
+    // conseguir restaurar o próprio backup — por isso version 1, mesmo sem
+    // a chave `pagamentosFixos`, precisa continuar importável.
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+
+    const { backupCriado } = await importarTudo(db.client, {
+      version: 1,
+      dados: {
+        config: primeiraLinha(db.tabelas.config),
+        contas: [...db.tabelas.conta],
+        categorias: [...db.tabelas.categoria],
+        custosFixos: [...db.tabelas.custoFixo],
+        provisoes: [...db.tabelas.provisaoAnual],
+        parcelamentos: [...db.tabelas.parcelamento],
+        ciclos: [...db.tabelas.ciclo],
+        // Sem `pagamentosFixos`: é exatamente o shape de um dump v1 real.
+        transacoes: [...db.tabelas.transacao],
+        snapshots: db.tabelas.snapshotPatrimonio.map((s) => ({
+          ...s,
+          itens: db.tabelas.itemPatrimonio.filter((i) => i.snapshotId === s.id),
+        })),
+      },
+    });
+
+    expect(backupCriado).toMatch(/data[\\/]app\.backup-.*\.json$/);
+    expect(db.tabelas.pagamentoFixo).toEqual([]);
+    expect(primeiraLinha(db.tabelas.ciclo).id).toBe('ciclo-julho');
   });
 
   it('importar um backup vazio zera o estado sem quebrar', async () => {
@@ -482,7 +664,7 @@ describe('validação Zod do payload — import inválido é rejeitado sem corro
     expect(writeFileMock).not.toHaveBeenCalled();
   });
 
-  it('deve recusar um backup de versão incompatível', async () => {
+  it('deve recusar um backup de versão futura desconhecida (acima do máximo suportado)', async () => {
     const db = criarFakePrisma();
     semear(db.tabelas);
     const antes = copiaProfunda(db.tabelas);
@@ -502,12 +684,41 @@ describe('validação Zod do payload — import inválido é rejeitado sem corro
           snapshots: [],
         },
       }),
-    ).rejects.toThrow(/versão/i);
+    ).rejects.toThrow(BackupVersaoIncompativelError);
 
     for (const nome of NOMES_TABELAS) {
       expect(db.tabelas[nome]).toEqual(antes[nome]);
     }
     // Rejeitou ANTES de abrir transação e ANTES de copiar o .db.
+    expect(db.transacoesAbertas).toBe(0);
+    expect(writeFileMock).not.toHaveBeenCalled();
+  });
+
+  it('deve recusar um backup abaixo do piso de compatibilidade (version 0)', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    const antes = copiaProfunda(db.tabelas);
+
+    await expect(
+      importarTudo(db.client, {
+        version: 0,
+        dados: {
+          config: null,
+          contas: [],
+          categorias: [],
+          custosFixos: [],
+          provisoes: [],
+          parcelamentos: [],
+          ciclos: [],
+          transacoes: [],
+          snapshots: [],
+        },
+      }),
+    ).rejects.toThrow(/versão/i);
+
+    for (const nome of NOMES_TABELAS) {
+      expect(db.tabelas[nome]).toEqual(antes[nome]);
+    }
     expect(db.transacoesAbertas).toBe(0);
     expect(writeFileMock).not.toHaveBeenCalled();
   });

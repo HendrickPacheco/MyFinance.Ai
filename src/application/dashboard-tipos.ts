@@ -48,6 +48,13 @@ export interface KpisPainel {
   /** Meta de economia do mês = poupança alvo do ciclo. */
   metaEconomiaCents: number;
   /**
+   * Compromissos do mês (fixos + parcelas) ainda NÃO marcados como pagos.
+   * "O que ainda vai sair da conta". Rastreamento — não altera a verba.
+   */
+  faltaPagarCents: number;
+  /** Compromissos do mês já marcados como pagos. */
+  jaPagueiCents: number;
+  /**
    * Saldo disponível no modelo da planilha: renda prevista − totalGastos.
    * As contas do app têm saldo 0 (o usuário não mantém saldo por conta), por
    * isso é derivado, não lido de `Conta.saldoCents`.
@@ -75,6 +82,8 @@ export interface FatiaMetodo {
 /** Linha da tabela de parcelamentos em aberto. */
 export interface LinhaParcelada {
   parcelamentoId: string;
+  /** Transação desta parcela — é o alvo do "marcar como pago". */
+  transacaoId: string;
   descricao: string;
   valorParcelaCents: number;
   parcelaAtual: number;
@@ -82,6 +91,51 @@ export interface LinhaParcelada {
   /** Competência da parcela que cai neste ciclo. */
   data: DataCivil;
   categoriaNome: string | null;
+  /** Marcado como pago pelo usuário. Rastreamento, NUNCA entra no cálculo. */
+  pago: boolean;
+}
+
+/**
+ * Linha da lista de custos fixos, com o estado de pagamento DESTE ciclo.
+ *
+ * "Pago" é por ciclo e reseta na virada do mês (igual à coluna Pago? da
+ * planilha). É rastreamento puro: o valor do fixo já foi descontado da verba
+ * quando o ciclo nasceu, então marcar como pago NÃO pode abater nada de novo —
+ * seria contar o mesmo dinheiro duas vezes e derrubar o teto diário sem motivo.
+ */
+export interface LinhaCustoFixo {
+  custoFixoId: string;
+  nome: string;
+  valorCents: number;
+  diaVencimento: number;
+  pago: boolean;
+  /** Vencimento já passou dentro deste ciclo e continua não pago. */
+  vencido: boolean;
+}
+
+/** Opção de categoria para o formulário de lançamento do painel. */
+export interface OpcaoCategoria {
+  id: string;
+  nome: string;
+  /** VARIAVEL na frente: é o que o lançamento rápido usa. */
+  grupo: 'VARIAVEL' | 'FIXO' | 'RENDA';
+}
+
+/**
+ * Linha do extrato de gastos variáveis do ciclo — o que NÃO é custo fixo,
+ * parcela nem gasto de provisão. É o único dinheiro que consome verba de
+ * forma discricionária, então é o que o usuário precisa revisar.
+ */
+export interface LinhaTransacaoVariavel {
+  transacaoId: string;
+  data: DataCivil;
+  descricao: string | null;
+  valorCents: number;
+  categoriaId: string | null;
+  categoriaNome: string | null;
+  metodo: MetodoPagamento | null;
+  /** ESTORNO abate; a UI precisa distinguir para não mostrar como despesa. */
+  ehEstorno: boolean;
 }
 
 /** Bloco de patrimônio/investimentos — o que a planilha do usuário não mostra. */
@@ -125,12 +179,21 @@ export interface EstadoPainel {
   kpis: KpisPainel;
   categorias: FatiaCategoria[];
   metodos: FatiaMetodo[];
-  custosFixos: CustoFixo[];
+  custosFixos: LinhaCustoFixo[];
   fixosTotalCents: number;
   parcelados: LinhaParcelada[];
   parceladosTotalCents: number;
   provisoes: ProvisaoAnual[];
   provisaoMensalTotalCents: number;
+  /**
+   * Categorias para o formulário de lançamento do painel, VARIAVEL primeiro e
+   * ordenadas por frequência real de uso no ciclo (as mais usadas na frente).
+   */
+  categoriasLancamento: OpcaoCategoria[];
+  /** Extrato de gastos variáveis do ciclo, mais recentes primeiro. */
+  transacoesVariaveis: LinhaTransacaoVariavel[];
+  /** Soma líquida do extrato acima (DESPESA − ESTORNO). */
+  transacoesVariaveisTotalCents: number;
   patrimonio: ResumoPatrimonioPainel;
   metas: ResumoMetas;
   /** Ciclo anterior ainda sem fechar — aviso, nunca bloqueio (regra 10). */

@@ -15,3 +15,5 @@ export * from './analise';
 export * from './patrimonio';
 export * from './sugestoes';
 export * from './agregacoes';
+export * from './pagamentos';
+export * from './categorias';

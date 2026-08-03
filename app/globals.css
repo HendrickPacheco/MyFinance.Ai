@@ -91,3 +91,43 @@ input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/*
+  Sidebar colapsável (painel desktop). Fonte de verdade visual é o atributo
+  `data-sidebar` no <html>, aplicado por um script inline em `app/layout.tsx`
+  ANTES da pintura (evita flash de sidebar expandida/mismatch de hidratação —
+  ver comentário no layout). O React só usa estado próprio para textos/aria,
+  nunca para decidir a largura.
+*/
+.app-sidebar {
+  width: 16rem;
+  transition: width 200ms ease;
+}
+html[data-sidebar='collapsed'] .app-sidebar {
+  width: 4.5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar {
+    transition: none;
+  }
+}
+
+/* Item de nav (link ou botão) precisa ser `position: relative` para ancorar
+   o tooltip decorativo mostrado no estado colapsado. */
+.sidebar-item {
+  position: relative;
+}
+
+/* Texto do rótulo: some visualmente quando colapsado. O nome acessível do
+   elemento continua garantido por `aria-label` explícito (não depende deste
+   texto), então escondê-lo com `display: none` não perde nada para leitor de
+   tela. */
+html[data-sidebar='collapsed'] .sidebar-label {
+  display: none;
+}
+
+/* O tooltip decorativo em si (`TooltipPortal`, em src/components/ui/index.tsx)
+   é portalado para `document.body` com `position: fixed`, calculado a partir
+   do retângulo do gatilho — de propósito, para não depender de `overflow` de
+   nenhum ancestral (a sidebar e a <nav> interna têm scroll/clip próprios que
+   cortariam um tooltip meramente `absolute`). */

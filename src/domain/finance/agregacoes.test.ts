@@ -7,11 +7,13 @@ import {
   sobraProjetadaCents,
   somarParceladosCents,
   gastoVariavelSemParcelasCents,
+  extratoTransacoesVariaveis,
   projetarPoupanca,
   formatarPeriodoCiclo,
   type TransacaoCategorizada,
   type TransacaoComMetodo,
   type TransacaoComParcela,
+  type TransacaoParaExtrato,
 } from './agregacoes';
 
 describe('calcularPercentuais', () => {
@@ -255,6 +257,106 @@ describe('gastoVariavelSemParcelasCents', () => {
 
   it('rejeita data de corte mal formada', () => {
     expect(() => gastoVariavelSemParcelasCents([], '2026-08-1')).toThrow(TypeError);
+  });
+});
+
+describe('extratoTransacoesVariaveis', () => {
+  const base: TransacaoParaExtrato = {
+    transacaoId: 'tx-x',
+    data: '2026-08-01',
+    valorCents: 5000,
+    tipo: 'DESPESA',
+    grupoCategoria: 'VARIAVEL',
+    provisaoId: null,
+    parcelamentoId: null,
+    descricao: 'Mercado',
+    categoriaId: 'cat-mercado',
+    categoriaNome: 'Mercado',
+    metodo: 'PIX',
+  };
+
+  it('ciclo sem nenhuma transação devolve extrato vazio', () => {
+    expect(extratoTransacoesVariaveis([], '2026-08-31')).toEqual([]);
+  });
+
+  it('só parcelas: extrato vem vazio (parcela tem tabela própria, não entra aqui)', () => {
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-parcela', parcelamentoId: 'parc-1' },
+    ];
+    expect(extratoTransacoesVariaveis(transacoes, '2026-08-31')).toEqual([]);
+  });
+
+  it('inclui DESPESA e ESTORNO marcando ehEstorno, mais recente primeiro', () => {
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-1', data: '2026-08-01', tipo: 'DESPESA' },
+      { ...base, transacaoId: 'tx-2', data: '2026-08-05', tipo: 'ESTORNO' },
+    ];
+    const resultado = extratoTransacoesVariaveis(transacoes, '2026-08-31');
+    expect(resultado.map((l) => l.transacaoId)).toEqual(['tx-2', 'tx-1']);
+    expect(resultado.find((l) => l.transacaoId === 'tx-2')?.ehEstorno).toBe(true);
+    expect(resultado.find((l) => l.transacaoId === 'tx-1')?.ehEstorno).toBe(false);
+  });
+
+  it('exclui gasto de provisão, RENDA e TRANSFERENCIA', () => {
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-provisao', provisaoId: 'prov-1' },
+      { ...base, transacaoId: 'tx-renda', tipo: 'RENDA', grupoCategoria: 'RENDA' },
+      { ...base, transacaoId: 'tx-transferencia', tipo: 'TRANSFERENCIA', grupoCategoria: null },
+    ];
+    expect(extratoTransacoesVariaveis(transacoes, '2026-08-31')).toEqual([]);
+  });
+
+  it('transação sem categoria (categoriaId/grupoCategoria null) é excluída — mesma regra de contaComoVerbaVariavel', () => {
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-sem-categoria', categoriaId: null, categoriaNome: null, grupoCategoria: null },
+    ];
+    expect(extratoTransacoesVariaveis(transacoes, '2026-08-31')).toEqual([]);
+  });
+
+  it('respeita a data de corte (comparação lexicográfica)', () => {
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-dentro', data: '2026-08-02' },
+      { ...base, transacaoId: 'tx-fora', data: '2026-08-10' },
+    ];
+    const resultado = extratoTransacoesVariaveis(transacoes, '2026-08-02');
+    expect(resultado.map((l) => l.transacaoId)).toEqual(['tx-dentro']);
+  });
+
+  it('rejeita data de corte mal formada', () => {
+    expect(() => extratoTransacoesVariaveis([], '2026-08-1')).toThrow(TypeError);
+  });
+
+  it('o total líquido do extrato (estorno maior que despesa, negativo) bate exatamente com gastoVariavelSemParcelasCents', () => {
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-1', tipo: 'DESPESA', valorCents: 1000, data: '2026-08-01' },
+      { ...base, transacaoId: 'tx-2', tipo: 'ESTORNO', valorCents: 3000, data: '2026-08-02' },
+    ];
+    const ateData = '2026-08-31';
+
+    const totalDoExtrato = extratoTransacoesVariaveis(transacoes, ateData).reduce(
+      (soma, l) => soma + (l.ehEstorno ? -l.valorCents : l.valorCents),
+      0,
+    );
+
+    expect(totalDoExtrato).toBe(-2000);
+    expect(totalDoExtrato).toBe(gastoVariavelSemParcelasCents(transacoes, ateData));
+  });
+
+  it('a soma do extrato bate com gastoVariavelSemParcelasCents também com parcelas e provisão misturadas', () => {
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-variavel', tipo: 'DESPESA', valorCents: 4000, data: '2026-08-01' },
+      { ...base, transacaoId: 'tx-parcela', valorCents: 30000, data: '2026-08-03', parcelamentoId: 'parc-1' },
+      { ...base, transacaoId: 'tx-provisao', valorCents: 9000, data: '2026-08-04', provisaoId: 'prov-1' },
+    ];
+    const ateData = '2026-08-31';
+
+    const totalDoExtrato = extratoTransacoesVariaveis(transacoes, ateData).reduce(
+      (soma, l) => soma + (l.ehEstorno ? -l.valorCents : l.valorCents),
+      0,
+    );
+
+    expect(totalDoExtrato).toBe(gastoVariavelSemParcelasCents(transacoes, ateData));
+    expect(totalDoExtrato).toBe(4000);
   });
 });
 

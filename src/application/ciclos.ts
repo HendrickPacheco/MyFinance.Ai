@@ -236,6 +236,7 @@ export async function puxarDaReserva(deps: Deps, valorCents: number): Promise<Ci
       parcelaNum: null,
       estornoDeId: null,
       cicloId: ciclo.id,
+      pagoEm: null,
     });
     await deps.contas.ajustarSaldo(reserva.id, -valorCents);
     await deps.contas.ajustarSaldo(variavel.id, +valorCents);

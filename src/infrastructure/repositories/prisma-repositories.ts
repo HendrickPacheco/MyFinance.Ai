@@ -11,6 +11,7 @@ import type {
   Conta,
   Categoria,
   CustoFixo,
+  PagamentoFixo,
   ProvisaoAnual,
   Transacao,
   Parcelamento,
@@ -22,6 +23,7 @@ import type {
   ContaRepository,
   CategoriaRepository,
   CustoFixoRepository,
+  PagamentoFixoRepository,
   ProvisaoRepository,
   TransacaoRepository,
   ParcelamentoRepository,
@@ -33,6 +35,7 @@ import {
   toConta,
   toCategoria,
   toCustoFixo,
+  toPagamentoFixo,
   toProvisao,
   toTransacao,
   toParcelamento,
@@ -172,6 +175,34 @@ export class PrismaCustoFixoRepository implements CustoFixoRepository {
   }
 }
 
+/**
+ * Rastreamento de "custo fixo pago no ciclo" — nunca toca `Ciclo.fixosCents`
+ * nem qualquer campo de verba. `marcarPago`/`desmarcarPago` são idempotentes:
+ * `upsert` na constraint única (custoFixoId, cicloId) evita duplicar ou
+ * lançar em cliques repetidos.
+ */
+export class PrismaPagamentoFixoRepository implements PagamentoFixoRepository {
+  constructor(private readonly db: PrismaClient) {}
+
+  async listarPorCiclo(cicloId: string): Promise<PagamentoFixo[]> {
+    const rows = await this.db.pagamentoFixo.findMany({ where: { cicloId } });
+    return rows.map(toPagamentoFixo);
+  }
+
+  async marcarPago(custoFixoId: string, cicloId: string, pagoEm: DataCivil): Promise<PagamentoFixo> {
+    const r = await this.db.pagamentoFixo.upsert({
+      where: { custoFixoId_cicloId: { custoFixoId, cicloId } },
+      update: { pagoEm },
+      create: { custoFixoId, cicloId, pagoEm },
+    });
+    return toPagamentoFixo(r);
+  }
+
+  async desmarcarPago(custoFixoId: string, cicloId: string): Promise<void> {
+    await this.db.pagamentoFixo.deleteMany({ where: { custoFixoId, cicloId } });
+  }
+}
+
 export class PrismaProvisaoRepository implements ProvisaoRepository {
   constructor(private readonly db: PrismaClient) {}
 
@@ -257,6 +288,14 @@ export class PrismaTransacaoRepository implements TransacaoRepository {
     });
     return r.count;
   }
+
+  async marcarPaga(transacaoId: string, pagoEm: DataCivil | null): Promise<Transacao> {
+    const r = await this.db.transacao.update({
+      where: { id: transacaoId },
+      data: { pagoEm },
+    });
+    return toTransacao(r);
+  }
 }
 
 function dadosTransacao(t: Transacao) {
@@ -275,6 +314,7 @@ function dadosTransacao(t: Transacao) {
     parcelaNum: t.parcelaNum,
     estornoDeId: t.estornoDeId,
     cicloId: t.cicloId,
+    pagoEm: t.pagoEm,
   };
 }
 
