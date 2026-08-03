@@ -14,7 +14,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -31,6 +31,9 @@ model Config {
   destinoSobra         String   @default("RESERVA") // RESERVA | INVESTIMENTO | ROLLOVER
   destinoSobraContaId  String? // bucket específico que recebe a sobra (RESERVA/INVESTIMENTO)
   destinoSobraConta    Conta?   @relation(fields: [destinoSobraContaId], references: [id])
+  // Piso diário configurável (regra 12): abaixo disso, a meta de poupança é
+  // considerada irreal. Aviso de CONFIGURAÇÃO apenas — nunca piso no cálculo do teto.
+  pisoDiarioVerbaCents Int      @default(1500)
   updatedAt            DateTime @updatedAt
 }
 
