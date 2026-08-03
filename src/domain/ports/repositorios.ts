@@ -61,6 +61,8 @@ export interface TransacaoRepository {
 
 export interface ParcelamentoRepository {
   criar(parcelamento: Parcelamento): Promise<Parcelamento>;
+  /** Busca parcelamentos por id (ex.: para enriquecer as parcelas de um ciclo). Ids desconhecidos são omitidos. */
+  listarPorIds(ids: readonly string[]): Promise<Parcelamento[]>;
 }
 
 export interface CicloRepository {
@@ -69,7 +71,15 @@ export interface CicloRepository {
   obterAtual(hoje: DataCivil): Promise<Ciclo | null>;
   ultimoFechado(): Promise<Ciclo | null>;
   ultimosFechados(n: number): Promise<Ciclo[]>;
-  criar(ciclo: Ciclo): Promise<Ciclo>;
+  /**
+   * Cria o ciclo de forma idempotente por `dataInicio` (constraint única no
+   * schema). Sob corrida (dois `garantirCicloAtual` concorrentes tentando
+   * criar o mesmo intervalo), só uma chamada vence a inserção; as demais
+   * detectam a violação de unicidade e devolvem o ciclo do vencedor.
+   * `criado` indica se ESTA chamada foi quem inseriu (para só ela vincular
+   * transações órfãs e evitar duplicar o vínculo).
+   */
+  criarSeAusente(ciclo: Ciclo): Promise<{ ciclo: Ciclo; criado: boolean }>;
   atualizar(id: string, patch: Partial<Ciclo>): Promise<Ciclo>;
   /**
    * Marca o ciclo como fechado SÓ se ainda estiver aberto (transição atômica).

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { provisaoMensalCents, poupancaAlvoCents, verbaVariavelCents } from './verba';
+import {
+  provisaoMensalCents,
+  poupancaAlvoCents,
+  verbaVariavelCents,
+  distribuirProvisaoMensalCents,
+} from './verba';
 
 describe('provisaoMensalCents', () => {
   it('é zero quando não há provisões', () => {
@@ -13,6 +18,32 @@ describe('provisaoMensalCents', () => {
     expect(provisaoMensalCents([10000])).toBe(833);
     // várias provisões somadas
     expect(provisaoMensalCents([120000, 60000, 12000])).toBe(Math.floor(192000 / 12));
+  });
+});
+
+describe('distribuirProvisaoMensalCents (SPEC regra 11 — soma das partes bate com o total)', () => {
+  it('sem provisões devolve lista vazia', () => {
+    expect(distribuirProvisaoMensalCents([])).toEqual([]);
+  });
+
+  it('quando os floors individuais já batem com o floor do total, distribui sem sobra', () => {
+    // floor(120000/12)=10000, floor(60000/12)=5000, soma=15000=floor(180000/12)
+    expect(distribuirProvisaoMensalCents([120000, 60000])).toEqual([10000, 5000]);
+  });
+
+  it('duas provisões de 1100 centavos: soma creditada bate com o total reservado na verba', () => {
+    // floor(1100/12)=91 cada -> soma 182, mas floor(2200/12)=183: falta 1 centavo.
+    const partes = distribuirProvisaoMensalCents([1100, 1100]);
+    expect(partes.reduce((s, v) => s + v, 0)).toBe(provisaoMensalCents([1100, 1100]));
+    expect(partes.reduce((s, v) => s + v, 0)).toBe(183);
+  });
+
+  it('a soma das partes é sempre igual ao total reservado, com N provisões arbitrário', () => {
+    const valores = [1100, 1100, 1100, 250, 999];
+    const partes = distribuirProvisaoMensalCents(valores);
+    expect(partes).toHaveLength(valores.length);
+    expect(partes.reduce((s, v) => s + v, 0)).toBe(provisaoMensalCents(valores));
+    expect(partes.every((v) => Number.isInteger(v))).toBe(true);
   });
 });
 

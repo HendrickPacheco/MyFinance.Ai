@@ -3,7 +3,7 @@
  * Tudo que não é verba variável está comprometido e não pode aparecer como
  * disponível em nenhuma tela.
  */
-import { assertCentavos, somaCents } from '@/shared/dinheiro';
+import { assertCentavos, somaCents, ratearCents } from '@/shared/dinheiro';
 import type { ParametrosVerba } from './tipos';
 
 /**
@@ -13,6 +13,32 @@ import type { ParametrosVerba } from './tipos';
 export function provisaoMensalCents(valoresAnuaisCents: readonly number[]): number {
   const somaAnual = somaCents(valoresAnuaisCents);
   return Math.floor(somaAnual / 12);
+}
+
+/**
+ * Rateia a provisão mensal do CICLO (floor da soma anual — o valor já
+ * reservado na verba, ver `provisaoMensalCents`) entre as provisões
+ * individuais, na mesma ordem recebida.
+ *
+ * A soma das partes creditadas TEM que bater exatamente com o valor
+ * reservado na verba (SPEC regra 11). Somar `floor(valorAnual/12)` provisão a
+ * provisão não garante isso: `floor` aplicado por partes perde até
+ * `partes - 1` centavos frente ao `floor` aplicado no total. Por isso cada
+ * provisão recebe sua base individual (`floor(valorAnual/12)`) e o resíduo
+ * entre essa soma e o total do ciclo é distribuído com `ratearCents` — a
+ * mesma função de rateio usada no resto do sistema, não uma nova.
+ */
+export function distribuirProvisaoMensalCents(valoresAnuaisCents: readonly number[]): number[] {
+  if (valoresAnuaisCents.length === 0) return [];
+
+  const basesIndividuais = valoresAnuaisCents.map((v) =>
+    Math.floor(assertCentavos(v, 'valorAnualCents') / 12),
+  );
+  const totalMensalCiclo = provisaoMensalCents(valoresAnuaisCents);
+  const residuoNaoDistribuido = totalMensalCiclo - somaCents(basesIndividuais);
+  const complementos = ratearCents(residuoNaoDistribuido, valoresAnuaisCents.length);
+
+  return basesIndividuais.map((base, i) => base + (complementos[i] ?? 0));
 }
 
 /**

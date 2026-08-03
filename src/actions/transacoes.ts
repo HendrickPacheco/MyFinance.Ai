@@ -10,6 +10,7 @@ import {
   editarTransacao as ucEditar,
   excluirTransacao as ucExcluir,
   estornarTransacao as ucEstornar,
+  CicloFechadoError,
 } from '@/application/transacoes';
 import type { Transacao } from '@/domain/model/entidades';
 
@@ -30,6 +31,7 @@ const transacaoSchema = z.object({
   contaId: z.string().nullish(),
   contaDestinoId: z.string().nullish(),
   provisaoId: z.string().nullish(),
+  confirmarRetroativo: z.boolean().optional(),
 });
 
 const parcelamentoSchema = z.object({
@@ -41,6 +43,38 @@ const parcelamentoSchema = z.object({
   contaId: z.string().nullish(),
   metodo: METODO.nullish(),
 });
+
+/**
+ * Resultado de operações que podem tocar um ciclo fechado (SPEC regra 9).
+ * Superset estrutural de `Resultado<T>`: a UI que só olha `.ok`/`.erro`
+ * continua funcionando; quem trata retroatividade lê `requerConfirmacao` e
+ * `ciclosAfetados` para pedir confirmação e reenviar com o flag.
+ */
+export type ResultadoRetroativo<T = void> =
+  | { ok: true; data: T }
+  | { ok: false; erro: string; requerConfirmacao?: boolean; ciclosAfetados?: string[] };
+
+/**
+ * Como `executar` (src/actions/resultado.ts), mas reconhece `CicloFechadoError`
+ * por `instanceof` e traduz em pedido de confirmação — nunca deixa a exceção
+ * vazar como erro genérico para a UI (SPEC 8).
+ */
+async function executarComConfirmacao<T>(fn: () => Promise<T>): Promise<ResultadoRetroativo<T>> {
+  try {
+    return { ok: true, data: await fn() };
+  } catch (e) {
+    if (e instanceof CicloFechadoError) {
+      return {
+        ok: false,
+        erro: e.message,
+        requerConfirmacao: true,
+        ciclosAfetados: [...e.ciclosAfetados],
+      };
+    }
+    const erro = e instanceof Error ? e.message : 'Erro inesperado.';
+    return { ok: false, erro };
+  }
+}
 
 function revalidarTudo(): void {
   for (const p of ['/', '/ciclo', '/analise', '/fechar-ciclo']) revalidatePath(p);
@@ -73,8 +107,8 @@ export async function criarParcelamento(
 export async function editarTransacao(
   id: string,
   input: z.input<typeof transacaoSchema>,
-): Promise<Resultado<Transacao>> {
-  return executar(async () => {
+): Promise<ResultadoRetroativo<Transacao>> {
+  return executarComConfirmacao(async () => {
     const dados = transacaoSchema.parse(input);
     const deps = await criarDeps();
     const t = await ucEditar(deps, id, dados);
@@ -83,10 +117,13 @@ export async function editarTransacao(
   });
 }
 
-export async function excluirTransacao(id: string): Promise<Resultado> {
-  return executar(async () => {
+export async function excluirTransacao(
+  id: string,
+  confirmarRetroativo = false,
+): Promise<ResultadoRetroativo> {
+  return executarComConfirmacao(async () => {
     const deps = await criarDeps();
-    await ucExcluir(deps, id);
+    await ucExcluir(deps, id, confirmarRetroativo);
     revalidarTudo();
   });
 }
@@ -95,10 +132,11 @@ export async function estornarTransacao(
   id: string,
   valorCents?: number,
   data?: string,
-): Promise<Resultado<Transacao>> {
-  return executar(async () => {
+  confirmarRetroativo = false,
+): Promise<ResultadoRetroativo<Transacao>> {
+  return executarComConfirmacao(async () => {
     const deps = await criarDeps();
-    const t = await ucEstornar(deps, id, valorCents, data);
+    const t = await ucEstornar(deps, id, valorCents, data, confirmarRetroativo);
     revalidarTudo();
     return t;
   });

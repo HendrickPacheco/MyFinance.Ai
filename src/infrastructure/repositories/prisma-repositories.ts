@@ -4,7 +4,7 @@
  * elas são montadas na composição (src/composition.ts) e injetadas nos
  * casos de uso.
  */
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import type { DataCivil } from '@/shared/data';
 import type {
   Config,
@@ -68,6 +68,7 @@ export class PrismaConfigRepository implements ConfigRepository {
       timezone: config.timezone,
       destinoSobra: config.destinoSobra,
       destinoSobraContaId: config.destinoSobraContaId,
+      pisoDiarioVerbaCents: config.pisoDiarioVerbaCents,
     };
     const r = await this.db.config.upsert({
       where: { id: 1 },
@@ -293,6 +294,12 @@ export class PrismaParcelamentoRepository implements ParcelamentoRepository {
     });
     return toParcelamento(r);
   }
+
+  async listarPorIds(ids: readonly string[]): Promise<Parcelamento[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.parcelamento.findMany({ where: { id: { in: [...ids] } } });
+    return rows.map(toParcelamento);
+  }
 }
 
 export class PrismaCicloRepository implements CicloRepository {
@@ -332,9 +339,23 @@ export class PrismaCicloRepository implements CicloRepository {
     return rows.map(toCiclo);
   }
 
-  async criar(ciclo: Ciclo): Promise<Ciclo> {
-    const r = await this.db.ciclo.create({ data: semIdVazio(dadosCiclo(ciclo)) });
-    return toCiclo(r);
+  async criarSeAusente(ciclo: Ciclo): Promise<{ ciclo: Ciclo; criado: boolean }> {
+    try {
+      const r = await this.db.ciclo.create({ data: semIdVazio(dadosCiclo(ciclo)) });
+      return { ciclo: toCiclo(r), criado: true };
+    } catch (erro) {
+      if (!ehViolacaoDeUnicidade(erro)) throw erro;
+
+      // Perdemos a corrida: outra chamada concorrente já inseriu o ciclo
+      // deste `dataInicio` primeiro. Relemos o vencedor em vez de duplicar.
+      const vencedor = await this.obterPorInicio(ciclo.dataInicio);
+      if (!vencedor) {
+        throw new Error(
+          `violação de unicidade em Ciclo.dataInicio=${ciclo.dataInicio}, mas nenhum ciclo foi encontrado ao reler`,
+        );
+      }
+      return { ciclo: vencedor, criado: false };
+    }
   }
 
   async atualizar(id: string, patch: Partial<Ciclo>): Promise<Ciclo> {
@@ -350,6 +371,11 @@ export class PrismaCicloRepository implements CicloRepository {
     });
     return r.count === 1;
   }
+}
+
+/** Prisma P2002 = violação de constraint única (ex.: Ciclo.dataInicio). */
+function ehViolacaoDeUnicidade(erro: unknown): boolean {
+  return erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2002';
 }
 
 function dadosCiclo(c: Ciclo) {

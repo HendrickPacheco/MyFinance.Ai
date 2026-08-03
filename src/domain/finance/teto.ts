@@ -12,7 +12,7 @@ import type { EntradaTeto, ResultadoTeto, TransacaoCalc } from './tipos';
  *  - NÃO é gasto de provisão (provisaoId vazio — item 3).
  * DESPESA soma; ESTORNO abate; RENDA e TRANSFERENCIA são ignorados (regras 1, 2, 8).
  */
-function contaComoVerbaVariavel(t: TransacaoCalc): boolean {
+export function contaComoVerbaVariavel(t: TransacaoCalc): boolean {
   return t.grupoCategoria === 'VARIAVEL' && t.provisaoId == null;
 }
 

@@ -48,6 +48,7 @@ export function toConfig(r: PConfig): Config {
     timezone: r.timezone,
     destinoSobra: r.destinoSobra as DestinoSobra,
     destinoSobraContaId: r.destinoSobraContaId,
+    pisoDiarioVerbaCents: r.pisoDiarioVerbaCents,
   };
 }
 
