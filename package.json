@@ -5,7 +5,9 @@
   "type": "module",
   "description": "App pessoal de controle financeiro — limitador de gastos por ciclo. Fase 0 + Fase 1 (motor de cálculo).",
   "scripts": {
+    "predev": "prisma generate",
     "dev": "next dev",
+    "prebuild": "prisma generate",
     "build": "next build",
     "start": "next start",
     "test": "vitest run",

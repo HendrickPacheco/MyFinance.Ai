@@ -26,3 +26,6 @@ prisma/*.db
 
 # artefato de build do TypeScript
 tsconfig.tsbuildinfo
+
+# builds isolados de validação (ver next.config.ts / NEXT_DIST_DIR)
+.next-verify/
