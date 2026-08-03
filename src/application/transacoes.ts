@@ -1,12 +1,15 @@
 /**
- * Casos de uso de transações (SPEC 8 e regras 1–5). Regras de negócio críticas:
- * competência na data da compra, TRANSFERENCIA nunca é gasto, estorno abate na
- * data original, parcelamento por competência mensal.
+ * Casos de uso de transações (SPEC 8 e regras 1–5, 9). Regras de negócio
+ * críticas: competência na data da compra, TRANSFERENCIA nunca é gasto,
+ * estorno abate na data original, parcelamento por competência mensal, e
+ * edição retroativa de ciclo fechado exige confirmação explícita e recalcula
+ * a sobra daquele ciclo (SPEC regra 9) — sem isso a corrupção é silenciosa.
  */
 import type { Deps } from './deps';
-import type { Transacao } from '@/domain/model/entidades';
+import type { Ciclo, Transacao } from '@/domain/model/entidades';
 import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
-import { gerarParcelas } from '@/domain/finance';
+import { gerarParcelas, sobraCiclo } from '@/domain/finance';
+import { indexarGrupoCategoria, paraCalculo } from './mapeamento';
 
 export interface TransacaoInput {
   valorCents: number;
@@ -18,6 +21,13 @@ export interface TransacaoInput {
   contaId?: string | null;
   contaDestinoId?: string | null;
   provisaoId?: string | null;
+  /**
+   * Confirmação explícita (SPEC regra 9) exigida quando a operação toca um
+   * ciclo já fechado — seja porque a transação pertence a ele, seja porque a
+   * mudança de data a move para dentro ou para fora dele. Sem este flag a
+   * operação é recusada com `CicloFechadoError`.
+   */
+  confirmarRetroativo?: boolean;
 }
 
 export interface ParcelamentoInput {
@@ -28,6 +38,21 @@ export interface ParcelamentoInput {
   categoriaId?: string | null;
   contaId?: string | null;
   metodo?: MetodoPagamento | null;
+}
+
+/**
+ * Erro tipado e discriminável (SPEC regra 9): sinaliza que a operação foi
+ * recusada por tocar um ciclo fechado sem confirmação. A camada de server
+ * action reconhece este erro por `instanceof` e traduz em pedido de
+ * confirmação para a UI — nunca deixa vazar como exceção genérica.
+ */
+export class CicloFechadoError extends Error {
+  constructor(public readonly ciclosAfetados: readonly string[]) {
+    super(
+      'Esta transação pertence a um ciclo já fechado. Confirme para recalcular a sobra desse ciclo.',
+    );
+    this.name = 'CicloFechadoError';
+  }
 }
 
 /** Efeito de uma transação sobre o saldo dos buckets. sinal +1 aplica, -1 reverte. */
@@ -62,6 +87,66 @@ async function aplicarEfeitoProvisao(deps: Deps, t: Transacao, sinal: 1 | -1): P
 async function resolverCicloId(deps: Deps, data: string): Promise<string | null> {
   const ciclo = await deps.ciclos.obterAtual(data);
   return ciclo?.id ?? null;
+}
+
+/** Ciclos únicos, já fechados, dentre os ids informados (ignora nulos e repetidos). */
+async function ciclosFechadosEntre(
+  deps: Deps,
+  cicloIds: readonly (string | null)[],
+): Promise<Ciclo[]> {
+  const idsUnicos = [...new Set(cicloIds.filter((id): id is string => id != null))];
+  const ciclos = await Promise.all(idsUnicos.map((id) => deps.ciclos.obter(id)));
+  return ciclos.filter((c): c is Ciclo => c != null && c.fechado);
+}
+
+/**
+ * Guarda de retroatividade (SPEC regra 9): se algum dos ciclos envolvidos na
+ * operação (o de origem e/ou o de destino, quando a data muda) já está
+ * fechado, exige `confirmarRetroativo`. Devolve os ciclos fechados
+ * envolvidos, para recálculo de sobra após a operação.
+ */
+async function exigirConfirmacaoSeRetroativo(
+  deps: Deps,
+  cicloIds: readonly (string | null)[],
+  confirmarRetroativo: boolean,
+): Promise<Ciclo[]> {
+  const fechados = await ciclosFechadosEntre(deps, cicloIds);
+  if (fechados.length > 0 && !confirmarRetroativo) {
+    throw new CicloFechadoError(fechados.map((c) => c.id));
+  }
+  return fechados;
+}
+
+/**
+ * Recalcula e persiste `sobraCents` de um ciclo fechado a partir do estado
+ * atual das transações (SPEC regra 9). Reaproveita a mesma fórmula pura do
+ * fechamento (`sobraCiclo`, em `src/domain/finance`) — nunca reimplementa.
+ */
+async function recalcularSobraCicloFechado(deps: Deps, cicloId: string): Promise<void> {
+  const ciclo = await deps.ciclos.obter(cicloId);
+  if (!ciclo) return;
+
+  const [transacoes, categorias] = await Promise.all([
+    deps.transacoes.listarPorCiclo(cicloId),
+    deps.categorias.listar(),
+  ]);
+  const grupos = indexarGrupoCategoria(categorias);
+  const { sobraCents } = sobraCiclo({
+    verbaVariavelCents: ciclo.verbaVariavelCents,
+    dataFimCiclo: ciclo.dataFim,
+    transacoes: paraCalculo(transacoes, grupos),
+  });
+
+  await deps.ciclos.atualizar(cicloId, { sobraCents });
+}
+
+async function recalcularSobraDosCiclosFechados(
+  deps: Deps,
+  ciclosFechados: readonly Ciclo[],
+): Promise<void> {
+  for (const ciclo of ciclosFechados) {
+    await recalcularSobraCicloFechado(deps, ciclo.id);
+  }
 }
 
 export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise<Transacao> {
@@ -138,15 +223,25 @@ export async function editarTransacao(
   const atual = await deps.transacoes.obter(id);
   if (!atual) throw new Error('Transação não encontrada.');
 
-  // Reverte os efeitos antigos (saldo e provisão) antes de reescrever.
-  await aplicarEfeitoSaldo(deps, atual, -1);
-  await aplicarEfeitoProvisao(deps, atual, -1);
-
   // `undefined` = campo não enviado (preserva); `null` = limpar de propósito.
   const manter = <T>(entrada: T | undefined, atualValor: T): T =>
     entrada !== undefined ? entrada : atualValor;
 
   const data = manter(input.data, atual.data);
+  const novoCicloId = await resolverCicloId(deps, data);
+
+  // Guarda (SPEC regra 9): tanto o ciclo de origem quanto o de destino (se a
+  // data mudar de ciclo) entram na checagem de retroatividade.
+  const ciclosFechados = await exigirConfirmacaoSeRetroativo(
+    deps,
+    [atual.cicloId, novoCicloId],
+    input.confirmarRetroativo ?? false,
+  );
+
+  // Reverte os efeitos antigos (saldo e provisão) antes de reescrever.
+  await aplicarEfeitoSaldo(deps, atual, -1);
+  await aplicarEfeitoProvisao(deps, atual, -1);
+
   const patch: Partial<Transacao> = {
     data,
     valorCents: input.valorCents,
@@ -157,38 +252,62 @@ export async function editarTransacao(
     contaId: manter(input.contaId, atual.contaId),
     contaDestinoId: manter(input.contaDestinoId, atual.contaDestinoId),
     provisaoId: manter(input.provisaoId, atual.provisaoId),
-    cicloId: await resolverCicloId(deps, data),
+    cicloId: novoCicloId,
   };
 
   const novo = await deps.transacoes.atualizar(id, patch);
   await aplicarEfeitoSaldo(deps, novo, +1);
   await aplicarEfeitoProvisao(deps, novo, +1);
+
+  await recalcularSobraDosCiclosFechados(deps, ciclosFechados);
   return novo;
 }
 
-export async function excluirTransacao(deps: Deps, id: string): Promise<void> {
+export async function excluirTransacao(
+  deps: Deps,
+  id: string,
+  confirmarRetroativo = false,
+): Promise<void> {
   const atual = await deps.transacoes.obter(id);
-  if (atual) {
-    await aplicarEfeitoSaldo(deps, atual, -1);
-    await aplicarEfeitoProvisao(deps, atual, -1);
-  }
+  if (!atual) return;
+
+  const ciclosFechados = await exigirConfirmacaoSeRetroativo(
+    deps,
+    [atual.cicloId],
+    confirmarRetroativo,
+  );
+
+  await aplicarEfeitoSaldo(deps, atual, -1);
+  await aplicarEfeitoProvisao(deps, atual, -1);
   await deps.transacoes.excluir(id);
+
+  await recalcularSobraDosCiclosFechados(deps, ciclosFechados);
 }
 
 /**
  * Estorno (regra 5): abate na data da transação original quando ela existe.
- * Cria uma transação ESTORNO ligada à original.
+ * Cria uma transação ESTORNO ligada à original. Regra 9: se a transação
+ * original pertence a um ciclo fechado, ou se o estorno cai (por data) dentro
+ * de um ciclo fechado, exige confirmação e recalcula a sobra de cada um.
  */
 export async function estornarTransacao(
   deps: Deps,
   id: string,
   valorCents?: number,
   data?: string,
+  confirmarRetroativo = false,
 ): Promise<Transacao> {
   const original = await deps.transacoes.obter(id);
 
   const valor = valorCents ?? original?.valorCents ?? 0;
   const dataEstorno = data ?? original?.data ?? deps.relogio.hoje();
+  const cicloDestinoId = await resolverCicloId(deps, dataEstorno);
+
+  const ciclosFechados = await exigirConfirmacaoSeRetroativo(
+    deps,
+    [original?.cicloId ?? null, cicloDestinoId],
+    confirmarRetroativo,
+  );
 
   const estorno = await deps.transacoes.criar({
     id: '',
@@ -204,7 +323,7 @@ export async function estornarTransacao(
     parcelamentoId: null,
     parcelaNum: null,
     estornoDeId: id,
-    cicloId: await resolverCicloId(deps, dataEstorno),
+    cicloId: cicloDestinoId,
   });
 
   await aplicarEfeitoSaldo(deps, estorno, +1);
@@ -213,5 +332,7 @@ export async function estornarTransacao(
   if (original?.provisaoId && original.tipo === 'DESPESA') {
     await deps.provisoes.ajustarAcumulado(original.provisaoId, +valor);
   }
+
+  await recalcularSobraDosCiclosFechados(deps, ciclosFechados);
   return estorno;
 }

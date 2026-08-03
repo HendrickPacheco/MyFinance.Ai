@@ -5,13 +5,34 @@
  */
 import type { Deps } from './deps';
 import type { Ciclo } from '@/domain/model/entidades';
-import { addDias } from '@/shared/data';
+import type { DestinoSobra } from '@/domain/model/enums';
+import { addDias, type DataCivil } from '@/shared/data';
 import {
   limitesCiclo,
   provisaoMensalCents,
   poupancaAlvoCents,
   verbaVariavelCents,
 } from '@/domain/finance';
+
+/**
+ * A sobra de um ciclo fechado só pode ser creditada UMA vez (regra 10 — o
+ * usuário pode pular o fechamento de um ciclo; se isso acontecer, o ciclo
+ * seguinte já nasceu SEM herdar aquela sobra, e um ciclo mais à frente não
+ * pode herdá-la de novo). Só credita quando o ciclo fechado termina
+ * exatamente na véspera do ciclo que está nascendo — ou seja, quando ele é
+ * o antecessor DIRETO, não um fechamento antigo que já foi pulado.
+ */
+function rolloverACreditar(
+  cicloFechadoAnterior: Ciclo | null,
+  destinoSobra: DestinoSobra,
+  inicioNovoCiclo: DataCivil,
+): number {
+  if (destinoSobra !== 'ROLLOVER' || cicloFechadoAnterior?.sobraCents == null) {
+    return 0;
+  }
+  const antecedeDiretamente = addDias(cicloFechadoAnterior.dataFim, 1) === inicioNovoCiclo;
+  return antecedeDiretamente ? cicloFechadoAnterior.sobraCents : 0;
+}
 
 export class ConfigAusenteError extends Error {
   constructor() {
@@ -63,10 +84,7 @@ export async function garantirCicloAtual(
       ciclo = existente;
     } else {
       const anterior = await deps.ciclos.ultimoFechado();
-      const rollover =
-        config.destinoSobra === 'ROLLOVER' && anterior?.sobraCents != null
-          ? anterior.sobraCents
-          : 0;
+      const rollover = rolloverACreditar(anterior, config.destinoSobra, inicio);
 
       const rendaPrevistaCents = config.rendaBaseCents;
       const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
@@ -82,7 +100,12 @@ export async function garantirCicloAtual(
         rolloverRecebidoCents: rollover,
       });
 
-      ciclo = await deps.ciclos.criar({
+      // `criarSeAusente` é a barreira de atomicidade real: se outra chamada
+      // concorrente também passou pelo `obterPorInicio` acima antes de
+      // qualquer uma inserir (corrida clássica de "duplo render"), a
+      // constraint única de `Ciclo.dataInicio` garante que só uma insere —
+      // as demais recebem de volta o ciclo do vencedor em vez de duplicá-lo.
+      const resultado = await deps.ciclos.criarSeAusente({
         id: '',
         dataInicio: inicio,
         dataFim: fim,
@@ -98,9 +121,14 @@ export async function garantirCicloAtual(
         sobraCents: null,
         observacao: null,
       });
+      ciclo = resultado.ciclo;
 
-      // Puxa parcelas/lançamentos futuros que caíram neste intervalo.
-      await deps.transacoes.vincularCicloPorData(ciclo.id, inicio, fim);
+      // Só quem efetivamente inseriu vincula as parcelas/lançamentos órfãos
+      // — evita rodar o vínculo mais de uma vez para o mesmo ciclo quando
+      // várias chamadas concorrentes disputaram a criação.
+      if (resultado.criado) {
+        await deps.transacoes.vincularCicloPorData(ciclo.id, inicio, fim);
+      }
     }
   }
 

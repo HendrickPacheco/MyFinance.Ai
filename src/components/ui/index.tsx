@@ -138,6 +138,129 @@ export function Badge({
   );
 }
 
+/* ---------------------------------------------------------- ConfirmInline */
+export interface ConfirmInlineProps {
+  /** Frase curta e factual descrevendo a ação (SPEC 11 — nunca julgadora). */
+  titulo: string;
+  /** Detalhe opcional (ex.: o que muda, quais ciclos são afetados). */
+  descricao?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  /** `negativo` para ações destrutivas (excluir); `neutral` para as demais. */
+  tone?: 'neutral' | 'negativo';
+  onConfirm: () => void;
+  onCancel: () => void;
+  /** Desabilita os botões enquanto uma ação assíncrona está em voo. */
+  pendente?: boolean;
+  className?: string;
+}
+
+/**
+ * Confirmação inline (substitui `window.confirm`): some no fluxo da tela em
+ * vez de abrir um diálogo nativo do navegador. Enter confirma, Esc cancela,
+ * Tab fica contido entre os dois botões enquanto está aberta, e o foco volta
+ * para o elemento que a abriu quando ela desmonta.
+ */
+export function ConfirmInline({
+  titulo,
+  descricao,
+  confirmLabel = 'Confirmar',
+  cancelLabel = 'Cancelar',
+  tone = 'neutral',
+  onConfirm,
+  onCancel,
+  pendente = false,
+  className,
+}: ConfirmInlineProps) {
+  const cancelRef = React.useRef<HTMLButtonElement>(null);
+  const confirmRef = React.useRef<HTMLButtonElement>(null);
+  const descId = React.useId();
+
+  React.useEffect(() => {
+    const gatilho = document.activeElement as HTMLElement | null;
+    cancelRef.current?.focus();
+    return () => {
+      gatilho?.focus?.();
+    };
+  }, []);
+
+  const handleKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCancel();
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onConfirm();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const foco = [cancelRef.current, confirmRef.current].filter(
+          (el): el is HTMLButtonElement => el !== null,
+        );
+        if (foco.length === 0) return;
+        const primeiro = foco[0];
+        const ultimo = foco[foco.length - 1];
+        if (!primeiro || !ultimo) return;
+        if (e.shiftKey && document.activeElement === primeiro) {
+          e.preventDefault();
+          ultimo.focus();
+        } else if (!e.shiftKey && document.activeElement === ultimo) {
+          e.preventDefault();
+          primeiro.focus();
+        }
+      }
+    },
+    [onConfirm, onCancel],
+  );
+
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={titulo}
+      aria-describedby={descricao ? descId : undefined}
+      onKeyDown={handleKeyDown}
+      className={cn(
+        'rounded-xl border p-3',
+        tone === 'negativo' ? 'border-negativo/40 bg-negativo/10' : 'border-border-strong bg-surface-2',
+        className,
+      )}
+    >
+      <p className="text-sm text-fg">{titulo}</p>
+      {descricao ? (
+        <p id={descId} className="mt-1 text-xs text-muted">
+          {descricao}
+        </p>
+      ) : null}
+      <div className="mt-3 flex justify-end gap-2">
+        <Button
+          ref={cancelRef}
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={pendente}
+          onClick={onCancel}
+        >
+          {cancelLabel}
+        </Button>
+        <Button
+          ref={confirmRef}
+          type="button"
+          variant={tone === 'negativo' ? 'danger' : 'primary'}
+          size="sm"
+          disabled={pendente}
+          onClick={onConfirm}
+        >
+          {confirmLabel}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- EmptyState */
 export function EmptyState({
   titulo,
