@@ -25,6 +25,8 @@ export interface Config {
   timezone: string;
   destinoSobra: DestinoSobra;
   destinoSobraContaId: string | null;
+  /** Piso diário configurável (regra 12) — abaixo disso, a meta de poupança é irreal. */
+  pisoDiarioVerbaCents: number;
 }
 
 export interface Conta {

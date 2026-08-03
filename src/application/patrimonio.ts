@@ -25,7 +25,8 @@ export interface EstadoPatrimonio {
   totalAtualCents: number;
   variacaoMensalCents: number;
   taxaAcumulacaoMediaCents: number;
-  mesesDeReserva: number;
+  /** `null` quando ainda não há histórico de ciclos fechados para conhecer o custo mensal médio. */
+  mesesDeReserva: number | null;
   temDados: boolean;
 }
 
@@ -53,28 +54,35 @@ export async function obterPatrimonio(deps: Deps): Promise<EstadoPatrimonio> {
   };
 }
 
-/** Custo mensal médio: fixos + provisão mensal + média da variável (3 ciclos). */
-export async function custoMensalMedio(deps: Deps): Promise<number> {
+/**
+ * Custo mensal médio: fixos + provisão mensal + média da variável dos
+ * últimos 3 ciclos FECHADOS. `null` quando ainda não há nenhum ciclo
+ * fechado — sem esse histórico o custo variável é desconhecido, não zero,
+ * e reportar um número aqui alimentaria `mesesDeReserva` com um divisor
+ * fabricado (SPEC 13).
+ */
+export async function custoMensalMedio(deps: Deps): Promise<number | null> {
   const [custos, provisoes, ciclos, categorias] = await Promise.all([
     deps.custosFixos.listarAtivos(),
     deps.provisoes.listarAtivas(),
     deps.ciclos.ultimosFechados(3),
     deps.categorias.listar(),
   ]);
+
+  if (ciclos.length === 0) return null;
+
   const fixos = custos.reduce((s, c) => s + c.valorCents, 0);
   const provisao = provisaoMensalCents(provisoes.map((p) => p.valorAnualCents));
 
   const grupos = indexarGrupoCategoria(categorias);
-  let mediaVariavel = 0;
-  if (ciclos.length > 0) {
-    const gastos = await Promise.all(
-      ciclos.map(async (c) => {
-        const txs = await deps.transacoes.listarPorCiclo(c.id);
-        return gastoRealizadoCents(paraCalculo(txs, grupos), c.dataFim);
-      }),
-    );
-    mediaVariavel = Math.round(gastos.reduce((a, b) => a + b, 0) / ciclos.length);
-  }
+  const gastos = await Promise.all(
+    ciclos.map(async (c) => {
+      const txs = await deps.transacoes.listarPorCiclo(c.id);
+      return gastoRealizadoCents(paraCalculo(txs, grupos), c.dataFim);
+    }),
+  );
+  const mediaVariavel = Math.round(gastos.reduce((a, b) => a + b, 0) / ciclos.length);
+
   return fixos + provisao + mediaVariavel;
 }
 

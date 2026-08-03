@@ -33,10 +33,10 @@ O app precisa sobreviver ao segundo mês de uso. Isso impõe três orçamentos d
 |---|---|---|
 | Framework | Next.js 15+ (App Router) | Server Components por padrão; Client Components só onde há interação |
 | Linguagem | TypeScript strict | `strict: true`, sem `any` |
-| Banco | SQLite via Prisma | Arquivo local `./data/app.db`; sem serviço externo |
+| Banco | PostgreSQL via Prisma | Instância local (Homebrew), database `financial_dev`; sem serviço externo. *Era SQLite em arquivo até 03/08/2026 — trocado porque o arquivo `.db` é frágil e o SQLite não impunha as foreign keys, escondendo referências órfãs.* |
 | Estilo | Tailwind CSS v4 | |
 | Componentes | shadcn/ui | Base, mas não deixe com cara de template — ver seção 11 |
-| Gráficos | Recharts | Só onde gráfico agrega; a tela principal não tem gráfico |
+| Gráficos | Recharts | Só onde gráfico agrega. No mobile a tela principal não tem gráfico; no desktop a home é um painel — ver seção 7.1 |
 | Datas | date-fns | Ver regra crítica de datas na seção 5.1 |
 | Validação | Zod | Schemas compartilhados entre form e server action |
 | Mutações | Server Actions | Sem API routes, exceto export/import |
@@ -350,9 +350,25 @@ mesesDeReserva       = saldoContasReserva / custoMensalMedio(fixos + provisão +
 /config/backup       Backup        — export/import JSON
 ```
 
-### 7.1 `/` — Hoje (a tela que decide se o app é usado)
+### 7.1 `/` — home responsiva: painel no desktop, Hoje no mobile
 
-Hierarquia visual, do mais para o menos importante:
+**Revisão de 03/08/2026.** O uso real do dono do app é no **desktop**, substituindo uma
+planilha mensal. A home passou a ser responsiva:
+
+- **≥ 1024px — painel de administração.** Navegação lateral persistente e, na home,
+  a visão do mês inteira: faixa de KPIs (posso gastar hoje · ainda posso gastar no mês ·
+  já gastei · total de gastos · custo fixo · meta de economia · saldo disponível),
+  gastos por categoria, saídas por método de pagamento, custos fixos, parcelamentos,
+  patrimônio e poupança do mês. **Gráfico é permitido aqui** — a proibição da seção 13
+  vale para a tela de celular, onde o número herói tem que dominar sozinho.
+- **< 1024px — a tela Hoje original**, exatamente como especificado abaixo. Sem gráfico,
+  sem lista de fixos, sem patrimônio. É o caso "30 segundos na fila do caixa".
+
+Rótulos que enganam são bug, não detalhe: "sobra projetada" sozinha levou o usuário a
+achar que sua poupança do mês era R$ 7.116 quando era R$ 25.116 (meta reservada +
+sobra da verba). Todo número do painel diz de qual bolso ele fala.
+
+Hierarquia visual da tela Hoje (mobile), do mais para o menos importante:
 
 1. **`restaHojeCents`** — o número herói. Legível em 2 segundos, à distância, sem foco. Um único número dominando a tela.
 2. Contexto de uma linha: `teto de hoje R$ X · gasto hoje R$ Y`.
@@ -449,7 +465,11 @@ O app é usado **todo dia, no celular, em 30 segundos, muitas vezes na fila do c
 
 Requisitos concretos:
 
-- **Mobile-first de verdade.** Desktop é o caso secundário. Alvos de toque ≥ 44px. O teclado numérico não pode exigir precisão.
+- **Dois casos de uso, um app** (revisado em 03/08/2026). O **desktop é o caso primário**:
+  é onde o dono do app substitui a planilha e olha o mês inteiro. O **mobile continua
+  sendo o caso de lançamento**: alvos de toque ≥ 44px, teclado numérico sem exigir
+  precisão, 3 toques para registrar um gasto. Nenhum dos dois é "a versão degradada"
+  do outro — a home decide o layout pelo breakpoint, não por adaptação automática.
 - **Números em tabular figures** (`font-variant-numeric: tabular-nums`) em toda tela com valores. Sem isso, os dígitos dançam e a leitura fica lenta.
 - **Hierarquia brutal na tela Hoje.** Um número domina; todo o resto é secundário e visualmente mais quieto.
 - **Sem gamificação.** Nada de streak, badge, confete, mensagem motivacional, emoji de parabéns. O reforço vem da curva de patrimônio subindo, que é real. Gamificação num app de dinheiro envelhece em uma semana e vira ruído.
@@ -490,5 +510,11 @@ O app está pronto quando, em uso real:
 - Não use `localStorage` como fonte de verdade (só para preferências de UI).
 - Não adicione autenticação, multiusuário ou integração bancária na v1.
 - Não bloqueie o lançamento de gasto por pendência de fechamento de ciclo.
-- Não adicione gráfico na tela Hoje.
+- Não adicione gráfico na tela Hoje **do mobile** (< 1024px). No painel desktop o gráfico
+  é bem-vindo — ver seção 7.1.
+- Não rotule um número sem dizer de qual bolso ele vem. "Sobra" sozinha é ambígua: existe
+  sobra da verba variável e existe poupança do mês, e confundi-las apresenta como
+  conquistado dinheiro que ainda pode ser gasto.
+- Não fabrique número quando falta o insumo: divisor ausente vira estado vazio explicando
+  o que falta, nunca `0.0` — que lê como um fato falso.
 - Não gere dados fake/mock nas telas: se não há dado, mostre estado vazio com ação.

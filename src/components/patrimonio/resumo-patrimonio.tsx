@@ -10,33 +10,29 @@ export function ResumoPatrimonio({
   totalAtualCents,
   variacaoMensalCents,
   taxaAcumulacaoMediaCents,
-  temDados,
 }: {
-  mesesDeReserva: number;
+  /** `null` quando ainda não há histórico de ciclo fechado para conhecer o custo mensal. */
+  mesesDeReserva: number | null;
   totalAtualCents: number;
   variacaoMensalCents: number;
   taxaAcumulacaoMediaCents: number;
   temDados: boolean;
 }) {
-  // `mesesDeReserva` volta 0 tanto quando não há custo mensal conhecido
-  // quanto quando a reserva está genuinamente zerada — sem essa distinção
-  // exposta pelo caso de uso, avisamos em vez de afirmar "0 meses".
-  const semDadoConfiavel = temDados && mesesDeReserva === 0;
-
   return (
     <section aria-label="Meses de reserva" className="pt-4 text-center">
       <p className="text-sm uppercase tracking-widest text-muted">Reserva de segurança</p>
-      {semDadoConfiavel ? (
-        <p className="mt-3 text-2xl font-semibold text-muted">Dados insuficientes</p>
-      ) : (
+      {mesesDeReserva !== null ? (
         <p className="tnum mt-2 text-6xl font-bold leading-none tracking-tight text-fg sm:text-7xl">
           {mesesDeReserva.toFixed(1)}
           <span className="ml-2 text-2xl font-medium text-muted">meses de reserva</span>
         </p>
+      ) : (
+        <p className="mt-3 text-2xl font-semibold text-muted">Ainda não calculável</p>
       )}
-      {semDadoConfiavel ? (
+      {mesesDeReserva === null ? (
         <p className="mt-2 text-sm text-muted">
-          Confira se há saldo em contas de reserva e custos fixos/provisões cadastrados.
+          Feche o primeiro ciclo para o app aprender seu custo mensal e calcular quantos meses a
+          reserva sustenta.
         </p>
       ) : null}
 

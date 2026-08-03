@@ -11,7 +11,20 @@ import type {
   CustoFixo,
   ProvisaoAnual,
 } from '@/domain/model/entidades';
+import {
+  limitesCiclo,
+  diasTotaisCiclo,
+  poupancaAlvoCents,
+  verbaVariavelCents,
+  verificarMetaIrreal,
+  sugerirRendaPrevistaCents,
+  sugerirMetaPoupancaCents,
+  type VerificacaoMetaIrreal,
+} from '@/domain/finance';
 import { recalcularCicloAtualSeVazio } from './ciclos';
+
+/** Nº de ciclos fechados consultados para as sugestões da regra 6 (renda variável). */
+const JANELA_CICLOS_SUGESTAO_RENDA = 6;
 
 export interface EstadoConfig {
   config: Config;
@@ -21,15 +34,22 @@ export interface EstadoConfig {
   categorias: Categoria[];
   fixosTotalCents: number;
   provisaoMensalCents: number;
+  /** Regra 6: menor renda realizada nos últimos ciclos fechados; `null` sem histórico suficiente. */
+  sugestaoRendaVariavelCents: number | null;
+  /** Regra 12: meta de poupança comprovadamente sustentável; `null` sem evidência dupla de folga. */
+  sugestaoMetaPoupancaCents: number | null;
+  /** Regra 12: se a verba diária prevista para o próximo ciclo fica abaixo do piso configurado. */
+  avisoMetaIrreal: VerificacaoMetaIrreal;
 }
 
 export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
-  const [config, contas, custosFixos, provisoes, categorias] = await Promise.all([
+  const [config, contas, custosFixos, provisoes, categorias, ultimosFechados] = await Promise.all([
     deps.config.obter(),
     deps.contas.listar({ incluirArquivadas: true }),
     deps.custosFixos.listarAtivos(),
     deps.provisoes.listarAtivas(),
     deps.categorias.listar(),
+    deps.ciclos.ultimosFechados(JANELA_CICLOS_SUGESTAO_RENDA),
   ]);
   if (!config) throw new Error('Configuração não encontrada.');
 
@@ -38,7 +58,49 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
     provisoes.reduce((s, p) => s + p.valorAnualCents, 0) / 12,
   );
 
-  return { config, contas, custosFixos, provisoes, categorias, fixosTotalCents, provisaoMensalCents };
+  const poupancaPrevistaCents = poupancaAlvoCents({
+    rendaPrevistaCents: config.rendaBaseCents,
+    metaPoupancaCents: config.metaPoupancaCents,
+    metaPoupancaPercent: config.metaPoupancaPercent,
+  });
+  const verbaPrevistaCents = verbaVariavelCents({
+    rendaPrevistaCents: config.rendaBaseCents,
+    poupancaAlvoCents: poupancaPrevistaCents,
+    fixosCents: fixosTotalCents,
+    provisaoMensalCents,
+  });
+  const diasCicloPrevisto = diasTotaisCiclo(limitesCiclo(deps.relogio.hoje(), config.diaRecebimento));
+
+  const avisoMetaIrreal = verificarMetaIrreal({
+    verbaVariavelCents: verbaPrevistaCents,
+    diasCiclo: diasCicloPrevisto,
+    pisoDiarioCents: config.pisoDiarioVerbaCents,
+  });
+
+  const rendasRealizadasCents = ultimosFechados
+    .map((c) => c.rendaRealizadaCents)
+    .filter((v): v is number => v != null);
+  const sugestaoRendaVariavelCents = sugerirRendaPrevistaCents(rendasRealizadasCents);
+
+  const sugestaoMetaPoupancaCents = sugerirMetaPoupancaCents(
+    ultimosFechados.map((c) => ({
+      poupancaAlvoCents: c.poupancaAlvoCents,
+      sobraCents: c.sobraCents,
+    })),
+  );
+
+  return {
+    config,
+    contas,
+    custosFixos,
+    provisoes,
+    categorias,
+    fixosTotalCents,
+    provisaoMensalCents,
+    sugestaoRendaVariavelCents,
+    sugestaoMetaPoupancaCents,
+    avisoMetaIrreal,
+  };
 }
 
 export type ConfigInput = Omit<Config, 'id'>;

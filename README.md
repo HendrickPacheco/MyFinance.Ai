@@ -20,7 +20,7 @@ nada de preto+verde-ácido, nada de layout tipo jornal.)
 
 ## Stack
 
-Next.js 15 (App Router) · React 19 · TypeScript strict · SQLite via Prisma · Tailwind CSS v4 ·
+Next.js 15 (App Router) · React 19 · TypeScript strict · PostgreSQL via Prisma · Tailwind CSS v4 ·
 Recharts · date-fns · Zod · Vitest. Sem autenticação, multiusuário, multimoeda ou
 integração bancária (fora de escopo v1).
 
@@ -46,9 +46,16 @@ composição (`src/composition.ts`) é o único lugar que conhece a infraestrutu
 
 ## Rodando
 
+Requer um PostgreSQL local rodando:
+
 ```bash
+brew install postgresql@16
+brew services start postgresql@16
+createdb financial_dev
+
+cp .env.example .env  # ajuste o usuário na DATABASE_URL se necessário
 pnpm install
-pnpm db:migrate      # cria ./data/app.db
+pnpm db:migrate      # aplica as migrações no financial_dev
 pnpm db:seed         # Config, buckets e categorias BR
 pnpm dev             # http://localhost:3000
 ```
@@ -65,9 +72,11 @@ pnpm typecheck   # tsc --noEmit, zero any
 
 ## Dados e backup
 
-Tudo fica em `./data/app.db` (local, git-ignored). Em **Ajustes → Backup** você exporta o
-estado completo em JSON e restaura quando precisar — a única garantia contra perda de dados
-num app local. Antes de importar, o app faz uma cópia do banco atual.
+Os dados vivem num PostgreSQL local (database `financial_dev`). Em **Ajustes → Backup** você
+exporta o estado completo em JSON e restaura quando precisar — a única garantia contra perda
+de dados num app local. Antes de sobrescrever, o import grava uma salvaguarda do estado atual
+em `./data/app.backup-<carimbo>.json` (git-ignored); se essa gravação falhar, o import aborta
+sem escrever nada.
 
 Para versionar remotamente (opcional), crie um repositório vazio e:
 

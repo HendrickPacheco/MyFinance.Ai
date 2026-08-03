@@ -17,7 +17,7 @@ export function Nav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-bg/90 backdrop-blur">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-bg/90 backdrop-blur lg:hidden">
       <div className="mx-auto flex w-full max-w-2xl items-stretch justify-between px-2 py-2">
         {ITENS.map((item) => {
           const ativo = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);

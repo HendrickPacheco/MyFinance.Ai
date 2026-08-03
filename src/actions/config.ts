@@ -24,6 +24,7 @@ const configSchema = z.object({
   timezone: z.string().default('America/Bahia'),
   destinoSobra: z.enum(['RESERVA', 'INVESTIMENTO', 'ROLLOVER']),
   destinoSobraContaId: z.string().nullish(),
+  pisoDiarioVerbaCents: z.number().int().positive().default(1500),
 });
 
 export async function atualizarConfig(
@@ -42,6 +43,7 @@ export async function atualizarConfig(
       timezone: d.timezone,
       destinoSobra: d.destinoSobra,
       destinoSobraContaId: d.destinoSobraContaId ?? null,
+      pisoDiarioVerbaCents: d.pisoDiarioVerbaCents,
     });
     revalidatePath('/config');
     revalidatePath('/');

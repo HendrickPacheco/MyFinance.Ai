@@ -17,7 +17,7 @@ export default async function PatrimonioPage() {
   const hojeISO = deps.relogio.hoje();
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto w-full space-y-8 lg:max-w-4xl">
       <ResumoPatrimonio
         mesesDeReserva={estado.mesesDeReserva}
         totalAtualCents={estado.totalAtualCents}

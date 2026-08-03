@@ -2,12 +2,26 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, Select } from '@/components/ui';
 import { formatBRL, parseBRL } from '@/shared/dinheiro';
 import { atualizarConfig } from '@/actions/config';
 import type { Config, Conta } from '@/domain/model/entidades';
+import type { VerificacaoMetaIrreal } from '@/domain/finance';
 
-export function ConfigGeral({ config, contas }: { config: Config; contas: Conta[] }) {
+export function ConfigGeral({
+  config,
+  contas,
+  avisoMetaIrreal,
+  sugestaoRendaVariavelCents,
+  sugestaoMetaPoupancaCents,
+}: {
+  config: Config;
+  contas: Conta[];
+  avisoMetaIrreal: VerificacaoMetaIrreal;
+  sugestaoRendaVariavelCents: number | null;
+  sugestaoMetaPoupancaCents: number | null;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -22,6 +36,7 @@ export function ConfigGeral({ config, contas }: { config: Config; contas: Conta[
   const [destino, setDestino] = useState(config.destinoSobra);
   const [destinoContaId, setDestinoContaId] = useState(config.destinoSobraContaId ?? '');
   const [timezone, setTimezone] = useState(config.timezone);
+  const [pisoDiario, setPisoDiario] = useState(formatBRL(config.pisoDiarioVerbaCents));
 
   const bucketsDestino = contas.filter((c) => c.tipo === 'RESERVA' || c.tipo === 'INVESTIMENTO');
 
@@ -40,6 +55,7 @@ export function ConfigGeral({ config, contas }: { config: Config; contas: Conta[
           timezone,
           destinoSobra: destino,
           destinoSobraContaId: destino === 'ROLLOVER' ? null : destinoContaId || null,
+          pisoDiarioVerbaCents: parseBRL(pisoDiario),
         };
         const r = await atualizarConfig(input);
         if (r.ok) {
@@ -80,6 +96,37 @@ export function ConfigGeral({ config, contas }: { config: Config; contas: Conta[
           />
           Minha renda varia mês a mês
         </label>
+
+        {rendaVariavel ? (
+          <div className="rounded-xl border border-border-strong bg-surface-2 p-3 text-sm">
+            {sugestaoRendaVariavelCents != null ? (
+              <>
+                <p className="text-muted">
+                  Nos últimos ciclos fechados, a <strong>menor</strong> renda recebida foi{' '}
+                  <span className="tnum font-medium text-fg">
+                    {formatBRL(sugestaoRendaVariavelCents)}
+                  </span>
+                  . Planejar pelo mês bom é o que costuma faltar dinheiro no mês ruim — considere
+                  usar esse valor como renda prevista.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  onClick={() => setRenda(formatBRL(sugestaoRendaVariavelCents))}
+                >
+                  Usar {formatBRL(sugestaoRendaVariavelCents)}
+                </Button>
+              </>
+            ) : (
+              <p className="text-muted">
+                Ainda não há ciclos fechados suficientes (mínimo 2) para sugerir uma renda prevista.
+                A sugestão aparece aqui assim que houver histórico.
+              </p>
+            )}
+          </div>
+        ) : null}
 
         <div>
           <Label htmlFor="dia">Dia em que recebo (corte do ciclo)</Label>
@@ -129,6 +176,68 @@ export function ConfigGeral({ config, contas }: { config: Config; contas: Conta[
             />
           )}
         </div>
+
+        <div>
+          <Label htmlFor="piso">Piso diário mínimo da verba variável</Label>
+          <Input
+            id="piso"
+            inputMode="decimal"
+            value={pisoDiario}
+            onChange={(e) => setPisoDiario(e.target.value)}
+            onFocus={(e) => e.target.select()}
+          />
+          <p className="mt-1 text-xs text-faint">
+            Se a verba do dia ficar abaixo disso, avisamos aqui que a meta está ambiciosa demais.
+          </p>
+        </div>
+
+        {avisoMetaIrreal.irreal ? (
+          <div className="rounded-[var(--radius-card)] border border-atencao/40 bg-atencao/5 p-4 text-sm">
+            <div className="flex items-center gap-2 text-atencao">
+              <AlertTriangle size={16} />
+              <p className="font-medium">Meta de poupança ambiciosa demais</p>
+            </div>
+            <p className="mt-2 text-muted">
+              Com os parâmetros atuais, a verba do próximo ciclo fica em{' '}
+              <span className="tnum font-medium text-fg">
+                {formatBRL(avisoMetaIrreal.verbaDiariaCents)}
+              </span>{' '}
+              por dia — abaixo do piso de{' '}
+              <span className="tnum font-medium text-fg">
+                {formatBRL(avisoMetaIrreal.pisoDiarioCents)}
+              </span>
+              . Isso gera um teto irreal, que tende a furar e frustrar até o app ser abandonado.
+            </p>
+            {sugestaoMetaPoupancaCents != null ? (
+              <>
+                <p className="mt-2 text-muted">
+                  Nos últimos 2 ciclos fechados você bateu a meta de poupança com folga usando{' '}
+                  <span className="tnum font-medium text-fg">
+                    {formatBRL(sugestaoMetaPoupancaCents)}
+                  </span>
+                  .
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  onClick={() => {
+                    setUsarPercent(false);
+                    setMetaValor(formatBRL(sugestaoMetaPoupancaCents));
+                  }}
+                >
+                  Usar {formatBRL(sugestaoMetaPoupancaCents)}
+                </Button>
+              </>
+            ) : (
+              <p className="mt-2 text-muted">
+                Ainda não há 2 ciclos fechados com folga suficiente para sugerir um valor
+                alternativo.
+              </p>
+            )}
+          </div>
+        ) : null}
 
         <div>
           <Label htmlFor="destino">Para onde vai a sobra no fechamento</Label>
