@@ -20,8 +20,14 @@ antes de mudanças estruturais.
 ### Armadilha recorrente desta sessão
 
 Mudou `prisma/schema.prisma`, `.env` ou rodou migração? **O dev server precisa ser
-reiniciado** — o Prisma Client fica em memória e continua servindo o schema antigo. Dois
-"bugs" já foram só isso. Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
+reiniciado** — o Prisma Client fica em memória e continua servindo o schema antigo. Três
+"bugs" já foram só isso (`pisoDiarioVerbaCents` undefined, 500 na home após a migração
+para Postgres, `pagamentoFixo` undefined). Sintoma típico: `Cannot read properties of
+undefined (reading 'findMany')` num repositório novo, ou campo novo chegando `undefined`.
+
+`predev`/`prebuild` já rodam `prisma generate`, então subir o server sempre pega o client
+fresco — mas **um server que já estava rodando quando o schema mudou continua velho**.
+Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
 
 ## Regras invioláveis (SPEC seção 13 — "Não faça")
 
