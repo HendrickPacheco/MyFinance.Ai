@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export default function BackupPage() {
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full space-y-6 lg:max-w-3xl">
       <Link href="/config" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-fg">
         <ArrowLeft size={16} /> Configuração
       </Link>

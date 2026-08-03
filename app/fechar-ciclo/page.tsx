@@ -27,5 +27,9 @@ export default async function FecharCicloPage() {
     );
   }
 
-  return <FecharCicloWizard resumo={resumo} hojeISO={deps.relogio.hoje()} />;
+  return (
+    <div className="mx-auto w-full lg:max-w-3xl">
+      <FecharCicloWizard resumo={resumo} hojeISO={deps.relogio.hoje()} />
+    </div>
+  );
 }

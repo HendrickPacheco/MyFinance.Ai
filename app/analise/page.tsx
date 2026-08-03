@@ -20,7 +20,7 @@ export default async function AnalisePage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex w-full flex-col gap-6 lg:max-w-3xl">
       <header>
         <h1 className="text-lg font-semibold text-fg">Análise de corte</h1>
         <p className="mt-1 text-sm text-muted">

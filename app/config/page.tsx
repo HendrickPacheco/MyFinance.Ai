@@ -33,7 +33,7 @@ export default async function ConfigPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full space-y-6 lg:max-w-3xl">
       <header>
         <h1 className="text-2xl font-semibold text-fg">Configuração</h1>
         <p className="mt-1 text-sm text-muted">
@@ -58,7 +58,13 @@ export default async function ConfigPage() {
         </div>
       ) : null}
 
-      <ConfigGeral config={config} contas={estado.contas} />
+      <ConfigGeral
+        config={config}
+        contas={estado.contas}
+        avisoMetaIrreal={estado.avisoMetaIrreal}
+        sugestaoRendaVariavelCents={estado.sugestaoRendaVariavelCents}
+        sugestaoMetaPoupancaCents={estado.sugestaoMetaPoupancaCents}
+      />
       <ListaContas contas={estado.contas} />
       <ListaCustos custos={estado.custosFixos} />
       <ListaProvisoes provisoes={estado.provisoes} />

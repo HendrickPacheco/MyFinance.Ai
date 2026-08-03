@@ -16,7 +16,7 @@ export default async function CicloPage() {
   const estado = await obterEstadoCiclo(deps);
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full space-y-6 lg:max-w-3xl">
       <header className="flex items-center justify-between">
         <div>
           <p className="text-sm uppercase tracking-widest text-muted">Ciclo atual</p>

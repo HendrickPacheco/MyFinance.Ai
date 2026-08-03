@@ -8,10 +8,20 @@ antes de mudanças estruturais.
 ## Estado atual
 
 - **Fases 0 a 8 concluídas** — app funcional de ponta a ponta.
-- Telas: Hoje (`/`), Ciclo (`/ciclo`), Análise (`/analise`), Patrimônio (`/patrimonio`),
+- Home responsiva (revisão de 03/08/2026): **painel de administração no desktop**
+  (≥1024px, sidebar + KPIs + gráficos) e a tela Hoje original no mobile. Ver SPEC 7.1.
+- Telas: home (`/`), Ciclo (`/ciclo`), Análise (`/analise`), Patrimônio (`/patrimonio`),
   Fechamento (`/fechar-ciclo`), Configuração (`/config`), Backup (`/config/backup`).
-- Motor: 68 testes Vitest verdes · `tsc --noEmit` limpo · `next build` verde.
-- Entregue em estado de instalação limpa (renda 0 → onboarding). Sem repositório remoto.
+- Banco: **PostgreSQL local** (`financial_dev`), migrado do SQLite em 03/08/2026.
+- Em uso real, com dados do dono: renda R$ 30.000, meta R$ 18.000, 10 custos fixos
+  (R$ 4.884), 13 parcelamentos (R$ 4.393,88/mês), ciclo = mês civil (`diaRecebimento` 1).
+- Motor: suíte Vitest verde · `tsc --noEmit` limpo · `next build` verde.
+
+### Armadilha recorrente desta sessão
+
+Mudou `prisma/schema.prisma`, `.env` ou rodou migração? **O dev server precisa ser
+reiniciado** — o Prisma Client fica em memória e continua servindo o schema antigo. Dois
+"bugs" já foram só isso. Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
 
 ## Regras invioláveis (SPEC seção 13 — "Não faça")
 
@@ -95,12 +105,19 @@ Adapters implementam as portas; casos de uso recebem portas por injeção e cham
 pnpm test          # Vitest (motor de cálculo) — deve ficar 100% verde
 pnpm typecheck     # tsc --noEmit — zero erros, zero any
 pnpm db:generate   # gera o Prisma Client
-pnpm db:migrate    # cria/aplica migração (SQLite em ./data/app.db)
+pnpm db:migrate    # cria/aplica migração (PostgreSQL local)
 pnpm db:seed       # Config singleton + contas base + categorias BR (idempotente)
 ```
 
-O banco fica em `./data/app.db` (git-ignored — é dado do usuário). `DATABASE_URL` em
-`.env` aponta `file:../data/app.db` (relativo a `prisma/`).
+O banco é um **PostgreSQL 16 local** (Homebrew, `brew services start postgresql@16`),
+database `financial_dev`. `DATABASE_URL` em `.env` aponta
+`postgresql://<usuário>@localhost:5432/financial_dev?schema=public`.
+
+Migrado de SQLite em 03/08/2026 — o arquivo `./data/app.db` não é mais fonte de
+verdade. `./data/` agora guarda só os snapshots de segurança que o import de backup
+grava antes de sobrescrever. Ao contrário do SQLite, o Postgres **impõe as foreign
+keys**: `Config.destinoSobraContaId` exige a conta existente, então a ordem de
+inserção em qualquer carga é contas/categorias → Config → resto.
 
 ## Ordem de implementação (SPEC seção 10) — não pular fases
 
