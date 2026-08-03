@@ -23,3 +23,6 @@ prisma/*.db
 .idea/
 .vscode/
 *.log
+
+# artefato de build do TypeScript
+tsconfig.tsbuildinfo

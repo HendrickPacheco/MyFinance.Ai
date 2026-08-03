@@ -29,7 +29,7 @@ export function BackupControles() {
         });
         const json = await resp.json();
         if (json.ok) {
-          setMsg('Dados restaurados. Uma cópia do banco anterior foi guardada em /data.');
+          setMsg('Dados restaurados. Um snapshot do estado anterior foi guardado em /data.');
           setArquivo(null);
           setConfirmar(false);
           if (inputRef.current) inputRef.current.value = '';
@@ -71,8 +71,8 @@ export function BackupControles() {
           <div className="flex items-start gap-2 rounded-xl border border-atencao/40 bg-atencao/10 p-3 text-sm text-atencao">
             <AlertTriangle size={16} className="mt-0.5 shrink-0" />
             <span>
-              Importar <strong>substitui todos os dados atuais</strong>. Antes de gravar, o app faz
-              uma cópia do banco atual em <code>/data</code>.
+              Importar <strong>substitui todos os dados atuais</strong>. Antes de gravar, o app salva
+              um snapshot do estado atual em <code>/data</code>.
             </span>
           </div>
 

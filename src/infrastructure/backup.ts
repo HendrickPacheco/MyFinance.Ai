@@ -1,7 +1,10 @@
 /**
  * Export/import do estado completo (SPEC 8). É a única garantia contra perda
  * de dados num app local — por isso trata como cidadão de primeira classe:
- * antes de importar, faz backup do arquivo .db.
+ * antes de importar, grava uma salvaguarda em JSON do estado atual em
+ * ./data (o banco é Postgres, não um arquivo copiável — a salvaguarda é o
+ * próprio `exportarTudo` carimbado com data/hora, sem depender de binário
+ * externo como `pg_dump`).
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -10,7 +13,44 @@ import type { PrismaClient } from '@prisma/client';
 
 export const BACKUP_VERSION = 1;
 
-const DB_PATH = path.resolve(process.cwd(), 'data', 'app.db');
+const BACKUP_DIR = path.resolve(process.cwd(), 'data');
+
+/**
+ * Lançado quando o payload de import tem uma `version` que este app não sabe
+ * interpretar. Nunca deve ser aplicado — restaurar um formato desconhecido
+ * contra o schema atual arrisca corromper silenciosamente os dados (SPEC 8).
+ */
+export class BackupVersaoIncompativelError extends Error {
+  constructor(
+    public readonly versaoRecebida: number,
+    public readonly versaoEsperada: number,
+  ) {
+    super(
+      `Este backup está na versão ${versaoRecebida}, mas este app só sabe importar a versão ` +
+        `${versaoEsperada}. Restaurar mesmo assim arrisca interpretar os dados errado e corromper ` +
+        'seu banco. Exporte um novo backup nesta versão do app, ou instale a versão do app ' +
+        'compatível com este arquivo antes de importar.',
+    );
+    this.name = 'BackupVersaoIncompativelError';
+  }
+}
+
+/**
+ * Lançado quando a salvaguarda pré-import (gravar o snapshot JSON em ./data)
+ * falha. Nunca deve ser engolida em silêncio: sem salvaguarda gravada com
+ * sucesso, o import inteiro aborta ANTES de tocar no banco (SPEC 8).
+ */
+export class BackupSalvaguardaError extends Error {
+  constructor(causa: unknown) {
+    super(
+      'Não foi possível gravar a salvaguarda em ./data antes do import. Para não arriscar ' +
+        'perda de dados, o import foi abortado e nada foi escrito no banco. Verifique se o ' +
+        'diretório ./data existe e tem permissão de escrita, e tente novamente.',
+    );
+    this.name = 'BackupSalvaguardaError';
+    this.cause = causa;
+  }
+}
 
 export async function exportarTudo(db: PrismaClient): Promise<unknown> {
   const [config, contas, categorias, custosFixos, provisoes, parcelamentos, ciclos, transacoes, snapshots] =
@@ -34,7 +74,7 @@ export async function exportarTudo(db: PrismaClient): Promise<unknown> {
 }
 
 const backupSchema = z.object({
-  version: z.number(),
+  version: z.number().int(),
   dados: z.object({
     config: z.record(z.string(), z.unknown()).nullable(),
     contas: z.array(z.record(z.string(), z.unknown())),
@@ -48,19 +88,37 @@ const backupSchema = z.object({
   }),
 });
 
-/** Faz backup do arquivo .db atual, depois substitui todos os dados. */
+/**
+ * Grava um snapshot JSON restaurável do estado atual em ./data, carimbado
+ * com data/hora. É a salvaguarda contra o import destrutivo (SPEC 8): se a
+ * escrita falhar por qualquer motivo (permissão, disco cheio, diretório
+ * ausente), a falha se propaga como `BackupSalvaguardaError` — nunca é
+ * engolida em silêncio, porque sem ela não há rede de segurança.
+ */
+async function salvaguardarEstadoAtual(db: PrismaClient): Promise<string> {
+  const estadoAtual = await exportarTudo(db);
+  const carimbo = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = path.resolve(BACKUP_DIR, `app.backup-${carimbo}.json`);
+  try {
+    await fs.mkdir(BACKUP_DIR, { recursive: true });
+    await fs.writeFile(backupPath, JSON.stringify(estadoAtual), 'utf-8');
+  } catch (causa) {
+    throw new BackupSalvaguardaError(causa);
+  }
+  return backupPath;
+}
+
+/** Salvaguarda o estado atual em ./data antes de substituir todos os dados. */
 export async function importarTudo(db: PrismaClient, payload: unknown): Promise<{ backupCriado: string }> {
   const parsed = backupSchema.parse(payload);
+  if (parsed.version !== BACKUP_VERSION) {
+    throw new BackupVersaoIncompativelError(parsed.version, BACKUP_VERSION);
+  }
   const d = parsed.dados;
 
-  // 1) Backup do arquivo do banco antes de qualquer escrita destrutiva.
-  const carimbo = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupPath = path.resolve(process.cwd(), 'data', `app.backup-${carimbo}.db`);
-  try {
-    await fs.copyFile(DB_PATH, backupPath);
-  } catch {
-    // Se o arquivo não existir ainda, seguimos (import em base recém-criada).
-  }
+  // 1) Salvaguarda do estado atual antes de qualquer escrita destrutiva. Se
+  // isto lançar, o import aborta aqui — a transação abaixo nunca abre.
+  const backupPath = await salvaguardarEstadoAtual(db);
 
   // 2) Limpa tudo (ordem respeita as FKs) e recria.
   await db.$transaction(async (tx) => {

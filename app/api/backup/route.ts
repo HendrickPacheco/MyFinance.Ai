@@ -16,7 +16,7 @@ export async function GET(): Promise<Response> {
   });
 }
 
-/** POST → importa um JSON de backup (faz cópia do .db antes de sobrescrever). */
+/** POST → importa um JSON de backup (grava salvaguarda em ./data antes de sobrescrever). */
 export async function POST(req: Request): Promise<Response> {
   try {
     const payload = await req.json();
