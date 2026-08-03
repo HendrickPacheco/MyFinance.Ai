@@ -47,6 +47,20 @@ export interface CustoFixo {
   contaId: string | null;
 }
 
+/**
+ * Marca `CustoFixo` como pago DENTRO de um ciclo específico (coluna "Pago?"
+ * da planilha). Unicidade em (custoFixoId, cicloId) no schema garante
+ * idempotência e o reset natural na virada do ciclo — é RASTREAMENTO puro,
+ * nunca abate nada da verba (a verba já foi congelada com `Ciclo.fixosCents`
+ * quando o ciclo nasceu).
+ */
+export interface PagamentoFixo {
+  id: string;
+  custoFixoId: string;
+  cicloId: string;
+  pagoEm: DataCivil;
+}
+
 export interface ProvisaoAnual {
   id: string;
   nome: string;
@@ -81,6 +95,8 @@ export interface Transacao {
   parcelaNum: number | null;
   estornoDeId: string | null;
   cicloId: string | null;
+  /** Marcação de "parcela paga" (rastreamento — nunca abate a verba). `null` = não paga. */
+  pagoEm: DataCivil | null;
 }
 
 export interface Parcelamento {

@@ -19,6 +19,35 @@ export const viewport: Viewport = {
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Preferência de UI "sidebar colapsada" (SPEC regra 6: localStorage não é
+ * fonte de verdade de dados, mas é o uso correto para preferência de tela).
+ * O servidor não tem como saber essa preferência, então uma leitura ingênua
+ * no client causaria ou um warning de hidratação (se decidisse a largura via
+ * estado do React) ou um flash visível de sidebar expandida encolhendo depois.
+ *
+ * Solução: um script inline síncrono no <head>, executado ANTES da pintura,
+ * que só toca o DOM (atributo `data-sidebar` no <html>) — nunca produz JSX
+ * nem participa da árvore que o React hidrata, então não há nada para
+ * divergir. O CSS (`app/globals.css`) reage a esse atributo para decidir a
+ * largura da sidebar. O componente <Sidebar> (client) mantém seu próprio
+ * `useState` para textos/aria (que sempre nasce como "expandido", igual ao
+ * servidor) e só sincroniza com a preferência real num `useEffect` após o
+ * mount — nesse ponto o CSS já está correto, então a correção de texto/aria é
+ * imperceptível e não é um mismatch de hidratação (é só um setState normal
+ * depois de montado).
+ */
+const SIDEBAR_ANTI_FLASH_SCRIPT = `
+(function () {
+  try {
+    var v = window.localStorage.getItem('financial:sidebar-collapsed');
+    document.documentElement.setAttribute('data-sidebar', v === '1' ? 'collapsed' : 'expanded');
+  } catch (e) {
+    // localStorage indisponível (modo privado, etc.) — mantém expandida.
+  }
+})();
+`;
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Idempotente (SPEC 8): garante que existe um ciclo cobrindo hoje. Nunca
   // bloqueia; se a Config ainda não foi preenchida, as telas orientam.
@@ -30,7 +59,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script dangerouslySetInnerHTML={{ __html: SIDEBAR_ANTI_FLASH_SCRIPT }} />
+      </head>
       <body>
         {/*
           Uma home responsiva (SPEC 11): abaixo de 1024px isto continua sendo

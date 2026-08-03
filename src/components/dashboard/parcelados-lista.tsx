@@ -1,9 +1,15 @@
 /**
  * Parcelamentos em aberto que caem neste ciclo (SPEC 5.7). Cada linha já é
  * uma competência específica — não confundir com o valor total do contrato.
+ *
+ * O checkbox "pago" é rastreamento puro (coluna "Pago?" da planilha antiga):
+ * a parcela já é uma transação que consome verba desde que foi lançada;
+ * marcar como paga aqui não altera gasto nem verba (ver `PagamentoToggle`).
  */
 import { Card, CardHeader, CardTitle, CardContent, EmptyState } from '@/components/ui';
+import { PagamentoToggle } from './pagamento-toggle';
 import { formatBRL } from '@/shared/dinheiro';
+import { marcarParcelaPaga } from '@/actions/pagamentos';
 import type { LinhaParcelada } from '@/application/dashboard-tipos';
 
 function formatarDataCurta(data: string): string {
@@ -34,6 +40,8 @@ export function ParceladosLista({
     );
   }
 
+  const pagas = parcelados.filter((p) => p.pago).length;
+
   return (
     <Card>
       <CardHeader>
@@ -50,11 +58,19 @@ export function ParceladosLista({
                     {linha.categoriaNome ?? 'sem categoria'} · {formatarDataCurta(linha.data)}
                   </p>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="tnum font-medium text-fg">{formatBRL(linha.valorParcelaCents)}</p>
-                  <p className="tnum text-xs text-faint">
-                    {linha.parcelaAtual}/{linha.numParcelas}
-                  </p>
+                <div className="flex shrink-0 items-start gap-3">
+                  <div className="text-right">
+                    <p className="tnum font-medium text-fg">{formatBRL(linha.valorParcelaCents)}</p>
+                    <p className="tnum text-xs text-faint">
+                      {linha.parcelaAtual}/{linha.numParcelas}
+                    </p>
+                  </div>
+                  <PagamentoToggle
+                    id={`parcela-pago-${linha.transacaoId}`}
+                    itemLabel={linha.descricao}
+                    pago={linha.pago}
+                    onToggle={marcarParcelaPaga.bind(null, linha.transacaoId)}
+                  />
                 </div>
               </div>
             </li>
@@ -66,6 +82,9 @@ export function ParceladosLista({
             {formatBRL(parceladosTotalCents)}
           </span>
         </div>
+        <p className="tnum px-5 pb-3 text-xs text-muted">
+          {pagas} de {parcelados.length} pagas no ciclo
+        </p>
       </CardContent>
     </Card>
   );

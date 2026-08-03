@@ -9,6 +9,7 @@ import type {
   ContaRepository,
   CategoriaRepository,
   CustoFixoRepository,
+  PagamentoFixoRepository,
   ProvisaoRepository,
   TransacaoRepository,
   ParcelamentoRepository,
@@ -22,6 +23,7 @@ export interface Deps {
   contas: ContaRepository;
   categorias: CategoriaRepository;
   custosFixos: CustoFixoRepository;
+  pagamentosFixos: PagamentoFixoRepository;
   provisoes: ProvisaoRepository;
   transacoes: TransacaoRepository;
   parcelamentos: ParcelamentoRepository;

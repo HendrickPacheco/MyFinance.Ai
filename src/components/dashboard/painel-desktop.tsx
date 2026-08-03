@@ -5,6 +5,8 @@
  * visualmente separados da verba variável (regra 5).
  */
 import { KpiFaixa } from './kpi-faixa';
+import { LancamentoPainel } from './lancamento-painel';
+import { ExtratoVariaveis } from './extrato-variaveis';
 import { CategoriasPizza } from './categorias-pizza';
 import { MetodosPagamento } from './metodos-pagamento';
 import { ComprometidoLista } from './comprometido-lista';
@@ -24,6 +26,18 @@ export function PainelDesktop({ estado }: { estado: EstadoPainel }) {
       </div>
 
       <KpiFaixa kpis={estado.kpis} />
+
+      {/* `LancamentoPainel` não renderiza nada visível na página — é o modal
+          de "Lançar gasto" (aberto pelo botão da sidebar ou pelo atalho "N").
+          Fica montado aqui porque é aqui que `hoje`/`categoriasLancamento`
+          existem; a página continua só leitura enquanto o modal está fechado. */}
+      <LancamentoPainel hoje={estado.hoje} categorias={estado.categoriasLancamento} />
+
+      <ExtratoVariaveis
+        transacoes={estado.transacoesVariaveis}
+        totalCents={estado.transacoesVariaveisTotalCents}
+        categoriasLancamento={estado.categoriasLancamento}
+      />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <CategoriasPizza categorias={estado.categorias} />

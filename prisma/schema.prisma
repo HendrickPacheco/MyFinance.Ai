@@ -59,6 +59,27 @@ model CustoFixo {
   ativo         Boolean @default(true)
   contaId       String?
   conta         Conta?  @relation(fields: [contaId], references: [id])
+
+  pagamentos PagamentoFixo[]
+}
+
+// Rastreamento de "pago no ciclo" (coluna "Pago?" da planilha do usuário).
+// É RASTREAMENTO puro: o valor do CustoFixo já foi descontado da verba quando
+// o ciclo nasceu (Ciclo.fixosCents, congelado). Marcar aqui NUNCA recalcula
+// nada — só existe para o usuário saber o que falta pagar no mês. Reseta
+// naturalmente na virada do ciclo porque a unicidade é por (custoFixoId, cicloId).
+model PagamentoFixo {
+  id          String   @id @default(cuid())
+  custoFixoId String
+  cicloId     String
+  pagoEm      String // YYYY-MM-DD — data civil em que o usuário marcou como pago
+  createdAt   DateTime @default(now())
+
+  custoFixo CustoFixo @relation(fields: [custoFixoId], references: [id])
+  ciclo     Ciclo     @relation(fields: [cicloId], references: [id])
+
+  @@unique([custoFixoId, cicloId])
+  @@index([cicloId])
 }
 
 model ProvisaoAnual {
@@ -112,6 +133,11 @@ model Transacao {
   ciclo     Ciclo?   @relation(fields: [cicloId], references: [id])
   createdAt DateTime @default(now())
 
+  // Marcação de "parcela paga" (coluna "Pago?" da planilha, aplicada à
+  // parcela). RASTREAMENTO — a parcela já é uma Transacao que consome verba;
+  // marcar como paga não abate nada de novo. `null` = ainda não paga.
+  pagoEm String? // YYYY-MM-DD
+
   @@index([data])
   @@index([cicloId])
   @@index([categoriaId])
@@ -145,6 +171,7 @@ model Ciclo {
   sobraCents            Int?
   observacao            String?
   transacoes            Transacao[]
+  pagamentosFixos       PagamentoFixo[]
 
   @@unique([dataInicio])
 }

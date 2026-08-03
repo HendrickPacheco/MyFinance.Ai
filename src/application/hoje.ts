@@ -5,7 +5,13 @@
  */
 import type { Deps } from './deps';
 import type { Categoria, Ciclo, Transacao } from '@/domain/model/entidades';
-import { calcularTeto, avaliarRecuperacao, type ResultadoTeto, type SaidaRecuperacao } from '@/domain/finance';
+import {
+  calcularTeto,
+  avaliarRecuperacao,
+  ordenarCategoriasPorUso,
+  type ResultadoTeto,
+  type SaidaRecuperacao,
+} from '@/domain/finance';
 import { garantirCicloAtual } from './ciclos';
 import { indexarGrupoCategoria, paraCalculo } from './mapeamento';
 
@@ -62,25 +68,18 @@ export async function obterEstadoHoje(deps: Deps): Promise<EstadoHoje> {
   };
 }
 
-/** Top N categorias VARIAVEL por frequência de uso no ciclo; completa por ordem. */
+/**
+ * Top N categorias VARIAVEL por frequência de uso no ciclo; completa por
+ * ordem. `ordenarCategoriasPorUso` (domain/finance/categorias.ts) já devolve
+ * VARIAVEL primeiro e nesta ordem exata — aqui só filtra e corta em N para
+ * não duplicar a regra de ranking.
+ */
 function categoriasMaisUsadas(
   categorias: readonly Categoria[],
   transacoes: readonly Transacao[],
   n: number,
 ): Categoria[] {
-  const variaveis = categorias.filter((c) => c.grupo === 'VARIAVEL');
-  const freq = new Map<string, number>();
-  for (const t of transacoes) {
-    if (t.tipo === 'DESPESA' && t.categoriaId) {
-      freq.set(t.categoriaId, (freq.get(t.categoriaId) ?? 0) + 1);
-    }
-  }
-  return [...variaveis]
-    .sort((a, b) => {
-      const fa = freq.get(a.id) ?? 0;
-      const fb = freq.get(b.id) ?? 0;
-      if (fb !== fa) return fb - fa;
-      return a.ordem - b.ordem;
-    })
+  return ordenarCategoriasPorUso(categorias, transacoes)
+    .filter((c) => c.grupo === 'VARIAVEL')
     .slice(0, n);
 }

@@ -234,6 +234,61 @@ export function sobraProjetadaCents(params: {
   return Math.round(params.verbaVariavelCents - params.ritmo.projecaoFechamentoCents);
 }
 
+/** Forma mínima de uma transação para montar o extrato de gasto variável do ciclo. */
+export interface TransacaoParaExtrato extends TransacaoComParcela {
+  transacaoId: string;
+  descricao: string | null;
+  categoriaId: string | null;
+  categoriaNome: string | null;
+  metodo: MetodoPagamento | null;
+}
+
+export interface LinhaTransacaoVariavelCalc {
+  transacaoId: string;
+  data: DataCivil;
+  descricao: string | null;
+  valorCents: number;
+  categoriaId: string | null;
+  categoriaNome: string | null;
+  metodo: MetodoPagamento | null;
+  /** ESTORNO abate; a UI precisa distinguir para não mostrar como despesa. */
+  ehEstorno: boolean;
+}
+
+/**
+ * Extrato do ciclo com o que é gasto variável discricionário: mesma regra de
+ * `gastoVariavelSemParcelasCents` (reaproveita `contaComoVerbaVariavel` e a
+ * exclusão de parcelas), mas devolvendo as linhas em vez do total — exclui
+ * parcelas, gasto de provisão, RENDA e TRANSFERENCIA; inclui DESPESA e
+ * ESTORNO marcando `ehEstorno`. Mais recentes primeiro.
+ */
+export function extratoTransacoesVariaveis(
+  transacoes: readonly TransacaoParaExtrato[],
+  ateData: DataCivil,
+): LinhaTransacaoVariavelCalc[] {
+  assertData(ateData);
+
+  return transacoes
+    .filter(
+      (t) =>
+        t.data <= ateData && // comparação lexicográfica (SPEC 5.1)
+        t.parcelamentoId == null && // já aparece na tabela de parcelamentos
+        contaComoVerbaVariavel(t) &&
+        (t.tipo === 'DESPESA' || t.tipo === 'ESTORNO'),
+    )
+    .map((t) => ({
+      transacaoId: t.transacaoId,
+      data: t.data,
+      descricao: t.descricao,
+      valorCents: t.valorCents,
+      categoriaId: t.categoriaId,
+      categoriaNome: t.categoriaNome,
+      metodo: t.metodo,
+      ehEstorno: t.tipo === 'ESTORNO',
+    }))
+    .sort((a, b) => b.data.localeCompare(a.data));
+}
+
 export interface ResultadoPoupancaProjetada {
   poupancaProjetadaCents: number;
   progressoPercentual: number;

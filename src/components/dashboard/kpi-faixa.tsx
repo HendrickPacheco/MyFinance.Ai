@@ -56,6 +56,42 @@ function StatTile({
   );
 }
 
+/**
+ * Duas cifras de "pago vs. falta pagar" num tile só, com peso visual menor
+ * que os tiles principais (SPEC 11: não empilhar peso igual num 8º número
+ * solto). É rastreamento — nunca some com verba variável nem com o herói.
+ */
+function StatTilePagamento({
+  faltaPagarCents,
+  jaPagueiCents,
+}: {
+  faltaPagarCents: number;
+  jaPagueiCents: number;
+}) {
+  return (
+    <div className="rounded-[var(--radius-card)] border border-border bg-surface px-4 py-4">
+      <p className="text-xs uppercase tracking-wide text-muted">Pagamento do mês</p>
+      <dl className="mt-1.5 space-y-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <dt className="text-xs text-muted">Falta pagar</dt>
+          <dd
+            className={cn(
+              'tnum text-base font-semibold',
+              faltaPagarCents > 0 ? 'text-atencao' : 'text-fg',
+            )}
+          >
+            {formatBRL(faltaPagarCents)}
+          </dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <dt className="text-xs text-muted">Já paguei</dt>
+          <dd className="tnum text-base font-semibold text-muted">{formatBRL(jaPagueiCents)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
 export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
   const {
     restaHojeCents,
@@ -70,6 +106,8 @@ export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
     totalGastosCents,
     metaEconomiaCents,
     saldoContaCents,
+    faltaPagarCents,
+    jaPagueiCents,
   } = kpis;
 
   const { cor, aviso } = tomHero(restaHojeCents, tetoHojeCents, emRecuperacao);
@@ -114,7 +152,7 @@ export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
       {/* Bloco de comprometido — nunca aparece como disponível (regra 5). */}
       <section aria-label="Comprometido no mês">
         <p className="mb-2 text-xs uppercase tracking-wide text-muted">Comprometido no mês</p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <StatTile rotulo="Total de gastos do mês" valor={formatBRL(totalGastosCents)} />
           <StatTile rotulo="Custo fixo" valor={formatBRL(custosFixosCents)} />
           <StatTile rotulo="Meta de economia do mês" valor={formatBRL(metaEconomiaCents)} />
@@ -124,6 +162,7 @@ export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
             tone={saldoContaNegativo ? 'negativo' : 'positivo'}
             nota={saldoContaNegativo ? 'Gastos do mês já passaram a renda prevista' : 'Renda prevista menos total de gastos'}
           />
+          <StatTilePagamento faltaPagarCents={faltaPagarCents} jaPagueiCents={jaPagueiCents} />
         </div>
       </section>
     </div>

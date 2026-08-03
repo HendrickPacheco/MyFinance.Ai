@@ -8,6 +8,7 @@ import type {
   Conta as PConta,
   Categoria as PCategoria,
   CustoFixo as PCustoFixo,
+  PagamentoFixo as PPagamentoFixo,
   ProvisaoAnual as PProvisao,
   Transacao as PTransacao,
   Parcelamento as PParcelamento,
@@ -20,6 +21,7 @@ import type {
   Conta,
   Categoria,
   CustoFixo,
+  PagamentoFixo,
   ProvisaoAnual,
   Transacao,
   Parcelamento,
@@ -86,6 +88,15 @@ export function toCustoFixo(r: PCustoFixo): CustoFixo {
   };
 }
 
+export function toPagamentoFixo(r: PPagamentoFixo): PagamentoFixo {
+  return {
+    id: r.id,
+    custoFixoId: r.custoFixoId,
+    cicloId: r.cicloId,
+    pagoEm: r.pagoEm,
+  };
+}
+
 export function toProvisao(r: PProvisao): ProvisaoAnual {
   return {
     id: r.id,
@@ -113,6 +124,7 @@ export function toTransacao(r: PTransacao): Transacao {
     parcelaNum: r.parcelaNum,
     estornoDeId: r.estornoDeId,
     cicloId: r.cicloId,
+    pagoEm: r.pagoEm,
   };
 }
 

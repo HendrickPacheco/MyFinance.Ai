@@ -3,6 +3,7 @@
  * template — SPEC 11). Todas server-safe: sem estado, só classes.
  */
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
 
 /* ----------------------------------------------------------------- Button */
@@ -107,6 +108,29 @@ export const Select = React.forwardRef<
 ));
 Select.displayName = 'Select';
 
+/* --------------------------------------------------------------- Checkbox */
+/**
+ * Puramente visual e controlada — sem estado próprio (mesma convenção de
+ * `Input`/`Select`). A lógica de otimismo/reversão fica em quem consome
+ * (ex.: `src/components/dashboard/pagamento-toggle.tsx`), nunca aqui.
+ */
+export const Checkbox = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  ({ className, ...props }, ref) => (
+    <input
+      ref={ref}
+      type="checkbox"
+      className={cn(
+        'h-5 w-5 shrink-0 rounded border-border-strong bg-surface-2 accent-accent',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
+        'disabled:cursor-not-allowed disabled:opacity-50',
+        className,
+      )}
+      {...props}
+    />
+  ),
+);
+Checkbox.displayName = 'Checkbox';
+
 /* ------------------------------------------------------------------ Label */
 export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
   return <label className={cn('mb-1.5 block text-sm text-muted', className)} {...props} />;
@@ -186,13 +210,19 @@ export function ConfirmInline({
 
   const handleKeyDown = React.useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      // stopPropagation em todos os ramos: `ConfirmInline` pode ser aninhada
+      // dentro de um `Modal` (ex.: confirmar descarte de rascunho antes de
+      // fechar) — sem isso, Escape/Tab também acionariam o handler do Modal
+      // ancestral logo em seguida, causando ações duplicadas.
       if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         onCancel();
         return;
       }
       if (e.key === 'Enter') {
         e.preventDefault();
+        e.stopPropagation();
         onConfirm();
         return;
       }
@@ -206,9 +236,11 @@ export function ConfirmInline({
         if (!primeiro || !ultimo) return;
         if (e.shiftKey && document.activeElement === primeiro) {
           e.preventDefault();
+          e.stopPropagation();
           ultimo.focus();
         } else if (!e.shiftKey && document.activeElement === ultimo) {
           e.preventDefault();
+          e.stopPropagation();
           primeiro.focus();
         }
       }
@@ -258,6 +290,163 @@ export function ConfirmInline({
         </Button>
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ Modal */
+const FOCAVEIS_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export interface ModalProps {
+  open: boolean;
+  /**
+   * Chamado quando o usuário pede para fechar (Esc, clique no backdrop, ou
+   * qualquer botão de fechar que o conteúdo renderize). Quem chama decide se
+   * fecha de fato — ex.: interceptar e pedir confirmação se há um rascunho
+   * não salvo, em vez de descartar silenciosamente.
+   */
+  onClose: () => void;
+  /** Rótulo acessível do diálogo (não precisa haver um título visível). */
+  ariaLabel: string;
+  children: React.ReactNode;
+  className?: string;
+}
+
+/**
+ * Diálogo modal genérico (`role="dialog"` + `aria-modal`). Portal para
+ * `document.body` via `createPortal`, com guarda de SSR (só monta a árvore do
+ * portal depois do mount no client, evitando acessar `document` no servidor).
+ *
+ * Comportamento não negociável:
+ * - Foco preso dentro do diálogo enquanto aberto (Tab cicla no início/fim).
+ * - Esc e clique no backdrop chamam `onClose` (mesma função — ver acima).
+ * - Foco inicial vai para `[data-modal-initial-focus]` dentro do conteúdo,
+ *   se existir; senão, o primeiro elemento focável.
+ * - Foco volta para o elemento que estava focado antes de abrir, ao fechar.
+ * - `document.body` trava o scroll enquanto o modal está aberto.
+ */
+export function Modal({ open, onClose, ariaLabel, children, className }: ModalProps) {
+  const [montado, setMontado] = React.useState(false);
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const gatilhoRef = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => setMontado(true), []);
+
+  React.useEffect(() => {
+    if (!open) return;
+
+    gatilhoRef.current = document.activeElement as HTMLElement | null;
+
+    const overflowAnterior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const alvoInicial =
+      dialogRef.current?.querySelector<HTMLElement>('[data-modal-initial-focus]') ??
+      dialogRef.current?.querySelector<HTMLElement>(FOCAVEIS_SELECTOR);
+    alvoInicial?.focus();
+
+    return () => {
+      document.body.style.overflow = overflowAnterior;
+      gatilhoRef.current?.focus?.();
+    };
+  }, [open]);
+
+  const handleKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const container = dialogRef.current;
+        if (!container) return;
+        const focaveis = Array.from(container.querySelectorAll<HTMLElement>(FOCAVEIS_SELECTOR));
+        if (focaveis.length === 0) return;
+        const primeiro = focaveis[0];
+        const ultimo = focaveis[focaveis.length - 1];
+        if (!primeiro || !ultimo) return;
+        if (e.shiftKey && document.activeElement === primeiro) {
+          e.preventDefault();
+          ultimo.focus();
+        } else if (!e.shiftKey && document.activeElement === ultimo) {
+          e.preventDefault();
+          primeiro.focus();
+        }
+      }
+    },
+    [onClose],
+  );
+
+  if (!montado || !open) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" aria-hidden="true" onClick={onClose} />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        onKeyDown={handleKeyDown}
+        className={cn(
+          'relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[var(--radius-card)]',
+          'border border-border bg-surface p-6 shadow-xl',
+          className,
+        )}
+      >
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/* -------------------------------------------------------------- Tooltip */
+export interface TooltipAnchorRect {
+  /** Topo vertical onde centralizar o tooltip (viewport, `position: fixed`). */
+  top: number;
+  /** Borda direita do gatilho — o tooltip nasce um pouco à direita disso. */
+  right: number;
+}
+
+export interface TooltipPortalProps {
+  label: string;
+  /** `null` esconde o tooltip (também controla montagem: sem custo quando oculto). */
+  anchorRect: TooltipAnchorRect | null;
+}
+
+/**
+ * Tooltip decorativo, portalado para `document.body` (mesma convenção de SSR
+ * do `Modal`: só monta a árvore do portal depois do mount no client). Usa
+ * `position: fixed` calculado a partir do retângulo do elemento-gatilho em
+ * vez de `position: absolute` relativo ao pai — isso é proposital: um
+ * ancestral com `overflow: hidden`/`auto` (ex.: a sidebar colapsável e sua
+ * lista de navegação rolável) cortaria um tooltip posicionado de forma
+ * relativa, mesmo que o conteúdo do próprio ancestral não estivesse rolado.
+ *
+ * Puramente visual — `aria-hidden`: nunca é a fonte do nome acessível do
+ * gatilho, que deve vir de um `aria-label` explícito no próprio elemento.
+ */
+export function TooltipPortal({ label, anchorRect }: TooltipPortalProps) {
+  const [montado, setMontado] = React.useState(false);
+  React.useEffect(() => setMontado(true), []);
+
+  if (!montado || !anchorRect) return null;
+
+  return createPortal(
+    <span
+      role="tooltip"
+      aria-hidden="true"
+      style={{ top: anchorRect.top, left: anchorRect.right + 12 }}
+      className={cn(
+        'pointer-events-none fixed z-50 -translate-y-1/2 whitespace-nowrap rounded-lg border',
+        'border-border-strong bg-surface-2 px-2.5 py-1.5 text-xs text-fg shadow-xl',
+      )}
+    >
+      {label}
+    </span>,
+    document.body,
   );
 }
 

@@ -14,7 +14,6 @@ import type { Deps } from './deps';
 import type {
   Categoria,
   Ciclo,
-  CustoFixo,
   ProvisaoAnual,
   Transacao,
 } from '@/domain/model/entidades';
@@ -26,21 +25,29 @@ import {
   sobraProjetadaCents,
   somarParceladosCents,
   gastoVariavelSemParcelasCents,
+  extratoTransacoesVariaveis,
+  ordenarCategoriasPorUso,
   projetarPoupanca,
   formatarPeriodoCiclo,
   totalPorClasseCents,
   verificarMetaIrreal,
+  fixoVencido,
+  resumoPagamentosCents,
   type TransacaoCategorizada,
   type TransacaoComMetodo,
+  type TransacaoParaExtrato,
   type FatiaCategoriaAgregada,
   type FatiaMetodoAgregada,
+  type LinhaTransacaoVariavelCalc,
 } from '@/domain/finance';
 import { garantirCicloAtual } from './ciclos';
 import { obterPatrimonio } from './patrimonio';
 import type {
   EstadoPainel,
   KpisPainel,
+  LinhaCustoFixo,
   LinhaParcelada,
+  OpcaoCategoria,
   ResumoMetas,
   ResumoPatrimonioPainel,
 } from './dashboard-tipos';
@@ -62,16 +69,38 @@ export async function obterEstadoPainel(deps: Deps): Promise<EstadoPainel> {
     deps.categorias.listar(),
   ]);
 
-  const kpis = montarKpis({ ciclo, hoje, transacoes, categorias });
+  // Custos fixos (com pago/vencido) e parcelas (com pago) precisam existir
+  // ANTES dos KPIs: `faltaPagarCents`/`jaPagueiCents` são derivados deles.
+  const [custosFixos, parceladoInfo] = await Promise.all([
+    montarCustosFixos(deps, ciclo, hoje),
+    montarParcelados(deps, transacoes, categorias),
+  ]);
+
+  // Base única para os cálculos que dependem da mesma leitura do ciclo: o
+  // motor de teto (`calcularTeto`), o "total de gastos" dos KPIs e o extrato
+  // de gasto variável do painel PRECISAM concordar sobre o mesmo número —
+  // por isso `gastoVariavelSemParcelas` é calculado uma única vez aqui e
+  // repassado, em vez de cada bloco recalcular a partir do zero.
+  const calc = paraCalculoCategorizado(transacoes, categorias);
+  const gastoVariavelSemParcelas = gastoVariavelSemParcelasCents(calc, hoje);
+
+  const kpis = montarKpis({
+    ciclo,
+    hoje,
+    calc,
+    gastoVariavelSemParcelas,
+    custosFixos,
+    parcelados: parceladoInfo.parcelados,
+  });
   const categoriasFatia = montarFatiasCategoria(transacoes, categorias);
   const metodosFatia = montarFatiasMetodo(transacoes);
+  const categoriasLancamento = montarCategoriasLancamento(transacoes, categorias);
+  const transacoesVariaveis = montarExtratoVariavel(transacoes, categorias, hoje);
 
-  const [custosFixos, provisoes, patrimonio, metas, parceladoInfo] = await Promise.all([
-    montarCustosFixos(deps),
+  const [provisoes, patrimonio, metas] = await Promise.all([
     montarProvisoes(deps),
     montarResumoPatrimonio(deps),
     montarMetas(deps, ciclo, kpis),
-    montarParcelados(deps, transacoes, categorias),
   ]);
 
   return {
@@ -87,6 +116,11 @@ export async function obterEstadoPainel(deps: Deps): Promise<EstadoPainel> {
     parceladosTotalCents: parceladoInfo.parceladosTotalCents,
     provisoes,
     provisaoMensalTotalCents: ciclo.provisaoMensalCents,
+    categoriasLancamento,
+    transacoesVariaveis,
+    // Mesmo valor usado em `kpis.totalGastosCents` (via `gastoVariavelSemParcelas`
+    // acima) — nunca recalculado à parte, para os dois números nunca divergirem.
+    transacoesVariaveisTotalCents: gastoVariavelSemParcelas,
     patrimonio,
     metas,
     pendenciaFechamento,
@@ -113,11 +147,12 @@ function paraCalculoCategorizado(
 function montarKpis(params: {
   ciclo: Ciclo;
   hoje: string;
-  transacoes: readonly Transacao[];
-  categorias: readonly Categoria[];
+  calc: readonly (TransacaoCategorizada & { parcelamentoId: string | null })[];
+  gastoVariavelSemParcelas: number;
+  custosFixos: readonly LinhaCustoFixo[];
+  parcelados: readonly LinhaParcelada[];
 }): KpisPainel {
-  const { ciclo, hoje, transacoes, categorias } = params;
-  const calc = paraCalculoCategorizado(transacoes, categorias);
+  const { ciclo, hoje, calc, gastoVariavelSemParcelas, custosFixos, parcelados } = params;
 
   const teto = calcularTeto({
     verbaVariavelCents: ciclo.verbaVariavelCents,
@@ -142,13 +177,20 @@ function montarKpis(params: {
   // montar "total de gastos" (fixos + parcelas + variável) sem contar a
   // mesma parcela duas vezes, soma-se as parcelas à parte
   // (`somarParceladosCents`, sem filtro de data — compromisso do mês
-  // inteiro) e o gasto variável "solto" exclui explicitamente quem tem
-  // `parcelamentoId` (`gastoVariavelSemParcelasCents`).
+  // inteiro); `gastoVariavelSemParcelas` já vem pronto do chamador (mesmo
+  // valor usado em `transacoesVariaveisTotalCents`, para nunca divergir).
   const parceladosCicloCents = somarParceladosCents(calc);
-  const gastoVariavelSemParcelas = gastoVariavelSemParcelasCents(calc, hoje);
   const custosFixosCents = ciclo.fixosCents;
   const rendaPrevistaCents = ciclo.rendaPrevistaCents;
   const totalGastosCents = custosFixosCents + parceladosCicloCents + gastoVariavelSemParcelas;
+
+  // RASTREAMENTO puro (SPEC regra 5): soma o que falta pagar/já foi pago só
+  // para exibição. Não entra em nenhum dos campos de verba/teto acima —
+  // ver `src/domain/finance/pagamentos.ts`.
+  const { faltaPagarCents, jaPagueiCents } = resumoPagamentosCents(
+    custosFixos.map((c) => ({ valorCents: c.valorCents, pago: c.pago })),
+    parcelados.map((p) => ({ valorCents: p.valorParcelaCents, pago: p.pago })),
+  );
 
   return {
     restaHojeCents: teto.restaHojeCents,
@@ -169,6 +211,8 @@ function montarKpis(params: {
     parceladosCicloCents,
     totalGastosCents,
     metaEconomiaCents: ciclo.poupancaAlvoCents,
+    faltaPagarCents,
+    jaPagueiCents,
     saldoContaCents: rendaPrevistaCents - totalGastosCents,
   };
 }
@@ -204,9 +248,100 @@ function montarFatiasMetodo(transacoes: readonly Transacao[]): FatiaMetodoAgrega
   }
 }
 
-async function montarCustosFixos(deps: Deps): Promise<CustoFixo[]> {
+/**
+ * Categorias para o formulário de lançamento rápido do painel: VARIAVEL
+ * primeiro por frequência real de uso no ciclo, resto por `ordem`
+ * (`ordenarCategoriasPorUso`, domain/finance/categorias.ts — a MESMA função
+ * que a tela Hoje usa para as 6 categorias rápidas, para as duas telas nunca
+ * divergirem no ranking). Isolado do resto: cadastro de categoria
+ * inconsistente não pode derrubar o painel.
+ */
+function montarCategoriasLancamento(
+  transacoes: readonly Transacao[],
+  categorias: readonly Categoria[],
+): OpcaoCategoria[] {
   try {
-    return await deps.custosFixos.listarAtivos();
+    return ordenarCategoriasPorUso(categorias, transacoes).map((c) => ({
+      id: c.id,
+      nome: c.nome,
+      grupo: c.grupo,
+    }));
+  } catch (erro) {
+    console.error('[dashboard] falha ao montar categorias de lançamento:', erro);
+    return [];
+  }
+}
+
+/**
+ * Extrato de gasto variável do ciclo para o painel: mesma regra de
+ * `contaComoVerbaVariavel` usada pelo teto e pelo KPI `totalGastosCents`
+ * (via `extratoTransacoesVariaveis`, domain/finance/agregacoes.ts) — exclui
+ * parcelas, gasto de provisão, RENDA e TRANSFERENCIA; ESTORNO entra marcado
+ * com `ehEstorno`. Isolado do resto: transação com dado malformado não pode
+ * derrubar o painel.
+ */
+function montarExtratoVariavel(
+  transacoes: readonly Transacao[],
+  categorias: readonly Categoria[],
+  hoje: string,
+): LinhaTransacaoVariavelCalc[] {
+  try {
+    const gruposPorCategoria = new Map(categorias.map((c) => [c.id, c.grupo]));
+    const nomesPorCategoria = new Map(categorias.map((c) => [c.id, c.nome]));
+
+    const paraExtrato: TransacaoParaExtrato[] = transacoes.map((t) => ({
+      transacaoId: t.id,
+      data: t.data,
+      valorCents: t.valorCents,
+      tipo: t.tipo,
+      grupoCategoria: t.categoriaId ? (gruposPorCategoria.get(t.categoriaId) ?? null) : null,
+      provisaoId: t.provisaoId,
+      parcelamentoId: t.parcelamentoId,
+      descricao: t.descricao,
+      categoriaId: t.categoriaId,
+      categoriaNome: t.categoriaId ? (nomesPorCategoria.get(t.categoriaId) ?? null) : null,
+      metodo: t.metodo,
+    }));
+
+    return extratoTransacoesVariaveis(paraExtrato, hoje);
+  } catch (erro) {
+    console.error('[dashboard] falha ao montar extrato de gasto variável:', erro);
+    return [];
+  }
+}
+
+/**
+ * Junta os custos fixos ativos com o rastreamento de pagamento DESTE ciclo
+ * (`PagamentoFixo`, único por (custoFixoId, cicloId) — reseta sozinho na
+ * virada). "Vencido" é derivado por `fixoVencido` (domain/finance/pagamentos):
+ * vencimento dentro do ciclo já passou e ninguém marcou como pago. Isolado
+ * do resto: um vencimento malformado não pode derrubar o painel.
+ */
+async function montarCustosFixos(deps: Deps, ciclo: Ciclo, hoje: string): Promise<LinhaCustoFixo[]> {
+  try {
+    const [custos, pagamentos] = await Promise.all([
+      deps.custosFixos.listarAtivos(),
+      deps.pagamentosFixos.listarPorCiclo(ciclo.id),
+    ]);
+    const custoFixoIdsPagos = new Set(pagamentos.map((p) => p.custoFixoId));
+
+    return custos.map((custo) => {
+      const pago = custoFixoIdsPagos.has(custo.id);
+      return {
+        custoFixoId: custo.id,
+        nome: custo.nome,
+        valorCents: custo.valorCents,
+        diaVencimento: custo.diaVencimento,
+        pago,
+        vencido: fixoVencido({
+          hoje,
+          cicloInicio: ciclo.dataInicio,
+          cicloFim: ciclo.dataFim,
+          diaVencimento: custo.diaVencimento,
+          pago,
+        }),
+      };
+    });
   } catch (erro) {
     console.error('[dashboard] falha ao listar custos fixos:', erro);
     return [];
@@ -315,12 +450,14 @@ async function montarParcelados(
 
       linhas.push({
         parcelamentoId: parcelamento.id,
+        transacaoId: t.id,
         descricao: parcelamento.descricao,
         valorParcelaCents: t.valorCents,
         parcelaAtual: t.parcelaNum ?? 0,
         numParcelas: parcelamento.numParcelas,
         data: t.data,
         categoriaNome: t.categoriaId ? (categoriasPorId.get(t.categoriaId)?.nome ?? null) : null,
+        pago: t.pagoEm != null,
       });
     }
 

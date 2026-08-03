@@ -11,6 +11,7 @@ import type {
   Conta,
   Categoria,
   CustoFixo,
+  PagamentoFixo,
   ProvisaoAnual,
   Transacao,
   Parcelamento,
@@ -42,6 +43,18 @@ export interface CustoFixoRepository {
   salvar(custo: CustoFixo): Promise<CustoFixo>;
 }
 
+/**
+ * Rastreamento de "custo fixo pago no ciclo". Marcar/desmarcar precisa ser
+ * idempotente: chamar duas vezes `marcarPago` para o mesmo (custoFixoId,
+ * cicloId) nunca duplica nem lança erro (a unicidade do schema garante isso
+ * no adapter Prisma via upsert/ON CONFLICT).
+ */
+export interface PagamentoFixoRepository {
+  listarPorCiclo(cicloId: string): Promise<PagamentoFixo[]>;
+  marcarPago(custoFixoId: string, cicloId: string, pagoEm: DataCivil): Promise<PagamentoFixo>;
+  desmarcarPago(custoFixoId: string, cicloId: string): Promise<void>;
+}
+
 export interface ProvisaoRepository {
   listarAtivas(): Promise<ProvisaoAnual[]>;
   salvar(provisao: ProvisaoAnual): Promise<ProvisaoAnual>;
@@ -57,6 +70,11 @@ export interface TransacaoRepository {
   atualizar(id: string, patch: Partial<Transacao>): Promise<Transacao>;
   excluir(id: string): Promise<void>;
   vincularCicloPorData(cicloId: string, inicio: DataCivil, fim: DataCivil): Promise<number>;
+  /**
+   * Marca/desmarca a parcela (Transacao) como paga. `pagoEm: null` desmarca.
+   * Idempotente: marcar a mesma parcela duas vezes só reescreve `pagoEm`.
+   */
+  marcarPaga(transacaoId: string, pagoEm: DataCivil | null): Promise<Transacao>;
 }
 
 export interface ParcelamentoRepository {

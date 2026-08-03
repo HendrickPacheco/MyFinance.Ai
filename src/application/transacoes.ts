@@ -168,6 +168,7 @@ export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise
     parcelaNum: null,
     estornoDeId: null,
     cicloId,
+    pagoEm: null,
   });
 
   await aplicarEfeitoSaldo(deps, t, +1);
@@ -210,6 +211,7 @@ export async function criarParcelamento(deps: Deps, input: ParcelamentoInput): P
       parcelaNum: p.parcelaNum,
       estornoDeId: null,
       cicloId: await resolverCicloId(deps, p.data),
+      pagoEm: null,
     });
   }
   return deps.transacoes.criarVarias(transacoes);
@@ -324,6 +326,7 @@ export async function estornarTransacao(
     parcelaNum: null,
     estornoDeId: id,
     cicloId: cicloDestinoId,
+    pagoEm: null,
   });
 
   await aplicarEfeitoSaldo(deps, estorno, +1);
