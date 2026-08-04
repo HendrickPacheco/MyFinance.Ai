@@ -57,23 +57,23 @@ export interface FerramentaCatalogo extends DefinicaoFerramenta {
    * pode ser usada como está; o texto diz exatamente o que falta.
    */
   bloqueio: string | null;
+  /** Nota para quem implementar o wrapper. Não vai para o provedor. */
+  observacao?: string;
 }
 
 /**
- * Bloqueio comum a quatro ferramentas. `garantirCicloAtual`
- * (src/application/ciclos.ts:70) CRIA o ciclo quando ele não existe — é
- * escrita. `obterEstadoHoje`, `obterEstadoCiclo` e `obterEstadoPainel` passam
- * por ele, então usá-los como estão faria uma PERGUNTA gravar no banco,
- * violando a trava 5 (nada grava sem confirmação humana) e a decisão D-8.
+ * BLOQUEIO RESOLVIDO NA D1.5.
  *
- * O que a D2 precisa fazer: uma leitura de ciclo sem efeito colateral
- * (`ciclos.obterAtual`, como já fez `obterProjecao` na C4) e variantes
- * read-only desses três read-models. Sem ciclo aberto, a ferramenta responde
- * que não há ciclo — não cria um.
+ * Quatro ferramentas tinham origem em `obterEstadoHoje`, `obterEstadoCiclo` e
+ * `obterEstadoPainel`, que passam por `garantirCicloAtual` — e esse CRIA o
+ * ciclo quando falta. Usá-los como estavam faria uma PERGUNTA gravar no
+ * banco, violando a trava 5 e a decisão D-8.
+ *
+ * A D1.5 acrescentou `lerCicloAtual` (src/application/ciclos.ts) e as
+ * variantes `*SomenteLeitura` dos três read-models, que devolvem `null` em vez
+ * de abrir ciclo. Os wrappers da D2 usam essas variantes — nunca as das telas.
  */
-const BLOQUEIO_ESCRITA =
-  'A origem passa por garantirCicloAtual, que cria o ciclo se faltar (escrita). ' +
-  'A D2 precisa de uma variante read-only via ciclos.obterAtual, como em obterProjecao (C4).';
+const ORIGEM_READ_ONLY = 'usa a variante *SomenteLeitura (D1.5), nunca a que chama garantirCicloAtual';
 
 export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
   {
@@ -81,9 +81,10 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
     descricao:
       'Quanto o usuário pode gastar HOJE: teto do dia, quanto já gastou hoje, quanto ainda resta hoje e se está em modo recuperação. Use para perguntas sobre o dia corrente.',
     argumentos: z.object({}),
-    origem: 'application/hoje.ts: obterEstadoHoje → domain/finance/teto.ts: calcularTeto',
+    origem: 'application/hoje.ts: obterEstadoHojeSomenteLeitura → domain/finance/teto.ts: calcularTeto',
     comoFoiCalculado: 'domain/finance/teto.ts: calcularTeto',
-    bloqueio: BLOQUEIO_ESCRITA,
+    bloqueio: null,
+    observacao: ORIGEM_READ_ONLY,
   },
   {
     nome: 'estado_ciclo',
@@ -91,9 +92,10 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
       'Situação do ciclo inteiro: composição da verba, quanto já foi gasto, ritmo de gasto e projeção de fechamento. Use para perguntas sobre o mês/ciclo, não sobre hoje.',
     argumentos: z.object({}),
     origem:
-      'application/ciclo-view.ts: obterEstadoCiclo → domain/finance/ritmo.ts: indicadoresRitmo',
+      'application/ciclo-view.ts: obterEstadoCicloSomenteLeitura → domain/finance/ritmo.ts: indicadoresRitmo',
     comoFoiCalculado: 'domain/finance/ritmo.ts: indicadoresRitmo',
-    bloqueio: BLOQUEIO_ESCRITA,
+    bloqueio: null,
+    observacao: ORIGEM_READ_ONLY,
   },
   {
     nome: 'gastos_por_categoria',
@@ -109,9 +111,10 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
         .describe('Quantas categorias devolver. null = todas.'),
     }),
     origem:
-      'application/dashboard.ts: obterEstadoPainel → domain/finance/agregacoes.ts: agregarGastoPorCategoria',
+      'application/dashboard.ts: obterEstadoPainelSomenteLeitura → domain/finance/agregacoes.ts: agregarGastoPorCategoria',
     comoFoiCalculado: 'domain/finance/agregacoes.ts: agregarGastoPorCategoria',
-    bloqueio: BLOQUEIO_ESCRITA,
+    bloqueio: null,
+    observacao: ORIGEM_READ_ONLY,
   },
   {
     nome: 'pagamentos_pendentes',
@@ -119,9 +122,10 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
       'O que ainda falta pagar no ciclo atual: custos fixos não marcados como pagos e parcelas em aberto, com o total. Use para "o que falta pagar este mês".',
     argumentos: z.object({}),
     origem:
-      'application/dashboard.ts: obterEstadoPainel → domain/finance/pagamentos.ts: resumoPagamentosCents',
+      'application/dashboard.ts: obterEstadoPainelSomenteLeitura → domain/finance/pagamentos.ts: resumoPagamentosCents',
     comoFoiCalculado: 'domain/finance/pagamentos.ts: resumoPagamentosCents',
-    bloqueio: BLOQUEIO_ESCRITA,
+    bloqueio: null,
+    observacao: ORIGEM_READ_ONLY,
   },
   {
     nome: 'analise_corte',

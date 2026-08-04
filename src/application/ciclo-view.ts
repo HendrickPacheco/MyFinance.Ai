@@ -9,7 +9,7 @@ import {
   indicadoresRitmo,
   type ResultadoRitmo,
 } from '@/domain/finance';
-import { garantirCicloAtual } from './ciclos';
+import { garantirCicloAtual, lerCicloAtual, type CicloResolvido } from './ciclos';
 import { indexarGrupoCategoria, paraCalculo } from './mapeamento';
 
 export interface EstadoCiclo {
@@ -22,7 +22,16 @@ export interface EstadoCiclo {
 }
 
 export async function obterEstadoCiclo(deps: Deps): Promise<EstadoCiclo> {
-  const { ciclo } = await garantirCicloAtual(deps);
+  return montar(deps, await garantirCicloAtual(deps));
+}
+
+/** Sem efeito colateral: não cria ciclo. `null` quando não há ciclo aberto. */
+export async function obterEstadoCicloSomenteLeitura(deps: Deps): Promise<EstadoCiclo | null> {
+  const resolvido = await lerCicloAtual(deps);
+  return resolvido ? montar(deps, resolvido) : null;
+}
+
+async function montar(deps: Deps, { ciclo }: CicloResolvido): Promise<EstadoCiclo> {
   const hoje = deps.relogio.hoje();
 
   const [transacoes, categorias] = await Promise.all([

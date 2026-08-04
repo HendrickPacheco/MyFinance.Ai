@@ -90,6 +90,24 @@ describe('catálogo de ferramentas', () => {
     }
   });
 
+  it('nenhuma origem passa por read-model que cria ciclo (D1.5)', () => {
+    // `obterEstadoHoje`, `obterEstadoCiclo` e `obterEstadoPainel` chamam
+    // `garantirCicloAtual`, que grava. As tools usam as variantes read-only.
+    const queGravam = ['obterEstadoHoje', 'obterEstadoCiclo', 'obterEstadoPainel'];
+
+    for (const f of CATALOGO_FERRAMENTAS) {
+      for (const proibida of queGravam) {
+        const usaVariantePerigosa = new RegExp(`${proibida}(?!SomenteLeitura)\\b`).test(f.origem);
+        expect(usaVariantePerigosa, `${f.nome} usa ${proibida}, que cria ciclo`).toBe(false);
+      }
+    }
+  });
+
+  it('não há ferramenta bloqueada — a D2 pode implementar todas', () => {
+    expect(FERRAMENTAS_BLOQUEADAS).toHaveLength(0);
+    expect(FERRAMENTAS_LIBERADAS).toHaveLength(CATALOGO_FERRAMENTAS.length);
+  });
+
   it('liberadas e bloqueadas particionam o catálogo', () => {
     expect(FERRAMENTAS_LIBERADAS.length + FERRAMENTAS_BLOQUEADAS.length).toBe(
       CATALOGO_FERRAMENTAS.length,

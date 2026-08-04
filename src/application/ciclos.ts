@@ -61,15 +61,55 @@ async function parametrosCongelados(deps: Deps, rendaPrevistaCents: number) {
   return { fixosCents, provMensalCents, poupancaCents };
 }
 
+/** Ciclo que cobre hoje, mais a pendência de fechamento do anterior. */
+export interface CicloResolvido {
+  ciclo: Ciclo;
+  pendenciaFechamento: Ciclo | null;
+}
+
+/**
+ * Pendência: o ciclo anterior (que já terminou) ainda não foi fechado.
+ * Só leitura — é aviso, nunca bloqueio (regra 10).
+ */
+async function pendenciaDeFechamento(
+  deps: Deps,
+  ciclo: Ciclo,
+  diaRecebimento: number,
+): Promise<Ciclo | null> {
+  const inicioAnterior = limitesCiclo(addDias(ciclo.dataInicio, -1), diaRecebimento).inicio;
+  const anterior = await deps.ciclos.obterPorInicio(inicioAnterior);
+  return anterior && !anterior.fechado && anterior.id !== ciclo.id ? anterior : null;
+}
+
+/**
+ * Lê o ciclo que cobre hoje SEM criar nada. Devolve `null` quando não existe
+ * ciclo aberto — em vez de abrir um.
+ *
+ * É o par read-only de `garantirCicloAtual`, e existe para o copiloto (Fase D):
+ * responder uma pergunta não pode gravar no banco como efeito colateral
+ * (decisão D-8, trava 5). Toda tela que o usuário abre continua usando
+ * `garantirCicloAtual` — quem lê para responder usa esta.
+ */
+export async function lerCicloAtual(deps: Deps): Promise<CicloResolvido | null> {
+  const config = await deps.config.obter();
+  if (!config) throw new ConfigAusenteError();
+
+  const ciclo = await deps.ciclos.obterAtual(deps.relogio.hoje());
+  if (!ciclo) return null;
+
+  return {
+    ciclo,
+    pendenciaFechamento: await pendenciaDeFechamento(deps, ciclo, config.diaRecebimento),
+  };
+}
+
 /**
  * Idempotente (chamada no layout). Garante que existe um ciclo cobrindo hoje;
  * se não existe, cria congelando os parâmetros vigentes. Nunca bloqueia nada
  * por pendência de fechamento (regra 10). Devolve o ciclo atual e se há
  * pendência de fechamento de um ciclo anterior.
  */
-export async function garantirCicloAtual(
-  deps: Deps,
-): Promise<{ ciclo: Ciclo; pendenciaFechamento: Ciclo | null }> {
+export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
   const config = await deps.config.obter();
   if (!config) throw new ConfigAusenteError();
 
@@ -132,13 +172,10 @@ export async function garantirCicloAtual(
     }
   }
 
-  // Pendência: o ciclo anterior (que já terminou) ainda não foi fechado.
-  const inicioAnterior = limitesCiclo(addDias(ciclo.dataInicio, -1), config.diaRecebimento).inicio;
-  const anterior = await deps.ciclos.obterPorInicio(inicioAnterior);
-  const pendenciaFechamento =
-    anterior && !anterior.fechado && anterior.id !== ciclo.id ? anterior : null;
-
-  return { ciclo, pendenciaFechamento };
+  return {
+    ciclo,
+    pendenciaFechamento: await pendenciaDeFechamento(deps, ciclo, config.diaRecebimento),
+  };
 }
 
 /**
