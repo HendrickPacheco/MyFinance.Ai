@@ -85,7 +85,11 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
     metaPoupancaCents: entrada.metaPoupancaCents,
     metaPoupancaPercent: entrada.metaPoupancaPercent,
   });
-  const provisao = provisaoMensalCents(entrada.valoresProvisaoAnualCents);
+  // Valor congelado tem precedência: o ciclo atual guarda a provisão mensal,
+  // não os anuais que a originaram (SPEC 5.2).
+  const provisao =
+    entrada.provisaoMensalCongeladaCents ??
+    provisaoMensalCents(entrada.valoresProvisaoAnualCents);
 
   const ciclos: CicloProjetado[] = [];
   let limites = limitesCiclo(entrada.dataBase, entrada.diaRecebimento);
