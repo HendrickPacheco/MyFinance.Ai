@@ -13,6 +13,7 @@ import { cn } from '@/lib/cn';
 import { Button, ConfirmInline, Input, Label, Select } from '@/components/ui';
 import { editarTransacao, excluirTransacao, estornarTransacao } from '@/actions/transacoes';
 import type { Categoria, Transacao } from '@/domain/model/entidades';
+import { usePodeEscrever } from '@/components/auth/ator-contexto';
 
 const TOM_VALOR: Record<Transacao['tipo'], { sinal: '+' | '-' | ''; cor: string }> = {
   DESPESA: { sinal: '-', cor: 'text-negativo' },
@@ -59,6 +60,9 @@ export function TransacaoLinha({
   categorias: Categoria[];
 }) {
   const router = useRouter();
+  // UX: VIEWER não vê editar/estornar/excluir. A trava real é `exigirEscrita`
+  // no caso de uso (TASKS-AUTH §2.3).
+  const podeEscrever = usePodeEscrever();
   const [menuAberto, setMenuAberto] = useState(false);
   const [editando, setEditando] = useState(false);
   const [pendente, setPendente] = useState(false);
@@ -328,6 +332,7 @@ export function TransacaoLinha({
         </div>
 
         <div className="relative shrink-0">
+          {podeEscrever ? (
           <button
             type="button"
             onClick={() => setMenuAberto((v) => !v)}
@@ -339,6 +344,7 @@ export function TransacaoLinha({
           >
             <MoreVertical size={18} />
           </button>
+          ) : null}
 
           {menuAberto ? (
             <>

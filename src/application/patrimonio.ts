@@ -2,6 +2,7 @@
  * Read-model e caso de uso de Patrimônio (SPEC 5.6, 7, 8).
  */
 import type { Deps } from './deps';
+import { exigirEscrita } from '@/domain/auth/permissoes';
 import type { ItemPatrimonio, SnapshotPatrimonio } from '@/domain/model/entidades';
 import type { ClassePatrimonio } from '@/domain/model/enums';
 import {
@@ -102,6 +103,9 @@ export async function criarSnapshot(
   data: string,
   itens: ItemSnapshotInput[],
 ): Promise<SnapshotPatrimonio> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const itensEntidade: ItemPatrimonio[] = itens.map((i) => ({
     id: '',
     snapshotId: '',

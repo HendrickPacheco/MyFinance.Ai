@@ -17,6 +17,22 @@ antes de mudanças estruturais.
   (R$ 4.884), 13 parcelamentos (R$ 4.393,88/mês), ciclo = mês civil (`diaRecebimento` 1).
 - Motor: suíte Vitest verde · `tsc --noEmit` limpo · `next build` verde.
 
+### Regra de ouro do multi-tenant (04/08/2026)
+
+**Todo dado financeiro pertence a um `donoId`.** O escopo é aplicado em UM lugar
+só — `src/composition.ts`, que constrói cada repositório com o `donoId` do ator
+da sessão. Consequências que não podem ser violadas:
+
+- Em `src/infrastructure/repositories/prisma-repositories.ts`, **nunca**
+  `findUnique({ where: { id } })` — use `findFirst({ where: { id, donoId } })`.
+  `findUnique` não aceita filtro extra e devolveria a linha de outro usuário.
+- Escrita por id usa `updateMany`/`deleteMany` com `{ id, donoId }`: com id
+  alheio afeta zero linhas, em vez de alterá-las.
+- Tabela financeira nova nasce com `donoId` + índice, e qualquer unicidade dela
+  é **composta com `donoId`** (senão um usuário bloqueia o nome/data do outro).
+- Confira com `pnpm verificar:isolamento` (cria dois donos reais, tenta vazar
+  nos dois sentidos, limpa tudo e confere que seus dados não mudaram).
+
 ### Armadilha recorrente desta sessão
 
 Mudou `prisma/schema.prisma`, `.env` ou rodou migração? **O dev server precisa ser
@@ -47,7 +63,12 @@ Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
 5. **Nunca misture custo fixo/provisão com verba variável** em cálculo ou exibição.
    Nenhuma tela mostra como disponível dinheiro já comprometido.
 6. **`localStorage` não é fonte de verdade** (só preferências de UI).
-7. Sem autenticação, multiusuário ou integração bancária na v1.
+7. ~~Sem autenticação, multiusuário ou integração bancária na v1.~~
+   **REVOGADA em 04/08/2026** (parcialmente): o app agora tem **autenticação
+   (sessão própria + Argon2id), papéis OWNER/VIEWER e é MULTI-TENANT** — cada
+   usuário vê e escreve só as próprias finanças. Ver `TASKS-AUTH.md`. Segue
+   valendo: **sem integração bancária**, e **sem tela de auto-cadastro**
+   (usuário se cria por `pnpm db:seed-owner` ou direto no banco).
 8. **Nunca bloquear lançamento de gasto** por pendência de fechamento de ciclo.
 9. Sem gráfico na tela Hoje. Sem dados fake/mock nas telas — estado vazio com ação.
 

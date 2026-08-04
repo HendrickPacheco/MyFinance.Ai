@@ -16,6 +16,7 @@ import * as React from 'react';
 import { Checkbox } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import type { Resultado } from '@/actions/resultado';
+import { usePodeEscrever } from '@/components/auth/ator-contexto';
 
 export interface PagamentoToggleProps {
   id: string;
@@ -27,6 +28,10 @@ export interface PagamentoToggleProps {
 }
 
 export function PagamentoToggle({ id, pago, itemLabel, onToggle, className }: PagamentoToggleProps) {
+  // UX: não oferecer ao VIEWER um controle que o servidor recusaria. A trava
+  // real é `exigirEscrita` no caso de uso (ver TASKS-AUTH §2.3).
+  const podeEscrever = usePodeEscrever();
+  if (!podeEscrever) return null;
   const [pagoOtimista, setPagoOtimista] = React.useState(pago);
   const [pendente, setPendente] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);

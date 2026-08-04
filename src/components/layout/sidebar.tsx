@@ -13,12 +13,15 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  LogOut,
   Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Button, TooltipPortal, type TooltipAnchorRect } from '@/components/ui';
 import { EVENTO_ABRIR_LANCAMENTO } from '@/components/dashboard/lancamento-painel';
+import { sair } from '@/actions/auth';
+import type { Papel } from '@/domain/auth/ator';
 
 interface ItemSidebar {
   href: string;
@@ -187,8 +190,18 @@ function SidebarNavLink({
  * `mostrarCopiloto` vem do servidor (app/layout.tsx), porque `IA_HABILITADA`
  * é variável de ambiente e este componente é client — ele não tem como ler.
  */
-export function Sidebar({ mostrarCopiloto = false }: { mostrarCopiloto?: boolean }) {
+export function Sidebar({
+  papel,
+  mostrarCopiloto = false,
+}: {
+  papel: Papel;
+  mostrarCopiloto?: boolean;
+}) {
   const pathname = usePathname();
+  // A UI esconder o que o VIEWER não pode fazer é UX, não segurança: a trava
+  // real é `exigirEscrita` na camada de aplicação. Aqui só evitamos oferecer
+  // um botão que o servidor vai recusar.
+  const podeEscrever = papel === 'OWNER';
   const [collapsed, setCollapsed] = React.useState(false);
 
   const itens = React.useMemo(
@@ -232,7 +245,7 @@ export function Sidebar({ mostrarCopiloto = false }: { mostrarCopiloto?: boolean
       </div>
 
       <ToggleSidebar collapsed={collapsed} onToggle={alternar} />
-      <BotaoLancarGasto collapsed={collapsed} />
+      {podeEscrever ? <BotaoLancarGasto collapsed={collapsed} /> : null}
 
       <nav aria-label="Navegação principal" className="mt-6 flex-1 space-y-1 overflow-y-auto px-3 pb-6">
         {itens.map((item) => {
@@ -249,6 +262,31 @@ export function Sidebar({ mostrarCopiloto = false }: { mostrarCopiloto?: boolean
           );
         })}
       </nav>
+
+      <RodapeSessao papel={papel} collapsed={collapsed} />
     </aside>
+  );
+}
+
+/** Identidade do ator e saída. Discreto, no rodapé — SPEC 11 (tom factual). */
+function RodapeSessao({ papel, collapsed }: { papel: Papel; collapsed: boolean }) {
+  return (
+    <div className="border-t border-border px-3 py-3">
+      {!collapsed ? (
+        <p className="px-2 pb-2 text-xs uppercase tracking-widest text-muted">
+          {papel === 'OWNER' ? 'Dono' : 'Somente leitura'}
+        </p>
+      ) : null}
+      <form action={sair}>
+        <button
+          type="submit"
+          className="flex min-h-[44px] w-full items-center gap-3 rounded-lg px-2 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          aria-label="Sair"
+        >
+          <LogOut size={18} aria-hidden />
+          <span className="sidebar-label truncate">Sair</span>
+        </button>
+      </form>
+    </div>
   );
 }
