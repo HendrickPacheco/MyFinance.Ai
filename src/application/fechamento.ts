@@ -4,6 +4,7 @@
  * meta. O passo de recalibração é o mecanismo de progresso do app.
  */
 import type { Deps } from './deps';
+import { exigirEscrita } from '@/domain/auth/permissoes';
 import type { Ciclo, Config, Transacao } from '@/domain/model/entidades';
 import { gastoRealizadoCents, distribuirProvisaoMensalCents } from '@/domain/finance';
 import { indexarGrupoCategoria, paraCalculo } from './mapeamento';
@@ -146,6 +147,9 @@ export async function fecharCiclo(
   cicloId: string,
   input: FechamentoInput,
 ): Promise<ResultadoFechamento> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const cicloAtual = await deps.ciclos.obter(cicloId);
   if (!cicloAtual) throw new Error('Ciclo não encontrado.');
   if (cicloAtual.fechado) throw new Error('Este ciclo já foi fechado.');

@@ -58,3 +58,25 @@ export function limitesCiclo(data: DataCivil, diaRecebimento: number): LimitesCi
 export function diasTotaisCiclo(limites: LimitesCiclo): number {
   return diffDias(limites.fim, limites.inicio) + 1;
 }
+
+/**
+ * O ciclo que começa no dia seguinte a `fimAnterior`, terminando no corte
+ * seguinte da grade de `diaRecebimento`.
+ *
+ * Existe por causa da TRANSIÇÃO: se o usuário muda o `diaRecebimento` depois
+ * de um ciclo já ter nascido, o dia seguinte ao fim dele pode cair no meio de
+ * um ciclo da grade nova. `limitesCiclo` sozinho devolveria o intervalo
+ * inteiro dessa grade — que RETROCEDE e se sobrepõe ao ciclo anterior,
+ * fazendo a mesma parcela ser contada duas vezes.
+ *
+ *   fim anterior 2026-08-04, diaRecebimento novo 20
+ *     limitesCiclo("2026-08-05", 20) -> { 2026-07-20, 2026-08-19 }  <- sobrepõe
+ *     proximoCicloApos("2026-08-04", 20) -> { 2026-08-05, 2026-08-19 }
+ *
+ * O ciclo de transição é mais curto; a partir do seguinte a grade normaliza.
+ * Sem mudança de `diaRecebimento`, é idêntico a `limitesCiclo` do dia seguinte.
+ */
+export function proximoCicloApos(fimAnterior: DataCivil, diaRecebimento: number): LimitesCiclo {
+  const inicio = addDias(assertData(fimAnterior), 1);
+  return { inicio, fim: limitesCiclo(inicio, diaRecebimento).fim };
+}

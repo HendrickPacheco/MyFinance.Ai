@@ -33,6 +33,12 @@ import type {
 import type { DataCivil } from '@/shared/data';
 import type { Deps } from '../deps';
 import { RelogioFixo } from '@/infrastructure/relogio/relogio-sistema';
+import type { Ator } from '@/domain/auth/ator';
+import type { Usuario } from '@/domain/auth/usuario';
+import type { SessaoPort } from '@/domain/ports/sessao';
+import type { HashSenhaPort } from '@/domain/ports/hash-senha';
+import type { RateLimiterPort } from '@/domain/ports/rate-limiter';
+import { EmailJaUsadoError, type NovoUsuario, type UsuarioRepository } from '@/domain/ports/usuarios';
 
 function clone<T>(v: T): T {
   return structuredClone(v);
@@ -381,6 +387,102 @@ export class FakePatrimonioRepo implements PatrimonioRepository {
   }
 }
 
+// ── Fakes de identidade e segurança (plano TASKS-AUTH) ──────────────────────
+
+export const ATOR_OWNER: Ator = { id: 'u-owner', papel: 'OWNER' };
+export const ATOR_VIEWER: Ator = { id: 'u-viewer', papel: 'VIEWER' };
+
+export class FakeUsuarioRepo implements UsuarioRepository {
+  criados: NovoUsuario[] = [];
+  private proximoId = 1;
+
+  constructor(private readonly usuarios: Usuario[] = []) {}
+
+  async porEmail(email: string): Promise<Usuario | null> {
+    return clone(this.usuarios.find((u) => u.email === email.trim().toLowerCase()) ?? null);
+  }
+
+  async porId(id: string): Promise<Usuario | null> {
+    return clone(this.usuarios.find((u) => u.id === id) ?? null);
+  }
+
+  async criar(dados: NovoUsuario): Promise<Usuario> {
+    const email = dados.email.trim().toLowerCase();
+    // Imita a constraint unique do banco — é assim que o caso de uso descobre
+    // que o email já existe.
+    if (this.usuarios.some((u) => u.email === email)) throw new EmailJaUsadoError();
+
+    this.criados.push(dados);
+    const novo: Usuario = {
+      id: `u-novo-${this.proximoId++}`,
+      email,
+      nome: dados.nome,
+      senhaHash: dados.senhaHash,
+      papel: dados.papel,
+      ativo: true,
+    };
+    this.usuarios.push(novo);
+    return clone(novo);
+  }
+}
+
+/** Sessão em memória: registra as chamadas para os testes asserirem. */
+export class FakeSessaoPort implements SessaoPort {
+  criadas: string[] = [];
+  invalidacoes = 0;
+  constructor(private atorAtual: Ator | null = null) {}
+
+  async criar(usuarioId: string): Promise<{ expiraEm: Date }> {
+    this.criadas.push(usuarioId);
+    return { expiraEm: new Date('2026-09-03T00:00:00Z') };
+  }
+
+  async validar(): Promise<Ator | null> {
+    return this.atorAtual;
+  }
+
+  async invalidar(): Promise<void> {
+    this.invalidacoes += 1;
+    this.atorAtual = null;
+  }
+}
+
+/**
+ * Hash fake determinístico. `verificar` conta as chamadas para o teste provar
+ * que a senha é conferida mesmo quando o usuário não existe (defesa de timing).
+ *
+ * Usa base64 e NÃO concatena a senha em claro de propósito: com `hash(${'${senha}'})`
+ * o resultado conteria a senha como substring, e um teste que verifica
+ * "o hash não vaza a senha" passaria por acidente contra o hasher real e
+ * falharia contra o fake — ou pior, o contrário. Isto não é criptografia; é só
+ * uma transformação que não devolve a senha literal.
+ */
+export class FakeHashSenha implements HashSenhaPort {
+  verificacoes = 0;
+
+  async hashear(senha: string): Promise<string> {
+    return `fake$${Buffer.from(senha, 'utf8').toString('base64')}`;
+  }
+
+  async verificar(senha: string, hash: string): Promise<boolean> {
+    this.verificacoes += 1;
+    return hash === (await this.hashear(senha));
+  }
+}
+
+/** Limiter determinístico: nega a partir da N-ésima chamada por chave. */
+export class FakeRateLimiter implements RateLimiterPort {
+  private contagens = new Map<string, number>();
+  chamadas: string[] = [];
+
+  async permitir(chave: string, limite: number): Promise<boolean> {
+    this.chamadas.push(chave);
+    const usada = (this.contagens.get(chave) ?? 0) + 1;
+    this.contagens.set(chave, usada);
+    return usada <= limite;
+  }
+}
+
 export interface FakeDeps extends Deps {
   relogio: RelogioPort;
   config: FakeConfigRepo;
@@ -393,6 +495,10 @@ export interface FakeDeps extends Deps {
   parcelamentos: FakeParcelamentoRepo;
   ciclos: FakeCicloRepo;
   patrimonio: FakePatrimonioRepo;
+  usuarios: FakeUsuarioRepo;
+  sessoes: FakeSessaoPort;
+  hashSenha: FakeHashSenha;
+  rateLimiter: FakeRateLimiter;
 }
 
 export const CONFIG_PADRAO: Config = {
@@ -442,11 +548,24 @@ export interface OpcoesFakeDeps {
   ciclos?: Ciclo[];
   snapshots?: SnapshotPatrimonio[];
   pagamentosFixos?: PagamentoFixo[];
+  /**
+   * Ator da requisição. Default OWNER para que os testes existentes (que
+   * exercitam regra financeira, não permissão) sigam valendo sem mudança. Os
+   * testes de autorização passam VIEWER explicitamente.
+   */
+  ator?: Ator;
+  usuarios?: Usuario[];
+  sessaoAtual?: Ator | null;
 }
 
 export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
   const config = opcoes.config === undefined ? clone(CONFIG_PADRAO) : opcoes.config;
   return {
+    ator: opcoes.ator ?? ATOR_OWNER,
+    usuarios: new FakeUsuarioRepo(opcoes.usuarios ?? []),
+    sessoes: new FakeSessaoPort(opcoes.sessaoAtual ?? null),
+    hashSenha: new FakeHashSenha(),
+    rateLimiter: new FakeRateLimiter(),
     relogio: opcoes.relogio ?? new RelogioFixo(opcoes.hoje ?? '2026-07-20'),
     config: new FakeConfigRepo(config),
     contas: new FakeContaRepo(opcoes.contas ?? []),
