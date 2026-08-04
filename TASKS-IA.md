@@ -1183,49 +1183,167 @@ Registrado para não virar scope creep silencioso. **Nenhum item tem tarefa nest
 
 ---
 
-## 10. Fase E — Memória do copiloto (decidida em 04/08/2026, a executar após D3)
+## 10. Estado em 04/08/2026 (fim da sessão)
 
-O dono decidiu que o copiloto deve ser um **assistente financeiro com memória**, não um
-respondedor sem contexto. Decisões fechadas:
+**Fase D concluída e em uso real.** O copiloto responde em `/copiloto`, verificado
+no navegador contra os dados do dono: "quanto posso gastar hoje" devolveu R$ 253,28
+(idêntico à home) e o pré-mortem de R$ 3.000 em 10x devolveu R$ 4.693,88 de parcelas
+e R$ 2.422,12 de verba livre — rotulando corretamente como **verba livre**, não como
+verba variável.
 
-- **Quando:** depois de D2 e D3 (copiloto já respondendo sobre números), **antes da UI (D5)**.
-  A memória entra como mais um conjunto de ferramentas no mesmo loop de tool calling.
-- **Gravação:** só com **confirmação explícita**. O copiloto propõe ("quer que eu lembre que
-  você planeja trocar de carro em 2027?") e só grava se o dono confirmar. Preserva o espírito
-  da trava 5.
-- **Conteúdo:** planos e metas de médio prazo · preferências e linhas vermelhas · contexto de
-  vida e renda · histórico das conversas.
+| Tarefa | Estado | Commit |
+|---|---|---|
+| A0.1 – A0.5 (fundação + spike) | ✅ | `d4fd8ad` |
+| C1 – C5 (projeção) | ✅ | `d45a065`, `de39902` |
+| C6 (auditoria) | ✅ | `9e2b252` |
+| D1 (catálogo) | ✅ | `6dd43a7` |
+| **D1.5** (read-models read-only) — tarefa NÃO prevista, ver §10.1 | ✅ | `dfd3c48` |
+| D2 (wrappers) | ✅ | `66f8319` |
+| D3 (loop + prompt) | ✅ | `8474bf6` |
+| D4 (server action) | ✅ | `ecc4203` |
+| D5 (UI com proveniência) | ✅ | `560bf1c` |
+| merge auth/multi-tenant | ✅ | `16eb878` |
+| correção do contrato de segurança da IA | ✅ | `3ec8945` |
+| **D6, D7** (testes finais e auditoria da camada) | ⬜ pendente | — |
+| **Fase E** (memória) | ⬜ pendente, destravada | — |
 
-### 10.1 O corte inviolável desta fase
+Suíte: **617 testes verdes**, `tsc` limpo, `next build` verde.
 
-**Número nunca entra na memória.** O vector DB guarda intenção, plano e preferência; a conta
-continua saindo de função pura via ferramenta. Embutir "verba de agosto: R$ 7.116,00" num
-embedding cria alucinação plausível e **invisível** — o número foi verdade ontem e é falso hoje,
-e ninguém percebe. Isso viola as travas 1 e 3 de forma mais grave que um mock em tela.
+### 10.1 Tarefas e achados que o plano original não previu
 
-Consequência prática: o texto salvo passa por uma checagem que rejeita valor monetário. Se o
-dono disser "quero juntar R$ 50.000", o que se guarda é a **meta como intenção**, e o
-acompanhamento dela sai do motor — nunca do texto.
+1. **D1.5 — read-models sem efeito colateral.** `obterEstadoHoje`, `obterEstadoCiclo` e
+   `obterEstadoPainel` passavam por `garantirCicloAtual`, que CRIA o ciclo quando falta.
+   Uma pergunta ao copiloto na virada de ciclo teria gravado no banco. Resolvido com
+   `lerCicloAtual` + variantes `*SomenteLeitura`.
+2. **A0.5 achou que o modelo exige a Responses API.** `gpt-5.6-terra` é modelo de
+   raciocínio e a API recusa function tools em `/v1/chat/completions`. O adapter fala
+   `/v1/responses`. Desligar o raciocínio degradaria a escolha entre ferramentas.
+3. **Auditoria C6 achou dupla contagem de parcela** no read-model, quando
+   `diaRecebimento` é editado. Corrigido eliminando os dois segmentos: o ciclo congelado
+   virou entrada do motor (`CicloCongelado`) e a projeção roda numa passagem só. Gerou a
+   função pura nova `proximoCicloApos` (ciclo de transição de grade).
+4. **`ResultadoRitmo` tem campos `*Cents` fracionários de propósito.** Expor isso a um LLM
+   convida a tratar indicador como dinheiro. Virou `ritmoExibivel` no domínio.
+5. **Rede de detecção contra alucinação** (`valoresNaoRastreados`): todo `R$` no texto
+   final que nenhuma ferramenta devolveu é sinalizado em vermelho na UI. Não estava no
+   plano — as defesas previstas eram todas preventivas, nenhuma detectiva.
 
-### 10.2 Deltas sobre decisões anteriores
+### 10.2 🔴 O que o merge com auth/multi-tenant mudou (LEIA ANTES DE RETOMAR)
 
-- **D-8 (copiloto read-only) — REFORMULADA.** O copiloto pode escrever **na memória dele**,
-  nunca em dado financeiro. Continua não existindo tool que crie transação, feche ciclo ou
-  altere Config. A trava 5 passa a ser: nenhuma escrita, de nenhum tipo, sem confirmação humana.
-- **D-5 (retenção de conversa) — SUPERADA.** O default era metadado sem conteúdo. Memória
-  persistente contradiz isso por definição, e o dono optou por ela conscientemente.
-- **§1.1 "este plano não tem nenhuma migração de schema" — deixa de valer na Fase E.** É a
-  primeira migração desde o início: extensão `pgvector` + tabela de memória. Volta a valer o
-  cuidado do `CLAUDE.md`: reiniciar o dev server (`pnpm db:generate && rm -rf .next && pnpm dev`)
-  e subir `BACKUP_VERSION`, com ciclo de aceite export → limpar → import.
+Em 04/08/2026 a `main` recebeu autenticação, papéis OWNER/VIEWER e isolamento
+multi-tenant (`e44f474`). Isso **invalidou três premissas** deste plano:
 
-### 10.3 Direção técnica
+1. **Regra 7 do `CLAUDE.md` foi revogada.** O app não é mais single-user.
+2. **Toda tabela financeira nova nasce com `donoId` + índice**, e qualquer unicidade é
+   composta com ele. Vale para a tabela `Memoria`.
+3. **A IA é OWNER-only e tem teto de custo durável.** `src/application/limite-ia.ts`
+   define o contrato de três passos; ele está implementado em
+   `src/application/ia/copiloto.ts: responder` (não na action — `permissoes.ts` manda
+   checar na primeira linha do caso de uso). Qualquer entrada nova de IA — inclusive a
+   geração de embeddings da Fase E — tem que passar pelos mesmos três passos.
 
-`pgvector` no PostgreSQL que já existe — uma extensão, uma tabela, zero infraestrutura nova,
-entra no backup atual. Pinecone/Chroma/Qdrant seriam um segundo serviço num app que sobe com
-um comando.
+**Armadilha confirmada na prática:** as migrações de auth foram aplicadas ao
+`financial_dev` por um worktree antes de existirem na `main`. Isso deixou `donoId`
+NOT NULL sem default numa coluna que o Prisma da `main` não conhecia — leitura
+funcionava, mas **todo lançamento de gasto falhava**. Se voltar a acontecer:
+`pnpm install && pnpm db:generate && rm -rf .next`.
 
-Ressalva registrada: para **um** usuário, memória semântica são algumas centenas de itens, e
-nesse volume carregar tudo no contexto dá quase o mesmo resultado que busca por embedding. Por
-isso a busca fica atrás de uma porta `MemoriaPort` — trocar "busca vetorial" por "carrega tudo"
-tem que ser um adapter, não um redesenho.
+---
+
+## 11. Fase E — Memória do copiloto (planejada, não iniciada)
+
+Decisões do dono já fechadas:
+
+- **Quando:** depois da Fase D (feita). Pode começar a qualquer momento.
+- **Gravação:** só com **confirmação explícita**. O copiloto propõe, o dono confirma.
+- **Conteúdo:** planos e metas · preferências e linhas vermelhas · contexto de vida e
+  renda · histórico das conversas.
+- **Busca:** **pgvector com embeddings** (decisão de 04/08/2026, contra a recomendação
+  de começar sem — o dono optou pela busca semântica desde o início).
+
+### 11.1 Infraestrutura JÁ PRONTA nesta máquina
+
+O bottle do brew só traz pgvector para Postgres 17/18, e o banco é o 16. Foi
+**compilado da fonte** contra o `@16` e a extensão está criada e testada:
+
+```bash
+# já executado — repetir só se trocar de máquina ou de versão do Postgres
+brew install pgvector                      # instala, mas só para 17/18
+git clone --branch v0.8.6 https://github.com/pgvector/pgvector.git
+cd pgvector
+make        PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config
+make install PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config
+psql -d financial_dev -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+Verificado: `vector 0.8.6`, e `'[1,2,3]'::vector <=> '[1,2,4]'::vector` devolve
+`0.00853986601633272`.
+
+> Efeito colateral registrado: o `brew install pgvector` autoremoveu `python@3.13`.
+
+### 11.2 O corte inviolável
+
+**Número nunca entra na memória.** O vector DB guarda intenção, plano e preferência; a
+conta continua saindo de função pura via ferramenta. Embutir "verba de agosto:
+R$ 7.116,00" num embedding cria alucinação plausível e **invisível** — o número foi
+verdade ontem e é falso hoje, e ninguém percebe. Isso viola as travas 1 e 3 de forma
+mais grave que um mock em tela.
+
+Consequência prática: uma função pura em `src/domain/memoria/regras.ts` rejeita texto
+com valor monetário, aplicada antes de qualquer gravação. Se o dono disser "quero juntar
+R$ 50.000", guarda-se a **meta como intenção**; o acompanhamento sai do motor.
+
+### 11.3 Modelo de dados proposto (já corrigido para multi-tenant)
+
+```prisma
+/// Memória do copiloto (Fase E).
+/// REGRA INVIOLÁVEL: `texto` NUNCA guarda valor monetário — ver src/domain/memoria/regras.ts.
+model Memoria {
+  id     String  @id @default(cuid())
+  donoId String                        // <- regra de ouro do multi-tenant
+  tipo   String                        // PLANO | PREFERENCIA | CONTEXTO | CONVERSA
+  texto  String
+  origem String  @default("USUARIO")   // USUARIO | COPILOTO (proposta confirmada)
+  ativo  Boolean @default(true)
+
+  /// text-embedding-3-small, 1536 dimensões. `Unsupported` porque o Prisma não
+  /// tipa vetor: leitura e escrita deste campo são SQL cru, isoladas no adapter.
+  /// Nulo = ainda não indexado; a busca semântica não o alcança (degrada, não quebra).
+  embedding Unsupported("vector(1536)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([donoId, tipo, ativo])
+  @@index([donoId, ativo, createdAt])
+}
+```
+
+### 11.4 Tarefas
+
+- **E1 — Migração.** `CREATE EXTENSION IF NOT EXISTS vector` no SQL da migração (para
+  banco novo funcionar), tabela `Memoria`, índice vetorial (HNSW) criado à mão no SQL.
+  Reiniciar o dev server depois (`pnpm db:generate && rm -rf .next && pnpm dev`).
+- **E2 — Guarda pura.** `src/domain/memoria/regras.ts`: rejeita texto com valor
+  monetário, normaliza, limita tamanho. Testada. É a §11.2 virando código.
+- **E3 — Porta e adapter.** `MemoriaPort` no domínio (sem SQL, sem vetor no tipo);
+  adapter Prisma com SQL cru para `embedding` e busca por `<=>`, escopado por `donoId`.
+- **E4 — Embeddings.** Segundo método na porta de IA ou porta própria; `OPENAI_MODEL_EMBEDDING`
+  em `config-ia.ts` e `.env.example`. **Passa pelo teto de `usoIA`** (§10.2 item 3).
+- **E5 — Casos de uso.** `salvarMemoria` (com `exigirEscrita`), `buscarMemoria`,
+  `listarMemorias`, `arquivarMemoria`. Todos escopados por `donoId` via `Deps`.
+- **E6 — Ferramentas e loop.** `buscar_memoria` (read-only) e `propor_memoria` (NÃO
+  grava — devolve a proposta, que o loop expõe em `RespostaCopiloto` para a UI
+  confirmar). Planos/preferências/contexto são injetados no prompt de sistema; o
+  histórico de conversa usa busca semântica.
+- **E7 — UI.** Botão de confirmar proposta de memória; tela de gerenciar memórias
+  (ver, editar, arquivar) — o dono precisa poder auditar o que o copiloto "sabe".
+- **E8 — Backup.** `BACKUP_VERSION` 2 → 3, export/import incluindo `Memoria` (com ou
+  sem o vetor — decidir; reindexar no import é aceitável e evita payload gigante).
+  Ciclo de aceite: export → limpar → import → estado idêntico.
+
+### 11.5 Decisão em aberto para o dono
+
+**D-12 — Um VIEWER pode ler as memórias do dono?** Inclinação registrada: **não**.
+Memória contém plano e contexto de vida, mais sensível que os números que o VIEWER já
+enxerga. Precisa de confirmação antes da E5.
