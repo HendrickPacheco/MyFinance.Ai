@@ -314,6 +314,97 @@ describe('projetarCiclos — parâmetros do ciclo', () => {
   });
 });
 
+describe('projetarCiclos — ciclo congelado como entrada', () => {
+  const congelado = {
+    inicio: '2026-07-05',
+    fim: '2026-08-04',
+    rendaPrevistaCents: 800_000,
+    poupancaAlvoCents: 0,
+    fixosCents: 200_000,
+    provisaoMensalCents: 10_000,
+    // Incoerente com as partes de propósito (estado pós-puxarDaReserva).
+    verbaVariavelCents: 700_000,
+    rolloverRecebidoCents: 0,
+  };
+
+  it('emite o ciclo 1 tal e qual, sem recompor a verba pelas partes', () => {
+    const ciclos = projetarCiclos(entradaBase({ cicloCongelado: congelado, numCiclos: 3 }));
+
+    expect(em(ciclos, 0).inicio).toBe('2026-07-05');
+    expect(em(ciclos, 0).fim).toBe('2026-08-04');
+    expect(em(ciclos, 0).verbaVariavelCents).toBe(700_000);
+    expect(em(ciclos, 0).poupancaAlvoCents).toBe(0);
+  });
+
+  it('deriva os ciclos seguintes do fim do congelado, sem sobrepor', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({ cicloCongelado: congelado, diaRecebimento: 20, numCiclos: 3 }),
+    );
+
+    expect(em(ciclos, 1).inicio).toBe('2026-08-05');
+    for (let i = 1; i < ciclos.length; i += 1) {
+      expect(em(ciclos, i).inicio > em(ciclos, i - 1).fim).toBe(true);
+    }
+  });
+
+  it('ignora dataBase quando há ciclo congelado', () => {
+    const comData = projetarCiclos(
+      entradaBase({ cicloCongelado: congelado, dataBase: '2027-03-15', numCiclos: 2 }),
+    );
+
+    expect(em(comData, 0).inicio).toBe('2026-07-05');
+  });
+});
+
+describe('projetarCiclos — bordas', () => {
+  it('fevereiro comum (não bissexto) com diaRecebimento 31', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({ dataBase: '2026-01-31', diaRecebimento: 31, numCiclos: 3 }),
+    );
+
+    expect(em(ciclos, 0).inicio).toBe('2026-01-31');
+    expect(em(ciclos, 1).inicio).toBe('2026-02-28'); // clamp: fevereiro comum
+    expect(em(ciclos, 2).inicio).toBe('2026-03-31');
+  });
+
+  it('verba negativa (renda menor que fixos + poupança) não vira float nem esconde o aperto', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({
+        rendaPrevistaCents: 500_000,
+        metaPoupancaCents: 300_000,
+        fixosCents: 400_000,
+        numCiclos: 3,
+      }),
+    );
+
+    for (const ciclo of ciclos) {
+      expect(ciclo.verbaVariavelCents).toBeLessThan(0);
+      expect(Number.isInteger(ciclo.verbaDiariaLivreCents)).toBe(true);
+      expect(ciclo.verbaDiariaLivreCents).toBeLessThan(0);
+      expect(ciclo.abaixoDoPiso).toBe(true);
+    }
+  });
+
+  it('numCiclos 1 devolve exatamente um ciclo', () => {
+    expect(projetarCiclos(entradaBase({ numCiclos: 1 }))).toHaveLength(1);
+  });
+
+  it('horizonte que não alcança a parcela deixa tudo em zero', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({
+        numCiclos: 2,
+        obrigacoesFuturas: parcelasMensais({
+          valorTotalCents: 500_000,
+          numParcelas: 5,
+          dataCompra: '2027-06-10',
+        }),
+      }),
+    );
+
+    expect(ciclos.every((c) => c.parcelasComprometidasCents === 0)).toBe(true);
+  });
+});
+
 describe('projetarCiclos — contratos', () => {
   it.each([0, -1, 61, 1.5])('numCiclos %s lança RangeError', (numCiclos) => {
     expect(() => projetarCiclos(entradaBase({ numCiclos }))).toThrow(RangeError);

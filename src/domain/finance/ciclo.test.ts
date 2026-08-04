@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { limitesCiclo, diasTotaisCiclo } from './ciclo';
+import { limitesCiclo, diasTotaisCiclo, proximoCicloApos } from './ciclo';
 
 describe('limitesCiclo (SPEC 9 — dias 1, 15, 28, 31; virada de ano; fevereiro; bissexto)', () => {
   it('exemplo da SPEC: dia 5, data 2026-07-20', () => {
@@ -54,5 +54,38 @@ describe('diasTotaisCiclo', () => {
     expect(diasTotaisCiclo({ inicio: '2026-07-05', fim: '2026-08-04' })).toBe(31);
     expect(diasTotaisCiclo({ inicio: '2026-01-31', fim: '2026-02-27' })).toBe(28);
     expect(diasTotaisCiclo({ inicio: '2026-07-01', fim: '2026-07-31' })).toBe(31);
+  });
+});
+
+describe('proximoCicloApos (transição de diaRecebimento)', () => {
+  it('sem mudança de grade, equivale a limitesCiclo do dia seguinte', () => {
+    expect(proximoCicloApos('2026-08-04', 5)).toEqual({ inicio: '2026-08-05', fim: '2026-09-04' });
+    expect(proximoCicloApos('2026-07-31', 1)).toEqual({ inicio: '2026-08-01', fim: '2026-08-31' });
+  });
+
+  it('com diaRecebimento novo, gera um ciclo de transição mais curto sem retroceder', () => {
+    // limitesCiclo("2026-08-05", 20) devolveria { 2026-07-20, 2026-08-19 },
+    // que se sobrepõe ao ciclo anterior encerrado em 2026-08-04.
+    expect(proximoCicloApos('2026-08-04', 20)).toEqual({ inicio: '2026-08-05', fim: '2026-08-19' });
+  });
+
+  it('normaliza a grade a partir do ciclo seguinte à transição', () => {
+    const transicao = proximoCicloApos('2026-08-04', 20);
+    expect(proximoCicloApos(transicao.fim, 20)).toEqual({
+      inicio: '2026-08-20',
+      fim: '2026-09-19',
+    });
+  });
+
+  it('nunca produz ciclo vazio ou invertido', () => {
+    for (const dia of [1, 5, 15, 28, 31]) {
+      const { inicio, fim } = proximoCicloApos('2026-08-04', dia);
+      expect(inicio <= fim).toBe(true);
+      expect(diasTotaisCiclo({ inicio, fim })).toBeGreaterThan(0);
+    }
+  });
+
+  it('respeita o clamp de fevereiro comum com diaRecebimento 31', () => {
+    expect(proximoCicloApos('2026-01-30', 31)).toEqual({ inicio: '2026-01-31', fim: '2026-02-27' });
   });
 });

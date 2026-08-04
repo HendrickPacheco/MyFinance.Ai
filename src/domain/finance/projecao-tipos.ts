@@ -40,9 +40,39 @@ export interface CenarioHipotetico {
   dataCompra: DataCivil;
 }
 
+/**
+ * O ciclo atual, como está CONGELADO no banco (SPEC 5.2). Quando presente, é
+ * emitido tal e qual pela projeção: limites e verba vêm daqui, não são
+ * recalculados a partir da Config vigente.
+ *
+ * Isso existe porque recalcular o ciclo em curso está errado de duas formas.
+ * (1) Os limites: editar `diaRecebimento` mudaria as datas do mês corrente,
+ * que já nasceu. (2) A verba: `puxarDaReserva` (modo recuperação) soma X à
+ * verba e reduz a poupança-alvo com clamp em zero — depois disso a verba
+ * gravada deixa de ser a soma das suas partes, e reconstruí-la pelas partes
+ * devolve um número diferente do que o usuário vê na tela Hoje.
+ */
+export interface CicloCongelado {
+  inicio: DataCivil;
+  fim: DataCivil;
+  rendaPrevistaCents: number;
+  poupancaAlvoCents: number;
+  fixosCents: number;
+  provisaoMensalCents: number;
+  /** A verba gravada. Fonte de verdade — não é recomposta pelas partes. */
+  verbaVariavelCents: number;
+  rolloverRecebidoCents: number;
+}
+
 export interface EntradaProjecao {
-  /** Data civil a partir da qual projetar. O ciclo 1 é o que a contém. */
+  /**
+   * Data civil a partir da qual projetar quando NÃO há ciclo congelado.
+   * Com `cicloCongelado` preenchido, ele é o ciclo 1 e este campo é ignorado.
+   */
   dataBase: DataCivil;
+
+  /** Ciclo 1 já gravado. Ausente = nenhum ciclo aberto ainda. */
+  cicloCongelado?: CicloCongelado;
   diaRecebimento: number;
   /** Horizonte em ciclos. Válido em [1, 60]. */
   numCiclos: number;
@@ -53,14 +83,6 @@ export interface EntradaProjecao {
   metaPoupancaPercent: number | null;
   fixosCents: number;
   valoresProvisaoAnualCents: readonly number[];
-  /**
-   * Provisão mensal JÁ CONGELADA, quando existe. O registro `Ciclo` guarda o
-   * valor mensal, não os anuais que o originaram — recomputá-lo a partir das
-   * provisões vigentes da Config descongelaria o ciclo pelas costas
-   * (SPEC 5.2). Quando preenchido, tem precedência sobre
-   * `valoresProvisaoAnualCents`.
-   */
-  provisaoMensalCongeladaCents?: number;
 
   destinoSobra: DestinoSobra;
   /** Rollover que entra no ciclo 1. Nos ciclos ≥ 2 a projeção assume sobra
