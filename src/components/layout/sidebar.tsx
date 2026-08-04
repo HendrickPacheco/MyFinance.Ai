@@ -13,20 +13,30 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Button, TooltipPortal, type TooltipAnchorRect } from '@/components/ui';
 import { EVENTO_ABRIR_LANCAMENTO } from '@/components/dashboard/lancamento-painel';
 
-const ITENS = [
+interface ItemSidebar {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+const ITENS: readonly ItemSidebar[] = [
   { href: '/', label: 'Visão geral', icon: Home },
   { href: '/ciclo', label: 'Ciclo', icon: CalendarRange },
   { href: '/patrimonio', label: 'Patrimônio', icon: TrendingUp },
   { href: '/analise', label: 'Análise', icon: Scissors },
   { href: '/fechar-ciclo', label: 'Fechar ciclo', icon: CheckCircle2 },
   { href: '/config', label: 'Ajustes', icon: Settings },
-] as const;
+];
+
+/** Entra depois de "Ciclo" quando a camada de IA está ligada. */
+const ITEM_COPILOTO: ItemSidebar = { href: '/copiloto', label: 'Copiloto', icon: Sparkles };
 
 const CHAVE_PREFERENCIA = 'financial:sidebar-collapsed';
 
@@ -173,9 +183,21 @@ function SidebarNavLink({
  * (igual ao servidor) e se corrigem num efeito pós-mount se a preferência
  * salva for outra — correção imperceptível, não é warning de hidratação.
  */
-export function Sidebar() {
+/**
+ * `mostrarCopiloto` vem do servidor (app/layout.tsx), porque `IA_HABILITADA`
+ * é variável de ambiente e este componente é client — ele não tem como ler.
+ */
+export function Sidebar({ mostrarCopiloto = false }: { mostrarCopiloto?: boolean }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = React.useState(false);
+
+  const itens = React.useMemo(
+    () =>
+      mostrarCopiloto
+        ? [...ITENS.slice(0, 2), ITEM_COPILOTO, ...ITENS.slice(2)]
+        : ITENS,
+    [mostrarCopiloto],
+  );
 
   React.useEffect(() => {
     try {
@@ -213,7 +235,7 @@ export function Sidebar() {
       <BotaoLancarGasto collapsed={collapsed} />
 
       <nav aria-label="Navegação principal" className="mt-6 flex-1 space-y-1 overflow-y-auto px-3 pb-6">
-        {ITENS.map((item) => {
+        {itens.map((item) => {
           const ativo = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
           return (
             <SidebarNavLink

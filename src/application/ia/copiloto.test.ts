@@ -311,6 +311,10 @@ describe('🔴 auditoria do prompt de sistema', () => {
     expect(PROMPT_SISTEMA).toMatch(/não lança gastos/i);
   });
 
+  it('pede texto puro, sem markdown', () => {
+    expect(PROMPT_SISTEMA).toMatch(/não use markdown/i);
+  });
+
   it('proíbe emoji e gamificação (SPEC 11)', () => {
     expect(PROMPT_SISTEMA).toMatch(/Sem emoji/i);
     expect(PROMPT_SISTEMA).toMatch(/gamificação/i);
