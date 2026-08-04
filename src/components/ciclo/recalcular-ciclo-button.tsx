@@ -10,8 +10,13 @@ import { useRouter } from 'next/navigation';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { recalcularCicloAtual } from '@/actions/ciclos';
+import { usePodeEscrever } from '@/components/auth/ator-contexto';
 
 export function RecalcularCicloButton() {
+  // UX: não oferecer ao VIEWER um controle que o servidor recusaria. A trava
+  // real é `exigirEscrita` no caso de uso (ver TASKS-AUTH §2.3).
+  const podeEscrever = usePodeEscrever();
+  if (!podeEscrever) return null;
   const router = useRouter();
   const [confirmando, setConfirmando] = useState(false);
   const [pendente, setPendente] = useState(false);

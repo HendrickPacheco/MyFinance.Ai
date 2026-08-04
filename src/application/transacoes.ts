@@ -6,6 +6,7 @@
  * a sobra daquele ciclo (SPEC regra 9) — sem isso a corrupção é silenciosa.
  */
 import type { Deps } from './deps';
+import { exigirEscrita } from '@/domain/auth/permissoes';
 import type { Ciclo, Transacao } from '@/domain/model/entidades';
 import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
 import { gerarParcelas, sobraCiclo } from '@/domain/finance';
@@ -150,6 +151,9 @@ async function recalcularSobraDosCiclosFechados(
 }
 
 export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise<Transacao> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const data = input.data ?? deps.relogio.hoje();
   const cicloId = await resolverCicloId(deps, data);
 
@@ -177,6 +181,9 @@ export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise
 }
 
 export async function criarParcelamento(deps: Deps, input: ParcelamentoInput): Promise<Transacao[]> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const dataCompra = input.dataCompra ?? deps.relogio.hoje();
 
   const parcelamento = await deps.parcelamentos.criar({
@@ -222,6 +229,9 @@ export async function editarTransacao(
   id: string,
   input: TransacaoInput,
 ): Promise<Transacao> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const atual = await deps.transacoes.obter(id);
   if (!atual) throw new Error('Transação não encontrada.');
 
@@ -270,6 +280,9 @@ export async function excluirTransacao(
   id: string,
   confirmarRetroativo = false,
 ): Promise<void> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const atual = await deps.transacoes.obter(id);
   if (!atual) return;
 
@@ -299,6 +312,9 @@ export async function estornarTransacao(
   data?: string,
   confirmarRetroativo = false,
 ): Promise<Transacao> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const original = await deps.transacoes.obter(id);
 
   const valor = valorCents ?? original?.valorCents ?? 0;

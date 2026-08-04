@@ -20,7 +20,12 @@ datasource db {
 
 // Singleton de configuração (id = 1 sempre).
 model Config {
-  id                   Int      @id @default(1)
+  // Deixou de ser singleton `id=1` na virada multi-tenant: agora é UMA Config
+  // por dono. O tipo continua Int para não rippar pelo domínio inteiro; a
+  // identidade real do registro é `donoId`, que é unique.
+  id                   Int      @id @default(autoincrement())
+  donoId               String   @unique
+  dono                 Usuario  @relation(fields: [donoId], references: [id], onDelete: Cascade)
   rendaBaseCents       Int // renda LÍQUIDA (o que cai na conta)
   rendaVariavel        Boolean  @default(false)
   diaRecebimento       Int // 1-31, define o corte do ciclo
@@ -39,6 +44,8 @@ model Config {
 
 model Conta {
   id               String  @id @default(cuid())
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   nome             String
   tipo             String // FIXOS | VARIAVEL | RESERVA | INVESTIMENTO
   saldoCents       Int     @default(0)
@@ -49,10 +56,14 @@ model Conta {
   transacoesDestino Transacao[] @relation("ContaDestino")
   custosFixos     CustoFixo[]
   configDestino   Config[]
+
+  @@index([donoId])
 }
 
 model CustoFixo {
   id            String  @id @default(cuid())
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   nome          String
   valorCents    Int
   diaVencimento Int // 1-31
@@ -61,6 +72,8 @@ model CustoFixo {
   conta         Conta?  @relation(fields: [contaId], references: [id])
 
   pagamentos PagamentoFixo[]
+
+  @@index([donoId])
 }
 
 // Rastreamento de "pago no ciclo" (coluna "Pago?" da planilha do usuário).
@@ -70,6 +83,8 @@ model CustoFixo {
 // naturalmente na virada do ciclo porque a unicidade é por (custoFixoId, cicloId).
 model PagamentoFixo {
   id          String   @id @default(cuid())
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   custoFixoId String
   cicloId     String
   pagoEm      String // YYYY-MM-DD — data civil em que o usuário marcou como pago
@@ -80,31 +95,45 @@ model PagamentoFixo {
 
   @@unique([custoFixoId, cicloId])
   @@index([cicloId])
+
+  @@index([donoId])
 }
 
 model ProvisaoAnual {
   id              String      @id @default(cuid())
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   nome            String // "IPVA", "Presentes de Natal"
   valorAnualCents Int
   mesEsperado     Int? // 1-12, quando o gasto costuma acontecer
   acumuladoCents  Int         @default(0)
   ativo           Boolean     @default(true)
   transacoes      Transacao[]
+
+  @@index([donoId])
 }
 
 model Categoria {
   id         String      @id @default(cuid())
-  nome       String      @unique
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  nome       String
   grupo      String // VARIAVEL | FIXO | RENDA
   essencial  Boolean     @default(false) // usado na análise de corte
   icone      String?
   cor        String?
   ordem      Int         @default(0)
   transacoes Transacao[]
+
+  // Nome único POR DONO: dois usuários podem ter "Mercado" cada um.
+  @@unique([donoId, nome])
+  @@index([donoId])
 }
 
 model Transacao {
   id             String  @id @default(cuid())
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   data           String // YYYY-MM-DD — data de COMPETÊNCIA (quando o gasto ocorreu)
   valorCents     Int // sempre positivo; o sinal vem do tipo
   tipo           String // DESPESA | RENDA | TRANSFERENCIA | ESTORNO
@@ -142,21 +171,29 @@ model Transacao {
   @@index([cicloId])
   @@index([categoriaId])
   @@index([provisaoId])
+
+  @@index([donoId])
 }
 
 model Parcelamento {
   id              String      @id @default(cuid())
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   descricao       String
   valorTotalCents Int
   numParcelas     Int
   dataCompra      String
   categoriaId     String?
   transacoes      Transacao[]
+
+  @@index([donoId])
 }
 
 // Snapshot dos parâmetros no início do ciclo — CONGELADO (SPEC 5.2).
 model Ciclo {
   id                    String  @id @default(cuid())
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   dataInicio            String
   dataFim               String
   rendaPrevistaCents    Int
@@ -173,14 +210,20 @@ model Ciclo {
   transacoes            Transacao[]
   pagamentosFixos       PagamentoFixo[]
 
-  @@unique([dataInicio])
+  @@unique([donoId, dataInicio])
+  @@index([donoId])
 }
 
 model SnapshotPatrimonio {
   id         String           @id @default(cuid())
-  data       String           @unique // YYYY-MM-DD, 1 por mês
+  donoId     String
+  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  data       String // YYYY-MM-DD, 1 por mês
   itens      ItemPatrimonio[]
   totalCents Int
+
+  @@unique([donoId, data])
+  @@index([donoId])
 }
 
 model ItemPatrimonio {
@@ -190,4 +233,60 @@ model ItemPatrimonio {
   nome       String
   classe     String // CONTA | RENDA_FIXA | RENDA_VARIAVEL | CRIPTO | IMOVEL | OUTRO
   valorCents Int
+}
+
+// ── Identidade, sessão e teto de IA (plano TASKS-AUTH) ───────────────────────
+// Estes modelos são ADITIVOS: nenhuma tabela financeira acima foi alterada.
+// `DateTime` aqui é timestamp de INFRAESTRUTURA (criação/expiração de sessão),
+// não data civil do domínio — uso permitido pela regra de datas.
+
+model Usuario {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  nome      String?
+  // Argon2id. `null` = usuário sem senha local (caminho OAuth futuro);
+  // no caminho atual o OWNER sempre tem senha.
+  senhaHash String?
+  papel     String   @default("VIEWER") // OWNER | VIEWER
+  ativo     Boolean  @default(true)
+  criadoEm  DateTime @default(now())
+  sessoes   Sessao[]
+
+  // Cada usuário é dono do PRÓPRIO conjunto de finanças (multi-tenant).
+  // `onDelete: Cascade` do outro lado: apagar o usuário leva os dados dele.
+  config          Config?
+  contas          Conta[]
+  categorias      Categoria[]
+  custosFixos     CustoFixo[]
+  pagamentosFixos PagamentoFixo[]
+  provisoes       ProvisaoAnual[]
+  transacoes      Transacao[]
+  parcelamentos   Parcelamento[]
+  ciclos          Ciclo[]
+  snapshots       SnapshotPatrimonio[]
+}
+
+model Sessao {
+  // `id` guarda o HASH (SHA-256) do token de sessão, NUNCA o token cru. O
+  // cookie carrega o token cru; o servidor compara pelo hash. Vazar o banco
+  // não entrega sessões reutilizáveis.
+  id        String   @id
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  expiraEm  DateTime
+  criadoEm  DateTime @default(now())
+
+  @@index([usuarioId])
+  @@index([expiraEm])
+}
+
+// Teto DURÁVEL de custo da IA. Sobrevive a restart de propósito: um teto de
+// dinheiro que vive só em memória é furado por um loop de reinícios.
+// Os campos são CONTAGENS (inteiros), não dinheiro — por isso sem sufixo `Cents`.
+model UsoIA {
+  id            String @id @default(cuid())
+  dia           String @unique // YYYY-MM-DD (data civil — String, regra do schema)
+  requisicoes   Int    @default(0)
+  tokensEntrada Int    @default(0)
+  tokensSaida   Int    @default(0)
 }

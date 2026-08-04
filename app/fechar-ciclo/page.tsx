@@ -4,9 +4,11 @@ import { obterResumoParaFechar } from '@/application/fechamento';
 import { EmptyState } from '@/components/ui';
 import { FecharCicloWizard } from '@/components/fechar-ciclo/fechar-ciclo-wizard';
 
+import { SomenteDono } from '@/components/auth/somente-dono';
+
 export const dynamic = 'force-dynamic';
 
-export default async function FecharCicloPage() {
+async function FecharCicloPageConteudo() {
   const deps = await criarDeps();
   const resumo = await obterResumoParaFechar(deps);
 
@@ -31,5 +33,17 @@ export default async function FecharCicloPage() {
     <div className="mx-auto w-full lg:max-w-3xl">
       <FecharCicloWizard resumo={resumo} hojeISO={deps.relogio.hoje()} />
     </div>
+  );
+}
+
+/**
+ * Tela de escrita: portão de papel (TASKS-AUTH S4.2). VIEWER vê um aviso
+ * factual em vez do formulário. A trava real continua nos casos de uso.
+ */
+export default function FecharCicloPage() {
+  return (
+    <SomenteDono>
+      <FecharCicloPageConteudo />
+    </SomenteDono>
   );
 }

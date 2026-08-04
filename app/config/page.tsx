@@ -13,9 +13,11 @@ import {
 } from '@/components/config/gerenciadores';
 import { RecalcularCiclo } from '@/components/config/recalcular-ciclo';
 
+import { SomenteDono } from '@/components/auth/somente-dono';
+
 export const dynamic = 'force-dynamic';
 
-export default async function ConfigPage() {
+async function ConfigPageConteudo() {
   const deps = await criarDeps();
   const estado = await obterEstadoConfig(deps);
   const { config, fixosTotalCents, provisaoMensalCents } = estado;
@@ -90,5 +92,17 @@ export default async function ConfigPage() {
         <RefreshCw size={12} /> Dados salvos localmente no seu aparelho.
       </p>
     </div>
+  );
+}
+
+/**
+ * Tela de escrita: portão de papel (TASKS-AUTH S4.2). VIEWER vê um aviso
+ * factual em vez do formulário. A trava real continua nos casos de uso.
+ */
+export default function ConfigPage() {
+  return (
+    <SomenteDono>
+      <ConfigPageConteudo />
+    </SomenteDono>
   );
 }
