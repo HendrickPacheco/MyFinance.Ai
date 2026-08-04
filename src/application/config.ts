@@ -4,6 +4,7 @@
  * separada e explícita (ver ciclos.recalcularCicloAtual).
  */
 import type { Deps } from './deps';
+import { exigirOwner } from '@/domain/auth/permissoes';
 import type {
   Config,
   Conta,
@@ -106,27 +107,42 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
 export type ConfigInput = Omit<Config, 'id'>;
 
 export async function atualizarConfig(deps: Deps, input: ConfigInput): Promise<Config> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirOwner(deps.ator);
+
   const config = await deps.config.salvar({ id: 1, ...input });
   await recalcularCicloAtualSeVazio(deps);
   return config;
 }
 
 export async function upsertConta(deps: Deps, conta: Conta): Promise<Conta> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirOwner(deps.ator);
+
   return deps.contas.salvar(conta);
 }
 
 export async function upsertCustoFixo(deps: Deps, custo: CustoFixo): Promise<CustoFixo> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirOwner(deps.ator);
+
   const salvo = await deps.custosFixos.salvar(custo);
   await recalcularCicloAtualSeVazio(deps);
   return salvo;
 }
 
 export async function upsertProvisao(deps: Deps, provisao: ProvisaoAnual): Promise<ProvisaoAnual> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirOwner(deps.ator);
+
   const salvo = await deps.provisoes.salvar(provisao);
   await recalcularCicloAtualSeVazio(deps);
   return salvo;
 }
 
 export async function upsertCategoria(deps: Deps, categoria: Categoria): Promise<Categoria> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirOwner(deps.ator);
+
   return deps.categorias.salvar(categoria);
 }

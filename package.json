@@ -17,6 +17,8 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-owner": "tsx --env-file=.env prisma/seed-owner.ts",
+    "verificar:isolamento": "tsx --env-file=.env scripts/verificar-isolamento.ts",
     "ia:verificar": "tsx --env-file=.env scripts/verificar-capacidade-ia.ts",
     "db:studio": "prisma studio"
   },
@@ -24,6 +26,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
     "@prisma/client": "^6.2.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

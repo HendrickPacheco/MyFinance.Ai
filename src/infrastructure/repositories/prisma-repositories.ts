@@ -43,6 +43,34 @@ import {
   toSnapshot,
 } from './mappers';
 
+/**
+ * >>> ESCOPO DE DONO — a defesa contra IDOR/BOLA (TASKS-AUTH §3.2) <<<
+ *
+ * Todo repositório recebe o `donoId` no CONSTRUTOR, não por parâmetro de método.
+ * Isso é deliberado: o `donoId` vem de `criarDeps()`, que o lê da sessão. Não há
+ * nenhum caminho pelo qual um id vindo do cliente vire escopo de consulta.
+ *
+ * Regras que TODO método aqui segue:
+ *  - leitura por id usa `findFirst({ id, donoId })`, NUNCA `findUnique({ id })`
+ *    — `findUnique` não aceita filtro extra e devolveria a linha de outro dono;
+ *  - escrita por id usa `updateMany`/`deleteMany` com `{ id, donoId }`, que
+ *    afeta ZERO linhas quando o id é de outro dono (em vez de alterá-la);
+ *  - criação sempre carimba `donoId`.
+ *
+ * Um `findUnique({ where: { id } })` reintroduzido neste arquivo é um vazamento
+ * entre usuários. A auditoria procura por isso.
+ */
+
+/** Lançado quando um id existe, mas pertence a outro dono (ou não existe). */
+export class RecursoNaoEncontradoError extends Error {
+  constructor(recurso: string) {
+    // Mensagem propositalmente igual para "não existe" e "é de outro usuário":
+    // distinguir os casos revelaria a existência do recurso alheio.
+    super(`${recurso} não encontrado.`);
+    this.name = 'RecursoNaoEncontradoError';
+  }
+}
+
 /** Remove undefined/id vazio para deixar o Prisma gerar defaults (cuid). */
 function semIdVazio<T extends { id?: string }>(dados: T): T {
   if (!dados.id) {
@@ -53,10 +81,13 @@ function semIdVazio<T extends { id?: string }>(dados: T): T {
 }
 
 export class PrismaConfigRepository implements ConfigRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async obter(): Promise<Config | null> {
-    const r = await this.db.config.findUnique({ where: { id: 1 } });
+    const r = await this.db.config.findUnique({ where: { donoId: this.donoId } });
     return r ? toConfig(r) : null;
   }
 
@@ -73,28 +104,35 @@ export class PrismaConfigRepository implements ConfigRepository {
       destinoSobraContaId: config.destinoSobraContaId,
       pisoDiarioVerbaCents: config.pisoDiarioVerbaCents,
     };
+    // Chave do upsert é `donoId`, não `id=1`: a Config deixou de ser singleton
+    // global e passou a ser uma por dono.
     const r = await this.db.config.upsert({
-      where: { id: 1 },
+      where: { donoId: this.donoId },
       update: dados,
-      create: { id: 1, ...dados },
+      create: { donoId: this.donoId, ...dados },
     });
     return toConfig(r);
   }
 }
 
 export class PrismaContaRepository implements ContaRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async listar(opcoes?: { incluirArquivadas?: boolean }): Promise<Conta[]> {
     const rows = await this.db.conta.findMany({
-      where: opcoes?.incluirArquivadas ? {} : { arquivada: false },
+      where: opcoes?.incluirArquivadas
+        ? { donoId: this.donoId }
+        : { donoId: this.donoId, arquivada: false },
       orderBy: { nome: 'asc' },
     });
     return rows.map(toConta);
   }
 
   async obter(id: string): Promise<Conta | null> {
-    const r = await this.db.conta.findUnique({ where: { id } });
+    const r = await this.db.conta.findFirst({ where: { id, donoId: this.donoId } });
     return r ? toConta(r) : null;
   }
 
@@ -106,30 +144,44 @@ export class PrismaContaRepository implements ContaRepository {
       incluiPatrimonio: conta.incluiPatrimonio,
       arquivada: conta.arquivada,
     };
-    const r = conta.id
-      ? await this.db.conta.update({ where: { id: conta.id }, data: dados })
-      : await this.db.conta.create({ data: dados });
+    if (!conta.id) {
+      const criada = await this.db.conta.create({ data: { ...dados, donoId: this.donoId } });
+      return toConta(criada);
+    }
+    const { count } = await this.db.conta.updateMany({
+      where: { id: conta.id, donoId: this.donoId },
+      data: dados,
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Conta');
+    const r = await this.db.conta.findFirstOrThrow({ where: { id: conta.id, donoId: this.donoId } });
     return toConta(r);
   }
 
   async ajustarSaldo(id: string, deltaCents: number): Promise<void> {
-    await this.db.conta.update({
-      where: { id },
+    const { count } = await this.db.conta.updateMany({
+      where: { id, donoId: this.donoId },
       data: { saldoCents: { increment: deltaCents } },
     });
+    if (count === 0) throw new RecursoNaoEncontradoError('Conta');
   }
 }
 
 export class PrismaCategoriaRepository implements CategoriaRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async listar(): Promise<Categoria[]> {
-    const rows = await this.db.categoria.findMany({ orderBy: [{ ordem: 'asc' }, { nome: 'asc' }] });
+    const rows = await this.db.categoria.findMany({
+      where: { donoId: this.donoId },
+      orderBy: [{ ordem: 'asc' }, { nome: 'asc' }],
+    });
     return rows.map(toCategoria);
   }
 
   async obter(id: string): Promise<Categoria | null> {
-    const r = await this.db.categoria.findUnique({ where: { id } });
+    const r = await this.db.categoria.findFirst({ where: { id, donoId: this.donoId } });
     return r ? toCategoria(r) : null;
   }
 
@@ -142,19 +194,31 @@ export class PrismaCategoriaRepository implements CategoriaRepository {
       cor: categoria.cor,
       ordem: categoria.ordem,
     };
-    const r = categoria.id
-      ? await this.db.categoria.update({ where: { id: categoria.id }, data: dados })
-      : await this.db.categoria.create({ data: dados });
+    if (!categoria.id) {
+      const criada = await this.db.categoria.create({ data: { ...dados, donoId: this.donoId } });
+      return toCategoria(criada);
+    }
+    const { count } = await this.db.categoria.updateMany({
+      where: { id: categoria.id, donoId: this.donoId },
+      data: dados,
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Categoria');
+    const r = await this.db.categoria.findFirstOrThrow({
+      where: { id: categoria.id, donoId: this.donoId },
+    });
     return toCategoria(r);
   }
 }
 
 export class PrismaCustoFixoRepository implements CustoFixoRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async listarAtivos(): Promise<CustoFixo[]> {
     const rows = await this.db.custoFixo.findMany({
-      where: { ativo: true },
+      where: { donoId: this.donoId, ativo: true },
       orderBy: { diaVencimento: 'asc' },
     });
     return rows.map(toCustoFixo);
@@ -168,9 +232,18 @@ export class PrismaCustoFixoRepository implements CustoFixoRepository {
       ativo: custo.ativo,
       contaId: custo.contaId,
     };
-    const r = custo.id
-      ? await this.db.custoFixo.update({ where: { id: custo.id }, data: dados })
-      : await this.db.custoFixo.create({ data: dados });
+    if (!custo.id) {
+      const criado = await this.db.custoFixo.create({ data: { ...dados, donoId: this.donoId } });
+      return toCustoFixo(criado);
+    }
+    const { count } = await this.db.custoFixo.updateMany({
+      where: { id: custo.id, donoId: this.donoId },
+      data: dados,
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Custo fixo');
+    const r = await this.db.custoFixo.findFirstOrThrow({
+      where: { id: custo.id, donoId: this.donoId },
+    });
     return toCustoFixo(r);
   }
 }
@@ -182,33 +255,46 @@ export class PrismaCustoFixoRepository implements CustoFixoRepository {
  * lançar em cliques repetidos.
  */
 export class PrismaPagamentoFixoRepository implements PagamentoFixoRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async listarPorCiclo(cicloId: string): Promise<PagamentoFixo[]> {
-    const rows = await this.db.pagamentoFixo.findMany({ where: { cicloId } });
+    const rows = await this.db.pagamentoFixo.findMany({
+      where: { cicloId, donoId: this.donoId },
+    });
     return rows.map(toPagamentoFixo);
   }
 
   async marcarPago(custoFixoId: string, cicloId: string, pagoEm: DataCivil): Promise<PagamentoFixo> {
+    // O par (custoFixoId, cicloId) só chega aqui vindo de consultas já
+    // escopadas, e a criação carimba o dono — não há como marcar pago um custo
+    // fixo alheio.
     const r = await this.db.pagamentoFixo.upsert({
       where: { custoFixoId_cicloId: { custoFixoId, cicloId } },
       update: { pagoEm },
-      create: { custoFixoId, cicloId, pagoEm },
+      create: { custoFixoId, cicloId, pagoEm, donoId: this.donoId },
     });
     return toPagamentoFixo(r);
   }
 
   async desmarcarPago(custoFixoId: string, cicloId: string): Promise<void> {
-    await this.db.pagamentoFixo.deleteMany({ where: { custoFixoId, cicloId } });
+    await this.db.pagamentoFixo.deleteMany({
+      where: { custoFixoId, cicloId, donoId: this.donoId },
+    });
   }
 }
 
 export class PrismaProvisaoRepository implements ProvisaoRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async listarAtivas(): Promise<ProvisaoAnual[]> {
     const rows = await this.db.provisaoAnual.findMany({
-      where: { ativo: true },
+      where: { donoId: this.donoId, ativo: true },
       orderBy: { nome: 'asc' },
     });
     return rows.map(toProvisao);
@@ -222,31 +308,46 @@ export class PrismaProvisaoRepository implements ProvisaoRepository {
       acumuladoCents: provisao.acumuladoCents,
       ativo: provisao.ativo,
     };
-    const r = provisao.id
-      ? await this.db.provisaoAnual.update({ where: { id: provisao.id }, data: dados })
-      : await this.db.provisaoAnual.create({ data: dados });
+    if (!provisao.id) {
+      const criada = await this.db.provisaoAnual.create({
+        data: { ...dados, donoId: this.donoId },
+      });
+      return toProvisao(criada);
+    }
+    const { count } = await this.db.provisaoAnual.updateMany({
+      where: { id: provisao.id, donoId: this.donoId },
+      data: dados,
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Provisão');
+    const r = await this.db.provisaoAnual.findFirstOrThrow({
+      where: { id: provisao.id, donoId: this.donoId },
+    });
     return toProvisao(r);
   }
 
   async ajustarAcumulado(id: string, deltaCents: number): Promise<void> {
-    await this.db.provisaoAnual.update({
-      where: { id },
+    const { count } = await this.db.provisaoAnual.updateMany({
+      where: { id, donoId: this.donoId },
       data: { acumuladoCents: { increment: deltaCents } },
     });
+    if (count === 0) throw new RecursoNaoEncontradoError('Provisão');
   }
 }
 
 export class PrismaTransacaoRepository implements TransacaoRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async obter(id: string): Promise<Transacao | null> {
-    const r = await this.db.transacao.findUnique({ where: { id } });
+    const r = await this.db.transacao.findFirst({ where: { id, donoId: this.donoId } });
     return r ? toTransacao(r) : null;
   }
 
   async listarPorCiclo(cicloId: string): Promise<Transacao[]> {
     const rows = await this.db.transacao.findMany({
-      where: { cicloId },
+      where: { cicloId, donoId: this.donoId },
       orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
     });
     return rows.map(toTransacao);
@@ -254,53 +355,70 @@ export class PrismaTransacaoRepository implements TransacaoRepository {
 
   async listarPorIntervalo(inicio: DataCivil, fim: DataCivil): Promise<Transacao[]> {
     const rows = await this.db.transacao.findMany({
-      where: { data: { gte: inicio, lte: fim } },
+      where: { donoId: this.donoId, data: { gte: inicio, lte: fim } },
       orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
     });
     return rows.map(toTransacao);
   }
 
   async criar(transacao: Transacao): Promise<Transacao> {
-    const r = await this.db.transacao.create({ data: semIdVazio(dadosTransacao(transacao)) });
+    const r = await this.db.transacao.create({
+      data: semIdVazio(dadosTransacao(transacao, this.donoId)),
+    });
     return toTransacao(r);
   }
 
   async criarVarias(transacoes: readonly Transacao[]): Promise<Transacao[]> {
     const criadas = await this.db.$transaction(
-      transacoes.map((t) => this.db.transacao.create({ data: semIdVazio(dadosTransacao(t)) })),
+      transacoes.map((t) =>
+        this.db.transacao.create({ data: semIdVazio(dadosTransacao(t, this.donoId)) }),
+      ),
     );
     return criadas.map(toTransacao);
   }
 
   async atualizar(id: string, patch: Partial<Transacao>): Promise<Transacao> {
-    const r = await this.db.transacao.update({ where: { id }, data: patch });
+    const { count } = await this.db.transacao.updateMany({
+      where: { id, donoId: this.donoId },
+      data: patch,
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Transação');
+    const r = await this.db.transacao.findFirstOrThrow({ where: { id, donoId: this.donoId } });
     return toTransacao(r);
   }
 
   async excluir(id: string): Promise<void> {
-    await this.db.transacao.delete({ where: { id } });
+    // `deleteMany` e não `delete`: com id de outro dono, apaga zero linhas em
+    // vez de apagar a transação alheia.
+    const { count } = await this.db.transacao.deleteMany({ where: { id, donoId: this.donoId } });
+    if (count === 0) throw new RecursoNaoEncontradoError('Transação');
   }
 
   async vincularCicloPorData(cicloId: string, inicio: DataCivil, fim: DataCivil): Promise<number> {
     const r = await this.db.transacao.updateMany({
-      where: { cicloId: null, data: { gte: inicio, lte: fim } },
+      where: { donoId: this.donoId, cicloId: null, data: { gte: inicio, lte: fim } },
       data: { cicloId },
     });
     return r.count;
   }
 
   async marcarPaga(transacaoId: string, pagoEm: DataCivil | null): Promise<Transacao> {
-    const r = await this.db.transacao.update({
-      where: { id: transacaoId },
+    const { count } = await this.db.transacao.updateMany({
+      where: { id: transacaoId, donoId: this.donoId },
       data: { pagoEm },
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Transação');
+    const r = await this.db.transacao.findFirstOrThrow({
+      where: { id: transacaoId, donoId: this.donoId },
     });
     return toTransacao(r);
   }
 }
 
-function dadosTransacao(t: Transacao) {
+function dadosTransacao(t: Transacao, donoId: string) {
   return {
     id: t.id || undefined,
+    donoId,
     data: t.data,
     valorCents: t.valorCents,
     tipo: t.tipo,
@@ -319,12 +437,16 @@ function dadosTransacao(t: Transacao) {
 }
 
 export class PrismaParcelamentoRepository implements ParcelamentoRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async criar(p: Parcelamento): Promise<Parcelamento> {
     const r = await this.db.parcelamento.create({
       data: semIdVazio({
         id: p.id || undefined,
+        donoId: this.donoId,
         descricao: p.descricao,
         valorTotalCents: p.valorTotalCents,
         numParcelas: p.numParcelas,
@@ -337,34 +459,42 @@ export class PrismaParcelamentoRepository implements ParcelamentoRepository {
 
   async listarPorIds(ids: readonly string[]): Promise<Parcelamento[]> {
     if (ids.length === 0) return [];
-    const rows = await this.db.parcelamento.findMany({ where: { id: { in: [...ids] } } });
+    const rows = await this.db.parcelamento.findMany({
+      where: { id: { in: [...ids] }, donoId: this.donoId },
+    });
     return rows.map(toParcelamento);
   }
 }
 
 export class PrismaCicloRepository implements CicloRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async obter(id: string): Promise<Ciclo | null> {
-    const r = await this.db.ciclo.findUnique({ where: { id } });
+    const r = await this.db.ciclo.findFirst({ where: { id, donoId: this.donoId } });
     return r ? toCiclo(r) : null;
   }
 
   async obterPorInicio(dataInicio: DataCivil): Promise<Ciclo | null> {
-    const r = await this.db.ciclo.findUnique({ where: { dataInicio } });
+    // A unicidade de `dataInicio` passou a ser POR DONO na virada multi-tenant.
+    const r = await this.db.ciclo.findUnique({
+      where: { donoId_dataInicio: { donoId: this.donoId, dataInicio } },
+    });
     return r ? toCiclo(r) : null;
   }
 
   async obterAtual(hoje: DataCivil): Promise<Ciclo | null> {
     const r = await this.db.ciclo.findFirst({
-      where: { dataInicio: { lte: hoje }, dataFim: { gte: hoje } },
+      where: { donoId: this.donoId, dataInicio: { lte: hoje }, dataFim: { gte: hoje } },
     });
     return r ? toCiclo(r) : null;
   }
 
   async ultimoFechado(): Promise<Ciclo | null> {
     const r = await this.db.ciclo.findFirst({
-      where: { fechado: true },
+      where: { donoId: this.donoId, fechado: true },
       orderBy: { dataInicio: 'desc' },
     });
     return r ? toCiclo(r) : null;
@@ -372,7 +502,7 @@ export class PrismaCicloRepository implements CicloRepository {
 
   async ultimosFechados(n: number): Promise<Ciclo[]> {
     const rows = await this.db.ciclo.findMany({
-      where: { fechado: true },
+      where: { donoId: this.donoId, fechado: true },
       orderBy: { dataInicio: 'desc' },
       take: n,
     });
@@ -381,7 +511,7 @@ export class PrismaCicloRepository implements CicloRepository {
 
   async criarSeAusente(ciclo: Ciclo): Promise<{ ciclo: Ciclo; criado: boolean }> {
     try {
-      const r = await this.db.ciclo.create({ data: semIdVazio(dadosCiclo(ciclo)) });
+      const r = await this.db.ciclo.create({ data: semIdVazio(dadosCiclo(ciclo, this.donoId)) });
       return { ciclo: toCiclo(r), criado: true };
     } catch (erro) {
       if (!ehViolacaoDeUnicidade(erro)) throw erro;
@@ -399,14 +529,19 @@ export class PrismaCicloRepository implements CicloRepository {
   }
 
   async atualizar(id: string, patch: Partial<Ciclo>): Promise<Ciclo> {
-    const r = await this.db.ciclo.update({ where: { id }, data: patch });
+    const { count } = await this.db.ciclo.updateMany({
+      where: { id, donoId: this.donoId },
+      data: patch,
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Ciclo');
+    const r = await this.db.ciclo.findFirstOrThrow({ where: { id, donoId: this.donoId } });
     return toCiclo(r);
   }
 
   async fecharSePendente(id: string, patch: Partial<Ciclo>): Promise<boolean> {
     // Condição no WHERE torna a transição fechado:false -> true atômica.
     const r = await this.db.ciclo.updateMany({
-      where: { id, fechado: false },
+      where: { id, donoId: this.donoId, fechado: false },
       data: patch,
     });
     return r.count === 1;
@@ -418,9 +553,10 @@ function ehViolacaoDeUnicidade(erro: unknown): boolean {
   return erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2002';
 }
 
-function dadosCiclo(c: Ciclo) {
+function dadosCiclo(c: Ciclo, donoId: string) {
   return {
     id: c.id || undefined,
+    donoId,
     dataInicio: c.dataInicio,
     dataFim: c.dataFim,
     rendaPrevistaCents: c.rendaPrevistaCents,
@@ -438,10 +574,14 @@ function dadosCiclo(c: Ciclo) {
 }
 
 export class PrismaPatrimonioRepository implements PatrimonioRepository {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly donoId: string,
+  ) {}
 
   async ultimoSnapshot(): Promise<SnapshotPatrimonio | null> {
     const r = await this.db.snapshotPatrimonio.findFirst({
+      where: { donoId: this.donoId },
       orderBy: { data: 'desc' },
       include: { itens: true },
     });
@@ -450,6 +590,7 @@ export class PrismaPatrimonioRepository implements PatrimonioRepository {
 
   async ultimosSnapshots(n: number): Promise<SnapshotPatrimonio[]> {
     const rows = await this.db.snapshotPatrimonio.findMany({
+      where: { donoId: this.donoId },
       orderBy: { data: 'desc' },
       take: n,
       include: { itens: true },
@@ -460,6 +601,7 @@ export class PrismaPatrimonioRepository implements PatrimonioRepository {
   async criar(snapshot: SnapshotPatrimonio): Promise<SnapshotPatrimonio> {
     const r = await this.db.snapshotPatrimonio.create({
       data: {
+        donoId: this.donoId,
         data: snapshot.data,
         totalCents: snapshot.totalCents,
         itens: {

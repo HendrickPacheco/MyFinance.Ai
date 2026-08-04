@@ -4,6 +4,7 @@
  * afeta o próximo ciclo. Recalcular é uma ação explícita.
  */
 import type { Deps } from './deps';
+import { exigirEscrita } from '@/domain/auth/permissoes';
 import type { Ciclo } from '@/domain/model/entidades';
 import type { DestinoSobra } from '@/domain/model/enums';
 import { addDias, type DataCivil } from '@/shared/data';
@@ -66,6 +67,19 @@ async function parametrosCongelados(deps: Deps, rendaPrevistaCents: number) {
  * se não existe, cria congelando os parâmetros vigentes. Nunca bloqueia nada
  * por pendência de fechamento (regra 10). Devolve o ciclo atual e se há
  * pendência de fechamento de um ciclo anterior.
+ *
+ * >>> EXCEÇÃO DE AUTORIZAÇÃO, DELIBERADA E ÚNICA (TASKS-AUTH §7, S2.2) <<<
+ * Esta função ESCREVE (cria o ciclo) e mesmo assim NÃO chama `exigirEscrita`.
+ * Motivo: ela roda no `app/layout.tsx` e nos caminhos de LEITURA (hoje,
+ * dashboard, ciclo). Travá-la por papel deixaria um VIEWER sem conseguir abrir
+ * nenhuma tela — a criação idempotente do ciclo é manutenção do sistema, com
+ * autoridade do sistema, não uma escrita solicitada pelo usuário.
+ *
+ * O que a torna segura como exceção: ela não aceita nenhum dado do cliente
+ * (só `deps`), é idempotente, e o que grava é 100% derivado da Config vigente.
+ * Não há input para um VIEWER manipular.
+ *
+ * NÃO use este argumento para afrouxar nenhuma outra escrita.
  */
 export async function garantirCicloAtual(
   deps: Deps,
@@ -146,6 +160,9 @@ export async function garantirCicloAtual(
  * ciclo atual será alterado. Recongela os parâmetros a partir da Config atual.
  */
 export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const { ciclo } = await garantirCicloAtual(deps);
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
@@ -174,6 +191,9 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
  * congelamento (SPEC 5.2). Havendo qualquer lançamento, nada muda aqui.
  */
 export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<void> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   const config = await deps.config.obter();
   if (!config) return;
 
@@ -211,6 +231,9 @@ export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<void> {
  * conta variável e registra a decisão na observação do ciclo.
  */
 export async function puxarDaReserva(deps: Deps, valorCents: number): Promise<Ciclo> {
+  // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
+  exigirEscrita(deps.ator);
+
   if (!Number.isInteger(valorCents) || valorCents <= 0) {
     throw new Error('Valor a puxar inválido.');
   }
