@@ -25,6 +25,18 @@ const writeFileMock = vi.mocked(fs.writeFile);
 
 type Linha = Record<string, unknown>;
 
+/** Dono das linhas nos testes (multi-tenant). */
+const DONO_TESTE = 'dono-1';
+
+/**
+ * Remove `donoId` — um arquivo de backup real nunca o carrega (ele é removido
+ * na exportação e recarimbado na importação). Usado para montar payloads que
+ * imitam um arquivo de verdade a partir das tabelas do fake.
+ */
+function comoArquivo<T extends Record<string, unknown>>(linhas: T[]): Omit<T, 'donoId'>[] {
+  return linhas.map(({ donoId: _ignorado, ...resto }) => resto);
+}
+
 const NOMES_TABELAS = [
   'config',
   'conta',
@@ -161,8 +173,16 @@ function criarFakePrisma(): FakePrisma {
         }
         return linhas;
       },
-      findUnique: async (args: { where: { id: unknown } }): Promise<Linha | null> => {
-        const achado = tabelas[nome].find((l) => l.id === args.where.id);
+      findUnique: async (args: {
+        where: { id?: unknown; donoId?: unknown };
+      }): Promise<Linha | null> => {
+        // Depois da virada multi-tenant a Config é buscada por `donoId`
+        // (deixou de ser singleton id=1), então o fake precisa casar pelos dois.
+        const achado = tabelas[nome].find((l) =>
+          args.where.id !== undefined
+            ? l.id === args.where.id
+            : l.donoId === args.where.donoId,
+        );
         return achado ? { ...achado } : null;
       },
       create: async (args: { data: Linha }): Promise<Linha> => {
@@ -210,6 +230,14 @@ function criarFakePrisma(): FakePrisma {
 
 /** Estado completo e realista: centavos Int e datas civis String. */
 function semear(tabelas: Tabelas): void {
+  // Carimba o dono em tudo que for semeado abaixo (multi-tenant): sem isso, o
+  // export escopado por dono não acharia nada.
+  const carimbarDono = () => {
+    for (const nome of NOMES_TABELAS) {
+      if (nome === 'itemPatrimonio') continue; // herda o dono do snapshot
+      for (const linha of tabelas[nome]) linha.donoId ??= DONO_TESTE;
+    }
+  };
   tabelas.config.push({
     id: 1,
     rendaBaseCents: 812_345,
@@ -323,6 +351,8 @@ function semear(tabelas: Tabelas): void {
     { id: 'item-1', snapshotId: 'snap-1', nome: 'Reserva', classe: 'CONTA', valorCents: 1_234_567 },
     { id: 'item-2', snapshotId: 'snap-1', nome: 'Bitcoin', classe: 'CRIPTO', valorCents: 1 },
   );
+
+  carimbarDono();
 }
 
 function copiaProfunda(t: Tabelas): Tabelas {
@@ -345,7 +375,7 @@ describe('exportarTudo', () => {
     const db = criarFakePrisma();
     semear(db.tabelas);
 
-    const payload = (await exportarTudo(db.client)) as {
+    const payload = (await exportarTudo(db.client, DONO_TESTE)) as {
       version: number;
       exportadoEm: string;
       dados: Record<string, unknown>;
@@ -373,7 +403,7 @@ describe('exportarTudo', () => {
     const db = criarFakePrisma();
     semear(db.tabelas);
 
-    const payload = (await exportarTudo(db.client)) as {
+    const payload = (await exportarTudo(db.client, DONO_TESTE)) as {
       dados: { pagamentosFixos: Array<{ id: string; custoFixoId: string; cicloId: string; pagoEm: string }> };
     };
 
@@ -390,7 +420,7 @@ describe('exportarTudo', () => {
     const db = criarFakePrisma();
     semear(db.tabelas);
 
-    const payload = (await exportarTudo(db.client)) as {
+    const payload = (await exportarTudo(db.client, DONO_TESTE)) as {
       dados: { snapshots: Array<{ id: string; itens: Array<{ valorCents: number }> }> };
     };
 
@@ -403,7 +433,7 @@ describe('exportarTudo', () => {
   it('base vazia exporta config null e coleções vazias', async () => {
     const db = criarFakePrisma();
 
-    const payload = (await exportarTudo(db.client)) as {
+    const payload = (await exportarTudo(db.client, DONO_TESTE)) as {
       dados: { config: unknown; contas: unknown[]; transacoes: unknown[] };
     };
 
@@ -421,12 +451,12 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     const esperado = copiaProfunda(db.tabelas);
 
     // Act: export -> serializa como o arquivo .json faria -> zera -> import
-    const payload = await exportarTudo(db.client);
+    const payload = await exportarTudo(db.client, DONO_TESTE);
     const arquivo: unknown = JSON.parse(JSON.stringify(payload));
     zerar(db.tabelas);
     expect(db.tabelas.transacao).toEqual([]);
 
-    const { backupCriado } = await importarTudo(db.client, arquivo);
+    const { backupCriado } = await importarTudo(db.client, arquivo, DONO_TESTE);
 
     // Assert: estado idêntico, tabela por tabela.
     for (const nome of NOMES_TABELAS) {
@@ -439,9 +469,9 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     const db = criarFakePrisma();
     semear(db.tabelas);
 
-    const payload = await exportarTudo(db.client);
+    const payload = await exportarTudo(db.client, DONO_TESTE);
     zerar(db.tabelas);
-    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)));
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
 
     const ciclo = primeiraLinha(db.tabelas.ciclo);
     expect(ciclo.verbaVariavelCents).toBe(502_338);
@@ -457,9 +487,9 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     const db = criarFakePrisma();
     semear(db.tabelas);
 
-    const payload = await exportarTudo(db.client);
+    const payload = await exportarTudo(db.client, DONO_TESTE);
     zerar(db.tabelas);
-    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)));
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
 
     const ciclo = primeiraLinha(db.tabelas.ciclo);
     expect(ciclo.dataInicio).toBe('2026-07-05');
@@ -481,9 +511,9 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     // Inverte a ordem no payload para forçar o reordenamento.
     db.tabelas.transacao.reverse();
 
-    const payload = await exportarTudo(db.client);
+    const payload = await exportarTudo(db.client, DONO_TESTE);
     zerar(db.tabelas);
-    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)));
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
 
     expect(db.ordemInsercaoTransacao).toEqual(['tx-original', 'tx-estorno']);
   });
@@ -496,10 +526,10 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     semear(db.tabelas);
     expect(db.tabelas.pagamentoFixo).toHaveLength(1);
 
-    const payload = await exportarTudo(db.client);
+    const payload = await exportarTudo(db.client, DONO_TESTE);
     zerar(db.tabelas);
 
-    await expect(importarTudo(db.client, JSON.parse(JSON.stringify(payload)))).resolves.toMatchObject({
+    await expect(importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE)).resolves.toMatchObject({
       backupCriado: expect.stringMatching(/data[\\/]app\.backup-.*\.json$/) as unknown as string,
     });
     expect(primeiraLinha(db.tabelas.pagamentoFixo)).toMatchObject({
@@ -514,9 +544,9 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     const db = criarFakePrisma();
     semear(db.tabelas);
 
-    const payload = await exportarTudo(db.client);
+    const payload = await exportarTudo(db.client, DONO_TESTE);
     zerar(db.tabelas);
-    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)));
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
 
     const original = db.tabelas.transacao.find((t) => t.id === 'tx-original');
     const estorno = db.tabelas.transacao.find((t) => t.id === 'tx-estorno');
@@ -528,9 +558,9 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
   it('grava a salvaguarda em JSON (./data) ANTES de qualquer escrita destrutiva', async () => {
     const db = criarFakePrisma();
     semear(db.tabelas);
-    const payload = await exportarTudo(db.client);
+    const payload = await exportarTudo(db.client, DONO_TESTE);
 
-    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)));
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
 
     expect(mkdirMock).toHaveBeenCalledTimes(1);
     expect(String(mkdirMock.mock.calls[0]?.[0])).toMatch(/\/data$/);
@@ -545,11 +575,11 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     const db = criarFakePrisma();
     semear(db.tabelas);
     const antes = copiaProfunda(db.tabelas);
-    const payload = await exportarTudo(db.client);
+    const payload = await exportarTudo(db.client, DONO_TESTE);
     writeFileMock.mockRejectedValueOnce(new Error('ENOSPC: no space left on device'));
 
     await expect(
-      importarTudo(db.client, JSON.parse(JSON.stringify(payload))),
+      importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE),
     ).rejects.toThrow(BackupSalvaguardaError);
 
     for (const nome of NOMES_TABELAS) {
@@ -569,21 +599,21 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     const { backupCriado } = await importarTudo(db.client, {
       version: 1,
       dados: {
-        config: primeiraLinha(db.tabelas.config),
-        contas: [...db.tabelas.conta],
-        categorias: [...db.tabelas.categoria],
-        custosFixos: [...db.tabelas.custoFixo],
-        provisoes: [...db.tabelas.provisaoAnual],
-        parcelamentos: [...db.tabelas.parcelamento],
-        ciclos: [...db.tabelas.ciclo],
+        config: comoArquivo([primeiraLinha(db.tabelas.config)])[0],
+        contas: comoArquivo([...db.tabelas.conta]),
+        categorias: comoArquivo([...db.tabelas.categoria]),
+        custosFixos: comoArquivo([...db.tabelas.custoFixo]),
+        provisoes: comoArquivo([...db.tabelas.provisaoAnual]),
+        parcelamentos: comoArquivo([...db.tabelas.parcelamento]),
+        ciclos: comoArquivo([...db.tabelas.ciclo]),
         // Sem `pagamentosFixos`: é exatamente o shape de um dump v1 real.
-        transacoes: [...db.tabelas.transacao],
-        snapshots: db.tabelas.snapshotPatrimonio.map((s) => ({
+        transacoes: comoArquivo([...db.tabelas.transacao]),
+        snapshots: comoArquivo(db.tabelas.snapshotPatrimonio).map((s) => ({
           ...s,
           itens: db.tabelas.itemPatrimonio.filter((i) => i.snapshotId === s.id),
         })),
       },
-    });
+    }, DONO_TESTE);
 
     expect(backupCriado).toMatch(/data[\\/]app\.backup-.*\.json$/);
     expect(db.tabelas.pagamentoFixo).toEqual([]);
@@ -607,7 +637,7 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
         transacoes: [],
         snapshots: [],
       },
-    });
+    }, DONO_TESTE);
 
     for (const nome of NOMES_TABELAS) {
       expect(db.tabelas[nome]).toEqual([]);
@@ -617,7 +647,7 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
   it('o import é destrutivo: dados pré-existentes não sobrevivem ao restore', async () => {
     const db = criarFakePrisma();
     semear(db.tabelas);
-    const payload = JSON.parse(JSON.stringify(await exportarTudo(db.client)));
+    const payload = JSON.parse(JSON.stringify(await exportarTudo(db.client, DONO_TESTE)));
 
     db.tabelas.conta.push({
       id: 'conta-intrusa',
@@ -628,7 +658,7 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
       arquivada: false,
     });
 
-    await importarTudo(db.client, payload);
+    await importarTudo(db.client, payload, DONO_TESTE);
 
     expect(db.tabelas.conta.map((c) => c.id)).toEqual(['conta-reserva', 'conta-var']);
   });
@@ -654,7 +684,7 @@ describe('validação Zod do payload — import inválido é rejeitado sem corro
     const antes = copiaProfunda(db.tabelas);
 
     // Act + Assert
-    await expect(importarTudo(db.client, payload)).rejects.toThrow();
+    await expect(importarTudo(db.client, payload, DONO_TESTE)).rejects.toThrow();
 
     for (const nome of NOMES_TABELAS) {
       expect(db.tabelas[nome]).toEqual(antes[nome]);
@@ -683,7 +713,7 @@ describe('validação Zod do payload — import inválido é rejeitado sem corro
           transacoes: [],
           snapshots: [],
         },
-      }),
+      }, DONO_TESTE),
     ).rejects.toThrow(BackupVersaoIncompativelError);
 
     for (const nome of NOMES_TABELAS) {
@@ -713,7 +743,7 @@ describe('validação Zod do payload — import inválido é rejeitado sem corro
           transacoes: [],
           snapshots: [],
         },
-      }),
+      }, DONO_TESTE),
     ).rejects.toThrow(/versão/i);
 
     for (const nome of NOMES_TABELAS) {
@@ -721,5 +751,103 @@ describe('validação Zod do payload — import inválido é rejeitado sem corro
     }
     expect(db.transacoesAbertas).toBe(0);
     expect(writeFileMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * V2 do plano TASKS-AUTH: antes, cada registro era validado como
+ * `z.record(z.string(), z.unknown())` e ia ao Prisma com `as never` — qualquer
+ * chave passava. Estes testes provam que o schema estrito fechou o buraco.
+ */
+describe('mass-assignment (TASKS-AUTH V2): schema estrito por tabela', () => {
+  /** Backup mínimo válido; o teste injeta o veneno em cima. */
+  function backupValido() {
+    return {
+      version: BACKUP_VERSION,
+      dados: {
+        config: null,
+        contas: [
+          { id: 'c1', nome: 'Nubank', tipo: 'VARIAVEL', saldoCents: 100, incluiPatrimonio: true, arquivada: false },
+        ],
+        categorias: [],
+        custosFixos: [],
+        provisoes: [],
+        parcelamentos: [],
+        ciclos: [],
+        pagamentosFixos: [],
+        transacoes: [],
+        snapshots: [],
+      },
+    };
+  }
+
+  it('aceita um backup legítimo (a defesa não quebrou o caminho feliz)', async () => {
+    const db = criarFakePrisma();
+    await expect(importarTudo(db.client, backupValido(), DONO_TESTE)).resolves.toBeTruthy();
+    expect(db.tabelas.conta).toHaveLength(1);
+  });
+
+  it('rejeita campo desconhecido numa conta e não escreve nada', async () => {
+    const db = criarFakePrisma();
+    const payload = backupValido();
+    (payload.dados.contas[0] as Record<string, unknown>).campoInventado = 'veneno';
+
+    await expect(importarTudo(db.client, payload, DONO_TESTE)).rejects.toThrow();
+    for (const nome of NOMES_TABELAS) {
+      expect(db.tabelas[nome]).toEqual([]);
+    }
+    // Nem a salvaguarda chegou a ser gravada: a validação falha antes.
+    expect(writeFileMock).not.toHaveBeenCalled();
+  });
+
+  it('rejeita valor monetário fracionário (regra de centavos Int)', async () => {
+    const db = criarFakePrisma();
+    const payload = backupValido();
+    (payload.dados.contas[0] as Record<string, unknown>).saldoCents = 10.5;
+
+    await expect(importarTudo(db.client, payload, DONO_TESTE)).rejects.toThrow();
+    expect(db.tabelas.conta).toEqual([]);
+  });
+
+  it('rejeita data civil fora do formato "YYYY-MM-DD"', async () => {
+    const db = criarFakePrisma();
+    const payload = backupValido();
+    payload.dados.ciclos = [
+      {
+        id: 'ciclo-1',
+        dataInicio: '05/07/2026', // formato brasileiro — não é data civil ISO
+        dataFim: '2026-08-04',
+        rendaPrevistaCents: 1,
+        rendaRealizadaCents: null,
+        poupancaAlvoCents: 1,
+        fixosCents: 1,
+        provisaoMensalCents: 1,
+        verbaVariavelCents: 1,
+        rolloverRecebidoCents: 0,
+        fechado: false,
+        fechadoEm: null,
+        sobraCents: null,
+        observacao: null,
+      },
+    ] as never;
+
+    await expect(importarTudo(db.client, payload, DONO_TESTE)).rejects.toThrow();
+    expect(db.tabelas.ciclo).toEqual([]);
+  });
+
+  it('rejeita campo desconhecido dentro de um item de snapshot (nível aninhado)', async () => {
+    const db = criarFakePrisma();
+    const payload = backupValido();
+    payload.dados.snapshots = [
+      {
+        id: 's1',
+        data: '2026-08-01',
+        totalCents: 100,
+        itens: [{ id: 'i1', snapshotId: 's1', nome: 'CDB', classe: 'RENDA_FIXA', valorCents: 100, extra: 'x' }],
+      },
+    ] as never;
+
+    await expect(importarTudo(db.client, payload, DONO_TESTE)).rejects.toThrow();
+    expect(db.tabelas.snapshotPatrimonio).toEqual([]);
   });
 });

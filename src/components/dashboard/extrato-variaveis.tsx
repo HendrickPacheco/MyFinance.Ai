@@ -28,6 +28,7 @@ import { Button, Card, CardHeader, CardTitle, CardContent, ConfirmInline, EmptyS
 import { editarTransacao, excluirTransacao } from '@/actions/transacoes';
 import { LABEL_METODO } from './cores';
 import type { LinhaTransacaoVariavel, OpcaoCategoria } from '@/application/dashboard-tipos';
+import { usePodeEscrever } from '@/components/auth/ator-contexto';
 
 function formatarDataCurta(data: string): string {
   const [, mes, dia] = data.split('-');
@@ -58,6 +59,9 @@ function LinhaExtratoVariavel({
   categorias: OpcaoCategoria[];
 }) {
   const router = useRouter();
+  // UX: VIEWER lê o extrato, mas não vê editar/excluir. A trava real é
+  // `exigirEscrita` no caso de uso (TASKS-AUTH §2.3).
+  const podeEscrever = usePodeEscrever();
   const [editando, setEditando] = useState(false);
   const [pendente, setPendente] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -304,6 +308,8 @@ function LinhaExtratoVariavel({
         </div>
 
         <div className="flex shrink-0 justify-end gap-1">
+          {podeEscrever ? (
+          <>
           <button
             type="button"
             onClick={abrirEdicao}
@@ -322,6 +328,8 @@ function LinhaExtratoVariavel({
           >
             <Trash2 size={15} />
           </button>
+          </>
+          ) : null}
         </div>
       </li>
       {confirmInline ? <li className="py-3">{confirmInline}</li> : null}

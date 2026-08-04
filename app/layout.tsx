@@ -1,10 +1,15 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import './globals.css';
 import { Nav } from '@/components/nav';
 import { Sidebar } from '@/components/layout/sidebar';
 import { criarDeps } from '@/composition';
 import { garantirCicloAtual } from '@/application/ciclos';
 import { iaHabilitada } from '@/infrastructure/ia/config-ia';
+import { estaAutenticado } from '@/domain/auth/ator';
+import { PapelProvider } from '@/components/auth/ator-contexto';
+import { SIDEBAR_ANTI_FLASH_SCRIPT } from '@/shared/anti-flash-script';
 
 export const metadata: Metadata = {
   title: 'Quanto posso gastar hoje',
@@ -37,23 +42,31 @@ export const dynamic = 'force-dynamic';
  * mount — nesse ponto o CSS já está correto, então a correção de texto/aria é
  * imperceptível e não é um mismatch de hidratação (é só um setState normal
  * depois de montado).
+ * O conteúdo do script vive em `src/shared/anti-flash-script.ts`; a CSP o
+ * autoriza por hash sha256 calculado da mesma constante (ver `middleware.ts`,
+ * que explica por que hash e não nonce aqui).
  */
-const SIDEBAR_ANTI_FLASH_SCRIPT = `
-(function () {
-  try {
-    var v = window.localStorage.getItem('financial:sidebar-collapsed');
-    document.documentElement.setAttribute('data-sidebar', v === '1' ? 'collapsed' : 'expanded');
-  } catch (e) {
-    // localStorage indisponível (modo privado, etc.) — mantém expandida.
-  }
-})();
-`;
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Gate de autenticação REAL (runtime Node, com banco). O middleware só viu
+  // se existia cookie; aqui a sessão é de fato validada. Sem isso, um cookie
+  // forjado leria todas as telas.
+  const cabecalhos = await headers();
+  const pathname = cabecalhos.get('x-pathname') ?? '';
+  // Login e cadastro compartilham o mesmo enquadramento sem chassi do app.
+  const ROTAS_SEM_CHASSI = ['/login', '/cadastro'];
+  const naTelaDeLogin = ROTAS_SEM_CHASSI.some(
+    (r) => pathname === r || pathname.startsWith(`${r}/`),
+  );
+
+  const deps = await criarDeps();
+  if (!estaAutenticado(deps.ator) && !naTelaDeLogin) {
+    redirect('/login');
+  }
+
   // Idempotente (SPEC 8): garante que existe um ciclo cobrindo hoje. Nunca
   // bloqueia; se a Config ainda não foi preenchida, as telas orientam.
   try {
-    const deps = await criarDeps();
     await garantirCicloAtual(deps);
   } catch {
     // Config ausente/incompleta — a tela Hoje/Config cuida do onboarding.
@@ -66,6 +79,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script dangerouslySetInnerHTML={{ __html: SIDEBAR_ANTI_FLASH_SCRIPT }} />
       </head>
       <body>
+        {naTelaDeLogin ? (
+          // A tela de login não tem sidebar nem navegação: não há para onde
+          // navegar antes de entrar, e mostrar o chassi do app sugeriria que há.
+          <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col justify-center px-4 py-6 sm:px-6">
+            {children}
+          </main>
+        ) : (
+        <PapelProvider papel={deps.ator.papel}>
         {/*
           Uma home responsiva (SPEC 11): abaixo de 1024px isto continua sendo
           o app de celular (conteúdo estreito + <Nav /> inferior), intacto.
@@ -74,8 +95,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           muda por breakpoint é o layout ao redor, não a árvore de componentes.
         */}
         <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col lg:mx-0 lg:max-w-none lg:flex-row">
-          {/* A rota do copiloto só aparece com a camada de IA ligada. */}
-          <Sidebar mostrarCopiloto={iaHabilitada()} />
+          {/* `papel` decide o que o ator pode ver; `mostrarCopiloto` some com
+              a rota quando a camada de IA está desligada. */}
+          <Sidebar papel={deps.ator.papel} mostrarCopiloto={iaHabilitada()} />
           <div className="flex min-h-dvh flex-1 flex-col">
             <main className="flex-1 px-4 pb-28 pt-6 sm:px-6 lg:mx-auto lg:w-full lg:max-w-[1600px] lg:px-10 lg:py-10">
               {children}
@@ -83,6 +105,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Nav />
           </div>
         </div>
+        </PapelProvider>
+        )}
       </body>
     </html>
   );
