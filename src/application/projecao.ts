@@ -23,9 +23,10 @@
  */
 import { addDias, addMeses, type DataCivil } from '@/shared/data';
 import { somaCents } from '@/shared/dinheiro';
-import { projetarCiclos, projetarComCenario } from '@/domain/finance';
+import { limitesCiclo, projetarCiclos, projetarComCenario } from '@/domain/finance';
 import type {
   CenarioHipotetico,
+  CicloCongelado,
   CicloProjetado,
   DeltaCiclo,
   EntradaProjecao,
@@ -78,30 +79,19 @@ async function parametrosVigentes(
 }
 
 /**
- * Parâmetros CONGELADOS do ciclo atual. `metaPoupancaPercent` vai `null` de
- * propósito: a poupança-alvo já foi decidida quando o ciclo nasceu, e aplicar
- * o percentual de novo a recalcularia sobre a renda de hoje.
+ * O ciclo atual como está gravado. Cópia direta, sem recálculo: limites e
+ * verba saem do registro, porque é o registro que o usuário vê na tela Hoje.
  */
-function parametrosCongelados(
-  ciclo: Ciclo,
-): Pick<
-  EntradaProjecao,
-  | 'rendaPrevistaCents'
-  | 'metaPoupancaCents'
-  | 'metaPoupancaPercent'
-  | 'fixosCents'
-  | 'valoresProvisaoAnualCents'
-  | 'provisaoMensalCongeladaCents'
-  | 'rolloverInicialCents'
-> {
+function congelar(ciclo: Ciclo): CicloCongelado {
   return {
+    inicio: ciclo.dataInicio,
+    fim: ciclo.dataFim,
     rendaPrevistaCents: ciclo.rendaPrevistaCents,
-    metaPoupancaCents: ciclo.poupancaAlvoCents,
-    metaPoupancaPercent: null,
+    poupancaAlvoCents: ciclo.poupancaAlvoCents,
     fixosCents: ciclo.fixosCents,
-    valoresProvisaoAnualCents: [],
-    provisaoMensalCongeladaCents: ciclo.provisaoMensalCents,
-    rolloverInicialCents: ciclo.rolloverRecebidoCents,
+    provisaoMensalCents: ciclo.provisaoMensalCents,
+    verbaVariavelCents: ciclo.verbaVariavelCents,
+    rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
   };
 }
 
@@ -135,70 +125,45 @@ export async function obterProjecao(
 
   const hoje = deps.relogio.hoje();
   const cicloAtual = await deps.ciclos.obterAtual(hoje);
+  const congelado = cicloAtual ? congelar(cicloAtual) : undefined;
 
-  // Limite superior generoso da consulta: um ciclo dura no máximo ~31 dias,
-  // então `numCiclos` ciclos terminam dentro de `numCiclos + 1` meses. O que
-  // sobrar fora do horizonte é descartado pelo próprio motor.
-  const obrigacoes = await obrigacoesFuturas(deps, hoje, addMeses(hoje, opcoes.numCiclos + 1));
+  // A janela começa no INÍCIO do ciclo 1, não em `hoje`: a verba do ciclo é a
+  // do ciclo inteiro, então as parcelas dele também têm que ser as do ciclo
+  // inteiro. Consultar a partir de hoje esconderia as parcelas já vencidas no
+  // mês corrente e inflaria `verbaLivreCents`.
+  const inicioJanela = congelado?.inicio ?? limitesCiclo(hoje, config.diaRecebimento).inicio;
+  // Limite superior generoso: um ciclo dura no máximo ~31 dias, então
+  // `numCiclos` ciclos terminam dentro de `numCiclos + 1` meses. O que sobrar
+  // fora do horizonte é descartado pelo próprio motor.
+  const obrigacoes = await obrigacoesFuturas(
+    deps,
+    inicioJanela,
+    addMeses(inicioJanela, opcoes.numCiclos + 1),
+  );
 
-  const comuns = {
+  const entrada: EntradaProjecao = {
+    ...(await parametrosVigentes(deps, config)),
+    dataBase: hoje,
+    cicloCongelado: congelado,
+    numCiclos: opcoes.numCiclos,
     diaRecebimento: config.diaRecebimento,
     destinoSobra: config.destinoSobra,
     pisoDiarioVerbaCents: config.pisoDiarioVerbaCents,
+    rolloverInicialCents: 0,
     obrigacoesFuturas: obrigacoes,
   };
 
-  const segmentos: EntradaProjecao[] = [];
   const premissas: string[] = [...PREMISSAS_BASE];
-
-  if (cicloAtual) {
-    segmentos.push({
-      ...comuns,
-      ...parametrosCongelados(cicloAtual),
-      dataBase: hoje,
-      numCiclos: 1,
-    });
-
-    if (opcoes.numCiclos > 1) {
-      segmentos.push({
-        ...comuns,
-        ...(await parametrosVigentes(deps, config)),
-        dataBase: addDias(cicloAtual.dataFim, 1),
-        numCiclos: opcoes.numCiclos - 1,
-        rolloverInicialCents: 0,
-      });
-    }
-    premissas.push(
-      'O ciclo atual usa os parâmetros congelados quando ele nasceu; os seguintes usam a configuração vigente.',
-    );
-  } else {
-    segmentos.push({
-      ...comuns,
-      ...(await parametrosVigentes(deps, config)),
-      dataBase: hoje,
-      numCiclos: opcoes.numCiclos,
-      rolloverInicialCents: 0,
-    });
-    premissas.push('Ainda não há ciclo aberto: todos os ciclos usam a configuração vigente.');
-  }
+  premissas.push(
+    congelado
+      ? 'O ciclo atual usa os parâmetros congelados quando ele nasceu; os seguintes usam a configuração vigente.'
+      : 'Ainda não há ciclo aberto: todos os ciclos usam a configuração vigente.',
+  );
 
   if (!opcoes.cenario) {
-    return {
-      ciclos: segmentos.flatMap((entrada) => projetarCiclos(entrada)),
-      cenario: null,
-      premissas,
-    };
+    return { ciclos: projetarCiclos(entrada), cenario: null, premissas };
   }
 
-  const cenario = opcoes.cenario;
-  const projetados = segmentos.map((entrada) => projetarComCenario(entrada, cenario));
-
-  return {
-    ciclos: projetados.flatMap((p) => p.base),
-    cenario: {
-      ciclos: projetados.flatMap((p) => p.comCenario),
-      delta: projetados.flatMap((p) => p.delta),
-    },
-    premissas,
-  };
+  const { base, comCenario, delta } = projetarComCenario(entrada, opcoes.cenario);
+  return { ciclos: base, cenario: { ciclos: comCenario, delta }, premissas };
 }

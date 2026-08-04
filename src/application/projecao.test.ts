@@ -96,6 +96,61 @@ describe('obterProjecao — congelamento do ciclo atual (SPEC 5.2)', () => {
     expect(ciclos[1]?.verbaVariavelCents).not.toBe(490_000);
   });
 
+  it('usa a verba GRAVADA mesmo quando ela não é a soma das partes (pós-puxarDaReserva)', async () => {
+    // `puxarDaReserva` soma X à verba e reduz a poupança com clamp em zero.
+    // Depois disso a verba gravada deixa de ser recomponível pelas partes:
+    // 800.000 − 0 − 200.000 − 10.000 = 590.000, mas o gravado é 700.000.
+    const deps = criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloFake({ ...cicloAtualFake(), poupancaAlvoCents: 0, verbaVariavelCents: 700_000 })],
+    });
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 2 });
+
+    expect(ciclos[0]?.verbaVariavelCents).toBe(700_000);
+    expect(ciclos[0]?.verbaVariavelCents).not.toBe(590_000);
+  });
+
+  it('editar diaRecebimento não duplica o ciclo atual nem a parcela dele', async () => {
+    // O ciclo nasceu com diaRecebimento 5 (05/07 a 04/08). O usuário mudou
+    // para 20 depois. As duas âncoras de data divergem, e a projeção não pode
+    // emitir o mesmo intervalo duas vezes.
+    const deps = criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloAtualFake()],
+      transacoes: [
+        transacaoFake({ id: 'p1', data: '2026-07-25', valorCents: 50_000, parcelamentoId: 'pc-1' }),
+      ],
+    });
+    deps.config.mutar({ diaRecebimento: 20 });
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 3 });
+
+    expect(ciclos).toHaveLength(3);
+
+    // O ciclo 1 mantém os limites congelados, não os do diaRecebimento novo.
+    expect(ciclos[0]?.inicio).toBe('2026-07-05');
+    expect(ciclos[0]?.fim).toBe('2026-08-04');
+
+    // Nenhum intervalo repetido.
+    const inicios = ciclos.map((c) => c.inicio);
+    expect(new Set(inicios).size).toBe(inicios.length);
+
+    // E a parcela de R$ 500 aparece UMA vez no horizonte inteiro.
+    expect(ciclos.reduce((s, c) => s + c.parcelasComprometidasCents, 0)).toBe(50_000);
+  });
+
+  it('os ciclos futuros seguem o diaRecebimento novo, a partir do fim do congelado', async () => {
+    const deps = criarDeps({ hoje: HOJE, ciclos: [cicloAtualFake()] });
+    deps.config.mutar({ diaRecebimento: 20 });
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 3 });
+
+    expect(ciclos[1]?.inicio).toBe('2026-08-05');
+    expect(ciclos[1]?.fim).toBe('2026-08-19'); // corte novo, dia 20
+    expect(ciclos[2]?.inicio).toBe('2026-08-20');
+  });
+
   it('metaPoupancaPercent da Config não recalcula a poupança já congelada', async () => {
     const deps = criarDeps({ hoje: HOJE, ciclos: [cicloAtualFake()] });
     deps.config.mutar({ metaPoupancaPercent: 50 });
@@ -180,6 +235,23 @@ describe('obterProjecao — decisão D-11 com dado real', () => {
     expect(ciclos[2]?.parcelasComprometidasCents).toBe(0);
   });
 
+  it('conta a parcela do ciclo atual que já venceu antes de hoje', async () => {
+    // A verba do ciclo 1 é a do CICLO INTEIRO; as parcelas também têm que ser.
+    // Consultar a partir de `hoje` esconderia esta e inflaria a verba livre.
+    const deps = criarDeps({
+      hoje: HOJE, // 2026-07-20
+      ciclos: [cicloAtualFake()], // 2026-07-05 a 2026-08-04
+      transacoes: [
+        transacaoFake({ id: 'p1', data: '2026-07-10', valorCents: 50_000, parcelamentoId: 'pc-1' }),
+      ],
+    });
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 2 });
+
+    expect(ciclos[0]?.parcelasComprometidasCents).toBe(50_000);
+    expect(ciclos[0]?.verbaLivreCents).toBe(440_000);
+  });
+
   it('ignora gasto comum: só transação com parcelamentoId vira obrigação', async () => {
     const deps = criarDeps({
       hoje: HOJE,
@@ -235,6 +307,23 @@ describe('obterProjecao — contratos', () => {
     const deps = criarDeps({ hoje: HOJE, config: null });
 
     await expect(obterProjecao(deps, { numCiclos: 3 })).rejects.toBeInstanceOf(ConfigAusenteError);
+  });
+
+  it.each([0, -5, 61, 1.5])('numCiclos %s lança RangeError, com ou sem ciclo aberto', async (numCiclos) => {
+    const comCiclo = criarDeps({ hoje: HOJE, ciclos: [cicloAtualFake()] });
+    const semCiclo = criarDeps({ hoje: HOJE, ciclos: [] });
+
+    await expect(obterProjecao(comCiclo, { numCiclos })).rejects.toBeInstanceOf(RangeError);
+    await expect(obterProjecao(semCiclo, { numCiclos })).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it('numCiclos 1 devolve só o ciclo congelado', async () => {
+    const deps = criarDeps({ hoje: HOJE, ciclos: [cicloAtualFake()] });
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 1 });
+
+    expect(ciclos).toHaveLength(1);
+    expect(ciclos[0]?.inicio).toBe('2026-07-05');
   });
 
   it('é read-only: não grava nada e não cria ciclo', async () => {

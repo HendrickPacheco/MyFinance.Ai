@@ -26,9 +26,9 @@
  * `parcelasComprometidasCents` é somado depois e à parte. Parcela aparece uma
  * vez só, e nunca dentro de `verbaVariavelCents`.
  */
-import { addDias, estaNoIntervalo } from '@/shared/data';
+import { estaNoIntervalo } from '@/shared/data';
 import { somaCents } from '@/shared/dinheiro';
-import { diasTotaisCiclo, limitesCiclo } from './ciclo';
+import { diasTotaisCiclo, limitesCiclo, proximoCicloApos } from './ciclo';
 import { gerarParcelas } from './parcelamento';
 import { verificarMetaIrreal } from './sugestoes';
 import { poupancaAlvoCents, provisaoMensalCents, verbaVariavelCents } from './verba';
@@ -40,6 +40,7 @@ import type {
   ObrigacaoFutura,
   ProjecaoComCenario,
 } from './projecao-tipos';
+import type { LimitesCiclo } from './tipos';
 
 const MIN_CICLOS = 1;
 const MAX_CICLOS = 60;
@@ -58,11 +59,79 @@ function obrigacoesDoCenario(cenario: CenarioHipotetico): ObrigacaoFutura[] {
   }));
 }
 
+/** Parcelas que caem dentro do intervalo do ciclo. Somadas UMA vez, à parte. */
+function comprometidoNoCiclo(
+  obrigacoes: readonly ObrigacaoFutura[],
+  limites: LimitesCiclo,
+): number {
+  return somaCents(
+    obrigacoes
+      .filter((o) => estaNoIntervalo(o.data, limites.inicio, limites.fim))
+      .map((o) => o.valorCents),
+  );
+}
+
 /**
- * Projeta `numCiclos` ciclos a partir de `dataBase`. O ciclo 1 é o que contém
- * `dataBase`. Se `entrada.cenario` estiver preenchido, as parcelas da compra
- * hipotética entram nas obrigações — use `projetarComCenario` quando quiser a
- * comparação com a linha de base.
+ * Monta um ciclo projetado. Recebe a verba JÁ DECIDIDA — calculada pelo motor
+ * (ciclo futuro) ou lida do registro congelado (ciclo atual) — para que exista
+ * um único lugar onde parcela e piso são aplicados.
+ */
+function montarCiclo(params: {
+  limites: LimitesCiclo;
+  rendaPrevistaCents: number;
+  poupancaAlvoCents: number;
+  fixosCents: number;
+  provisaoMensalCents: number;
+  verbaVariavelCents: number;
+  rolloverRecebidoCents: number;
+  obrigacoes: readonly ObrigacaoFutura[];
+  pisoDiarioVerbaCents: number;
+}): CicloProjetado {
+  const diasTotais = diasTotaisCiclo(params.limites);
+
+  // Somado DEPOIS e à parte — parcela nunca entra no cálculo da verba.
+  const parcelasComprometidas = comprometidoNoCiclo(params.obrigacoes, params.limites);
+  const verbaLivre = params.verbaVariavelCents - parcelasComprometidas;
+
+  // Avaliado sobre a verba LIVRE: sobre a bruta esconderia o aperto da parcela.
+  // Reusa a divisão do motor em vez de repeti-la aqui.
+  const piso = verificarMetaIrreal({
+    verbaVariavelCents: verbaLivre,
+    diasCiclo: diasTotais,
+    pisoDiarioCents: params.pisoDiarioVerbaCents,
+  });
+
+  return {
+    inicio: params.limites.inicio,
+    fim: params.limites.fim,
+    diasTotais,
+    rendaPrevistaCents: params.rendaPrevistaCents,
+    poupancaAlvoCents: params.poupancaAlvoCents,
+    fixosCents: params.fixosCents,
+    provisaoMensalCents: params.provisaoMensalCents,
+    verbaVariavelCents: params.verbaVariavelCents,
+    parcelasComprometidasCents: parcelasComprometidas,
+    verbaLivreCents: verbaLivre,
+    verbaDiariaLivreCents: piso.verbaDiariaCents,
+    rolloverRecebidoCents: params.rolloverRecebidoCents,
+    abaixoDoPiso: piso.irreal,
+  };
+}
+
+/**
+ * Projeta `numCiclos` ciclos. Com `entrada.cicloCongelado`, o ciclo 1 é ele
+ * mesmo — limites e verba saem do registro gravado, sem recálculo — e os
+ * seguintes são derivados dele com os parâmetros vigentes. Sem ele, o ciclo 1
+ * é o que contém `dataBase`.
+ *
+ * Projetar tudo numa passagem só é deliberado: fatiar o horizonte em dois
+ * trechos calculados separadamente permitia que as âncoras de data
+ * divergissem (`diaRecebimento` editado) e o mesmo intervalo fosse emitido
+ * duas vezes, com a parcela contada em dobro.
+ *
+ * Se `entrada.cenario` estiver preenchido, as parcelas da compra hipotética
+ * entram nas obrigações — use `projetarComCenario` para a comparação com a
+ * linha de base.
  */
 export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
   if (
@@ -79,28 +148,44 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
     ? [...entrada.obrigacoesFuturas, ...obrigacoesDoCenario(entrada.cenario)]
     : entrada.obrigacoesFuturas;
 
-  // Constantes ao longo do horizonte (premissas 2 e 3).
+  // Parâmetros dos ciclos que ainda não nasceram (premissas 2 e 3).
   const poupanca = poupancaAlvoCents({
     rendaPrevistaCents: entrada.rendaPrevistaCents,
     metaPoupancaCents: entrada.metaPoupancaCents,
     metaPoupancaPercent: entrada.metaPoupancaPercent,
   });
-  // Valor congelado tem precedência: o ciclo atual guarda a provisão mensal,
-  // não os anuais que a originaram (SPEC 5.2).
-  const provisao =
-    entrada.provisaoMensalCongeladaCents ??
-    provisaoMensalCents(entrada.valoresProvisaoAnualCents);
+  const provisao = provisaoMensalCents(entrada.valoresProvisaoAnualCents);
 
   const ciclos: CicloProjetado[] = [];
-  let limites = limitesCiclo(entrada.dataBase, entrada.diaRecebimento);
+  const congelado = entrada.cicloCongelado;
 
-  for (let k = 0; k < entrada.numCiclos; k += 1) {
+  let limites: LimitesCiclo = congelado
+    ? { inicio: congelado.inicio, fim: congelado.fim }
+    : limitesCiclo(entrada.dataBase, entrada.diaRecebimento);
+
+  if (congelado) {
+    // Emitido tal e qual: nada aqui é recalculado a partir da Config.
+    ciclos.push(
+      montarCiclo({
+        limites,
+        rendaPrevistaCents: congelado.rendaPrevistaCents,
+        poupancaAlvoCents: congelado.poupancaAlvoCents,
+        fixosCents: congelado.fixosCents,
+        provisaoMensalCents: congelado.provisaoMensalCents,
+        verbaVariavelCents: congelado.verbaVariavelCents,
+        rolloverRecebidoCents: congelado.rolloverRecebidoCents,
+        obrigacoes,
+        pisoDiarioVerbaCents: entrada.pisoDiarioVerbaCents,
+      }),
+    );
+  }
+
+  for (let k = ciclos.length; k < entrada.numCiclos; k += 1) {
     if (k > 0) {
-      // O ciclo seguinte começa no dia após o fim do anterior.
-      limites = limitesCiclo(addDias(limites.fim, 1), entrada.diaRecebimento);
+      // Trata a transição quando `diaRecebimento` mudou depois de o ciclo
+      // congelado nascer — sem isso o intervalo retrocede e se sobrepõe.
+      limites = proximoCicloApos(limites.fim, entrada.diaRecebimento);
     }
-
-    const diasTotais = diasTotaisCiclo(limites);
 
     // Premissa 1: só o ciclo 1 herda rollover; sobra futura é assumida zero.
     const rolloverRecebidoCents = k === 0 ? entrada.rolloverInicialCents : 0;
@@ -114,38 +199,19 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
       rolloverRecebidoCents,
     });
 
-    // Somado DEPOIS e à parte — parcela nunca entra no cálculo da verba.
-    const parcelasComprometidas = somaCents(
-      obrigacoes
-        .filter((o) => estaNoIntervalo(o.data, limites.inicio, limites.fim))
-        .map((o) => o.valorCents),
+    ciclos.push(
+      montarCiclo({
+        limites,
+        rendaPrevistaCents: entrada.rendaPrevistaCents,
+        poupancaAlvoCents: poupanca,
+        fixosCents: entrada.fixosCents,
+        provisaoMensalCents: provisao,
+        verbaVariavelCents: verbaVariavel,
+        rolloverRecebidoCents,
+        obrigacoes,
+        pisoDiarioVerbaCents: entrada.pisoDiarioVerbaCents,
+      }),
     );
-
-    const verbaLivre = verbaVariavel - parcelasComprometidas;
-
-    // Avaliado sobre a verba LIVRE: sobre a bruta esconderia o aperto da parcela.
-    // Reusa a divisão do motor em vez de repeti-la aqui.
-    const piso = verificarMetaIrreal({
-      verbaVariavelCents: verbaLivre,
-      diasCiclo: diasTotais,
-      pisoDiarioCents: entrada.pisoDiarioVerbaCents,
-    });
-
-    ciclos.push({
-      inicio: limites.inicio,
-      fim: limites.fim,
-      diasTotais,
-      rendaPrevistaCents: entrada.rendaPrevistaCents,
-      poupancaAlvoCents: poupanca,
-      fixosCents: entrada.fixosCents,
-      provisaoMensalCents: provisao,
-      verbaVariavelCents: verbaVariavel,
-      parcelasComprometidasCents: parcelasComprometidas,
-      verbaLivreCents: verbaLivre,
-      verbaDiariaLivreCents: piso.verbaDiariaCents,
-      rolloverRecebidoCents,
-      abaixoDoPiso: piso.irreal,
-    });
   }
 
   return ciclos;
