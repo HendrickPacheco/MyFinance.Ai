@@ -4,6 +4,7 @@ import { Nav } from '@/components/nav';
 import { Sidebar } from '@/components/layout/sidebar';
 import { criarDeps } from '@/composition';
 import { garantirCicloAtual } from '@/application/ciclos';
+import { iaHabilitada } from '@/infrastructure/ia/config-ia';
 
 export const metadata: Metadata = {
   title: 'Quanto posso gastar hoje',
@@ -73,7 +74,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           muda por breakpoint é o layout ao redor, não a árvore de componentes.
         */}
         <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col lg:mx-0 lg:max-w-none lg:flex-row">
-          <Sidebar />
+          {/* A rota do copiloto só aparece com a camada de IA ligada. */}
+          <Sidebar mostrarCopiloto={iaHabilitada()} />
           <div className="flex min-h-dvh flex-1 flex-col">
             <main className="flex-1 px-4 pb-28 pt-6 sm:px-6 lg:mx-auto lg:w-full lg:max-w-[1600px] lg:px-10 lg:py-10">
               {children}
