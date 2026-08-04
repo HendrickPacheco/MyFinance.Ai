@@ -4,6 +4,7 @@
  * server action — elas apenas orquestram estas funções.
  */
 export * from './tipos';
+export * from './projecao-tipos';
 export * from './ciclo';
 export * from './verba';
 export * from './teto';
