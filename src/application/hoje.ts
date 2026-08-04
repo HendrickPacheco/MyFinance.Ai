@@ -12,7 +12,7 @@ import {
   type ResultadoTeto,
   type SaidaRecuperacao,
 } from '@/domain/finance';
-import { garantirCicloAtual } from './ciclos';
+import { garantirCicloAtual, lerCicloAtual, type CicloResolvido } from './ciclos';
 import { indexarGrupoCategoria, paraCalculo } from './mapeamento';
 
 export interface EstadoHoje {
@@ -27,7 +27,23 @@ export interface EstadoHoje {
 }
 
 export async function obterEstadoHoje(deps: Deps): Promise<EstadoHoje> {
-  const { ciclo, pendenciaFechamento } = await garantirCicloAtual(deps);
+  return montar(deps, await garantirCicloAtual(deps));
+}
+
+/**
+ * Mesma leitura, sem efeito colateral: não cria ciclo. Devolve `null` quando
+ * não há ciclo aberto, em vez de abrir um. É o que o copiloto usa — responder
+ * uma pergunta não pode gravar no banco (decisão D-8).
+ */
+export async function obterEstadoHojeSomenteLeitura(deps: Deps): Promise<EstadoHoje | null> {
+  const resolvido = await lerCicloAtual(deps);
+  return resolvido ? montar(deps, resolvido) : null;
+}
+
+async function montar(
+  deps: Deps,
+  { ciclo, pendenciaFechamento }: CicloResolvido,
+): Promise<EstadoHoje> {
   const hoje = deps.relogio.hoje();
 
   const [transacoes, categorias] = await Promise.all([

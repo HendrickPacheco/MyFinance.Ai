@@ -40,7 +40,7 @@ import {
   type FatiaMetodoAgregada,
   type LinhaTransacaoVariavelCalc,
 } from '@/domain/finance';
-import { garantirCicloAtual } from './ciclos';
+import { garantirCicloAtual, lerCicloAtual, type CicloResolvido } from './ciclos';
 import { obterPatrimonio } from './patrimonio';
 import type {
   EstadoPainel,
@@ -61,7 +61,19 @@ const PATRIMONIO_VAZIO: ResumoPatrimonioPainel = {
 };
 
 export async function obterEstadoPainel(deps: Deps): Promise<EstadoPainel> {
-  const { ciclo, pendenciaFechamento } = await garantirCicloAtual(deps);
+  return montar(deps, await garantirCicloAtual(deps));
+}
+
+/** Sem efeito colateral: não cria ciclo. `null` quando não há ciclo aberto. */
+export async function obterEstadoPainelSomenteLeitura(deps: Deps): Promise<EstadoPainel | null> {
+  const resolvido = await lerCicloAtual(deps);
+  return resolvido ? montar(deps, resolvido) : null;
+}
+
+async function montar(
+  deps: Deps,
+  { ciclo, pendenciaFechamento }: CicloResolvido,
+): Promise<EstadoPainel> {
   const hoje = deps.relogio.hoje();
 
   const [transacoes, categorias] = await Promise.all([
