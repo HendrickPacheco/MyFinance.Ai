@@ -17,6 +17,8 @@
  * Nenhum cálculo mora aqui — este arquivo orquestra, não conta.
  */
 import type { Deps } from '@/application/deps';
+import { exigirOwner } from '@/domain/auth/permissoes';
+import { avaliarLimiteIA } from '@/application/limite-ia';
 import type { ChamadaFerramenta, ConsumoTokens, MensagemIA } from '@/domain/ports/ia';
 import { definicoesParaProvedor } from './ferramentas/catalogo';
 import { executarFerramenta } from './ferramentas';
@@ -39,6 +41,14 @@ export class CopilotoIndisponivelError extends Error {
       'A camada de IA está desligada. Preencha OPENAI_API_KEY e IA_HABILITADA=true no .env para usar o copiloto.',
     );
     this.name = 'CopilotoIndisponivelError';
+  }
+}
+
+/** Teto diário de uso da IA atingido (limite-ia.ts). */
+export class LimiteIAExcedidoError extends Error {
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = 'LimiteIAExcedidoError';
   }
 }
 
@@ -75,13 +85,68 @@ export interface RespostaCopiloto {
   consumo: ConsumoTokens;
 }
 
+/**
+ * Os três passos exigidos por `application/limite-ia.ts`, nesta ordem.
+ *
+ * Ficam AQUI, no caso de uso, e não na server action: `permissoes.ts` manda
+ * checar na primeira linha do caso de uso, antes de qualquer I/O. Assim
+ * qualquer chamador futuro (outra action, um script, um job) herda a proteção
+ * em vez de precisar lembrar dela.
+ *
+ * A ordem economiza dinheiro: a negativa acontece ANTES de falar com o
+ * provedor. Registrar depois não desfaz uma chamada já paga.
+ */
 export async function responder(
   deps: Deps,
   entrada: { pergunta: string; historico?: readonly MensagemIA[] },
 ): Promise<RespostaCopiloto> {
+  // 1. IA gasta dinheiro real do dono — VIEWER não dispara (decisão DA-3).
+  exigirOwner(deps.ator);
+
   const ia = deps.ia;
   if (!ia) throw new CopilotoIndisponivelError();
 
+  const hoje = deps.relogio.hoje();
+
+  // 2. Teto diário, avaliado antes de qualquer chamada ao provedor.
+  if (deps.usoIA) {
+    const veredicto = avaliarLimiteIA(await deps.usoIA.doDia(hoje));
+    if (!veredicto.permitido) throw new LimiteIAExcedidoError(veredicto.motivo);
+  }
+
+  const consumoAcumulado: ConsumoTokens = { entrada: 0, saida: 0 };
+  try {
+    return await executarLoop(deps, ia, entrada, consumoAcumulado);
+  } finally {
+    // 3. Registra o que foi gasto, inclusive quando o loop falhou no meio —
+    // os turnos anteriores já foram cobrados pelo provedor.
+    await registrarUso(deps, hoje, consumoAcumulado);
+  }
+}
+
+/**
+ * Nunca deixa a contabilização derrubar a resposta: roda num `finally`, e uma
+ * exceção aqui mascararia o erro original do loop.
+ */
+async function registrarUso(deps: Deps, dia: string, consumo: ConsumoTokens): Promise<void> {
+  if (!deps.usoIA) return;
+  try {
+    await deps.usoIA.incrementar(dia, {
+      requisicoes: 1,
+      tokensEntrada: consumo.entrada,
+      tokensSaida: consumo.saida,
+    });
+  } catch {
+    // Contador indisponível não é motivo para perder a resposta já obtida.
+  }
+}
+
+async function executarLoop(
+  deps: Deps,
+  ia: NonNullable<Deps['ia']>,
+  entrada: { pergunta: string; historico?: readonly MensagemIA[] },
+  consumo: ConsumoTokens,
+): Promise<RespostaCopiloto> {
   const mensagens: MensagemIA[] = [
     { papel: 'sistema', conteudo: PROMPT_SISTEMA },
     ...(entrada.historico ?? []),
@@ -91,7 +156,6 @@ export async function responder(
   const ferramentas = definicoesParaProvedor();
   const usadas: FerramentaUsada[] = [];
   const saidas: { nome: string; saida: SaidaFerramenta }[] = [];
-  const consumo: ConsumoTokens = { entrada: 0, saida: 0 };
 
   for (let turno = 1; turno <= MAX_TURNOS; turno += 1) {
     const resultado = await ia.completarComTools({ mensagens, ferramentas });

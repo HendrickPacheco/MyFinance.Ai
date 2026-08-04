@@ -5,6 +5,7 @@
 import { CopilotoChat } from '@/components/ia/copiloto-chat';
 import { EmptyState } from '@/components/ui';
 import { iaHabilitada } from '@/infrastructure/ia/config-ia';
+import { SomenteDono } from '@/components/auth/somente-dono';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,12 @@ export default function CopilotoPage() {
       </header>
 
       {iaHabilitada() ? (
-        <CopilotoChat />
+        // A IA gasta dinheiro real da conta do dono, então é OWNER-only
+        // (DA-3). A trava de verdade é `exigirOwner` dentro de `responder`;
+        // isto evita mostrar a um VIEWER um chat que o servidor recusaria.
+        <SomenteDono>
+          <CopilotoChat />
+        </SomenteDono>
       ) : (
         <EmptyState
           titulo="Camada de IA desligada"
