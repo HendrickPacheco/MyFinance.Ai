@@ -60,6 +60,7 @@ import { Button, ConfirmInline, Input, Label, Modal, Select } from '@/components
 import { METODO_PAGAMENTO, type MetodoPagamento } from '@/domain/model/enums';
 import type { OpcaoCategoria } from '@/application/dashboard-tipos';
 import type { DataCivil } from '@/shared/data';
+import { usePodeEscrever } from '@/components/auth/ator-contexto';
 
 const TETO_CENTAVOS = 99_999_999; // R$ 999.999,99 — mesmo teto do lançamento rápido mobile
 
@@ -87,6 +88,10 @@ export interface LancamentoPainelProps {
 }
 
 export function LancamentoPainel({ hoje, categorias }: LancamentoPainelProps) {
+  // UX: o painel abre também pelo atalho de teclado, então esconder só o botão
+  // da sidebar não bastaria. A trava real é `exigirEscrita` no caso de uso.
+  const podeEscrever = usePodeEscrever();
+  if (!podeEscrever) return null;
   const router = useRouter();
   const valorRef = React.useRef<HTMLInputElement>(null);
 
