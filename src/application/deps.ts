@@ -4,6 +4,7 @@
  * infraestrutura. A montagem concreta vive em src/composition.ts.
  */
 import type { RelogioPort } from '@/domain/ports/relogio';
+import type { ProvedorIAPort } from '@/domain/ports/ia';
 import type {
   ConfigRepository,
   ContaRepository,
@@ -29,4 +30,10 @@ export interface Deps {
   parcelamentos: ParcelamentoRepository;
   ciclos: CicloRepository;
   patrimonio: PatrimonioRepository;
+  /**
+   * Camada de IA. OPCIONAL de propósito: com `IA_HABILITADA=false` o campo
+   * vem `undefined` e o app inteiro funciona exatamente como antes — nenhum
+   * caso de uso existente depende dele.
+   */
+  ia?: ProvedorIAPort;
 }

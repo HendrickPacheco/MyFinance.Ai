@@ -66,8 +66,15 @@ Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
 - Renda realizada é **input** do usuário no fechamento, não somatório de transações.
 - Parcelamento gera N transações com competência `dataCompra + k meses` (clamp de fim de
   mês); o `cicloId` é vinculado por data quando o ciclo nasce.
-- **Sem piso diário hardcoded**: o teto é 100% derivado de renda − fixos − parcelas −
-  provisão − poupança.
+- **Sem piso diário hardcoded**: o teto é 100% derivado da verba, e a verba é
+  `renda − poupança − fixos − provisão (+ rollover)` — ver `verbaVariavelCents`
+  em `src/domain/finance/verba.ts`.
+- **Parcela NÃO é deduzida da verba** (decisão D-11, 04/08/2026). Cada parcela é uma
+  `Transacao` DESPESA de grupo `VARIAVEL` e **consome** o teto diário como qualquer
+  outro gasto. Quem subtrair parcela dentro de `verbaVariavelCents` a conta duas vezes.
+  Onde o usuário precisa saber "quanto sobra de verdade", o número é
+  `verbaLivre = verbaVariavel − parcelasComprometidas`, exposto como campo **separado**
+  (ver `src/domain/finance/projecao-tipos.ts`), nunca embutido na verba.
 
 ## Arquitetura (hexagonal / ports & adapters)
 

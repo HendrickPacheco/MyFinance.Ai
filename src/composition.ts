@@ -17,6 +17,8 @@ import {
   PrismaCicloRepository,
   PrismaPatrimonioRepository,
 } from '@/infrastructure/repositories/prisma-repositories';
+import { iaHabilitada } from '@/infrastructure/ia/config-ia';
+import { criarProvedorIA } from '@/infrastructure/ia/provedor-ia';
 import type { Deps } from '@/application/deps';
 
 export { prisma };
@@ -38,5 +40,7 @@ export async function criarDeps(): Promise<Deps> {
     parcelamentos: new PrismaParcelamentoRepository(prisma),
     ciclos: new PrismaCicloRepository(prisma),
     patrimonio: new PrismaPatrimonioRepository(prisma),
+    // Com IA_HABILITADA=false o campo fica `undefined` e nenhuma tela muda.
+    ia: iaHabilitada() ? criarProvedorIA() : undefined,
   };
 }

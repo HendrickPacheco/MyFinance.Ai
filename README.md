@@ -70,6 +70,62 @@ pnpm test        # Vitest — motor de cálculo (SPEC 9)
 pnpm typecheck   # tsc --noEmit, zero any
 ```
 
+## Camada de IA — configuração
+
+A camada de IA responde perguntas em linguagem natural sobre a sua vida financeira. Ela
+**não calcula nada**: todo número vem de função pura de `src/domain/finance/`, chamada via
+tool calling. O modelo só escolhe qual pergunta fazer ao código e narra a resposta.
+
+Vem **desligada** por default. Para ligar, preencha no `.env` (ver `.env.example`):
+
+| Variável | Papel |
+|---|---|
+| `IA_HABILITADA` | liga/desliga a camada inteira (default `false`) |
+| `OPENAI_API_KEY` | credencial |
+| `OPENAI_MODEL` | id do modelo — mora aqui, nunca no código |
+| `IA_TIMEOUT_MS` | opcional, default 60000 |
+| `IA_MAX_TENTATIVAS` | opcional, default 2 |
+
+Com `IA_HABILITADA=false`, `criarDeps()` devolve `ia: undefined` e o app roda exatamente
+como antes — nenhum caso de uso existente depende do campo.
+
+`src/infrastructure/ia/config-ia.ts` é o **único** arquivo do repo que lê `OPENAI_*`. O
+domínio (`src/domain/ports/ia.ts`) não conhece nome de provedor, nome de modelo nem variável
+de ambiente.
+
+### Verificação de capacidade do modelo
+
+```bash
+pnpm ia:verificar    # gasta tokens de verdade (~centavos por execução)
+```
+
+O spike prova, contra a API real, que o modelo escolhe a ferramenta certa entre cinco
+parecidas, respeita o tipo declarado dos argumentos (inteiro, data `YYYY-MM-DD`), sustenta
+conversa de múltiplos turnos e admite quando não sabe. Ele mede também os tokens de uma
+conversa típica, para dar número — e não palpite — ao custo por pergunta.
+
+**Última verificação: 04/08/2026 · `gpt-5.6-terra` · 7/7 aprovadas.**
+
+| Verificação | Resultado |
+|---|---|
+| Escolha entre 5 ferramentas parecidas, 3 perguntas | 3/3 corretas |
+| `numCiclos` volta inteiro (`z.number().int()`) | ok — `12` |
+| Data volta em `YYYY-MM-DD` | ok — `"2026-03-15"` a partir de "15 de março de 2026" |
+| Turno múltiplo (recebe resultado da tool e fecha) | ok — **citou a string `*Formatado`** em vez de recompor o valor |
+| Recusa honesta quando nenhuma tool cobre | ok — "Não tenho acesso à cotação do dólar…" |
+
+Custo medido: **2118 tokens de entrada · 221 de saída** para as 6 chamadas do spike
+(≈ US$ 0,007). Uma conversa real de 2–3 turnos deve ficar acima disso, porque o catálogo
+final tem mais ferramentas e as saídas carregam dados de verdade — reavaliar quando a
+Fase D estiver de pé.
+
+**Achado que mudou o adapter:** `gpt-5.6-terra` é modelo de raciocínio e a API recusa
+function tools em `/v1/chat/completions`, exigindo `/v1/responses` ou `reasoning_effort:
+'none'`. O adapter fala **Responses**; desligar o raciocínio degradaria justamente a
+escolha entre ferramentas parecidas, que é a capacidade de que a Fase D depende.
+
+Capacidade de modelo muda com o tempo — rode de novo e atualize a data ao trocar de modelo.
+
 ## Dados e backup
 
 Os dados vivem num PostgreSQL local (database `financial_dev`). Em **Ajustes → Backup** você
