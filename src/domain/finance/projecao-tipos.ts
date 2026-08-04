@@ -53,6 +53,14 @@ export interface EntradaProjecao {
   metaPoupancaPercent: number | null;
   fixosCents: number;
   valoresProvisaoAnualCents: readonly number[];
+  /**
+   * Provisão mensal JÁ CONGELADA, quando existe. O registro `Ciclo` guarda o
+   * valor mensal, não os anuais que o originaram — recomputá-lo a partir das
+   * provisões vigentes da Config descongelaria o ciclo pelas costas
+   * (SPEC 5.2). Quando preenchido, tem precedência sobre
+   * `valoresProvisaoAnualCents`.
+   */
+  provisaoMensalCongeladaCents?: number;
 
   destinoSobra: DestinoSobra;
   /** Rollover que entra no ciclo 1. Nos ciclos ≥ 2 a projeção assume sobra
