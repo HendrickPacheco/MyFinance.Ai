@@ -1180,3 +1180,52 @@ Registrado para não virar scope creep silencioso. **Nenhum item tem tarefa nest
 - Copiloto com capacidade de escrita (ver D-8).
 - Infraestrutura de teste de componente (jsdom + testing-library) para cobrir D5 (e, quando
   voltarem, A8 e B4) — hoje o `vitest.config.ts` roda só `environment: 'node'`.
+
+---
+
+## 10. Fase E — Memória do copiloto (decidida em 04/08/2026, a executar após D3)
+
+O dono decidiu que o copiloto deve ser um **assistente financeiro com memória**, não um
+respondedor sem contexto. Decisões fechadas:
+
+- **Quando:** depois de D2 e D3 (copiloto já respondendo sobre números), **antes da UI (D5)**.
+  A memória entra como mais um conjunto de ferramentas no mesmo loop de tool calling.
+- **Gravação:** só com **confirmação explícita**. O copiloto propõe ("quer que eu lembre que
+  você planeja trocar de carro em 2027?") e só grava se o dono confirmar. Preserva o espírito
+  da trava 5.
+- **Conteúdo:** planos e metas de médio prazo · preferências e linhas vermelhas · contexto de
+  vida e renda · histórico das conversas.
+
+### 10.1 O corte inviolável desta fase
+
+**Número nunca entra na memória.** O vector DB guarda intenção, plano e preferência; a conta
+continua saindo de função pura via ferramenta. Embutir "verba de agosto: R$ 7.116,00" num
+embedding cria alucinação plausível e **invisível** — o número foi verdade ontem e é falso hoje,
+e ninguém percebe. Isso viola as travas 1 e 3 de forma mais grave que um mock em tela.
+
+Consequência prática: o texto salvo passa por uma checagem que rejeita valor monetário. Se o
+dono disser "quero juntar R$ 50.000", o que se guarda é a **meta como intenção**, e o
+acompanhamento dela sai do motor — nunca do texto.
+
+### 10.2 Deltas sobre decisões anteriores
+
+- **D-8 (copiloto read-only) — REFORMULADA.** O copiloto pode escrever **na memória dele**,
+  nunca em dado financeiro. Continua não existindo tool que crie transação, feche ciclo ou
+  altere Config. A trava 5 passa a ser: nenhuma escrita, de nenhum tipo, sem confirmação humana.
+- **D-5 (retenção de conversa) — SUPERADA.** O default era metadado sem conteúdo. Memória
+  persistente contradiz isso por definição, e o dono optou por ela conscientemente.
+- **§1.1 "este plano não tem nenhuma migração de schema" — deixa de valer na Fase E.** É a
+  primeira migração desde o início: extensão `pgvector` + tabela de memória. Volta a valer o
+  cuidado do `CLAUDE.md`: reiniciar o dev server (`pnpm db:generate && rm -rf .next && pnpm dev`)
+  e subir `BACKUP_VERSION`, com ciclo de aceite export → limpar → import.
+
+### 10.3 Direção técnica
+
+`pgvector` no PostgreSQL que já existe — uma extensão, uma tabela, zero infraestrutura nova,
+entra no backup atual. Pinecone/Chroma/Qdrant seriam um segundo serviço num app que sobe com
+um comando.
+
+Ressalva registrada: para **um** usuário, memória semântica são algumas centenas de itens, e
+nesse volume carregar tudo no contexto dá quase o mesmo resultado que busca por embedding. Por
+isso a busca fica atrás de uma porta `MemoriaPort` — trocar "busca vetorial" por "carrega tudo"
+tem que ser um adapter, não um redesenho.
