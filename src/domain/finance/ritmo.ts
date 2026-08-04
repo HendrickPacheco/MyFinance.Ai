@@ -23,6 +23,36 @@ export interface ResultadoRitmo {
   ritmo: number;
 }
 
+/** Os mesmos indicadores, em centavos INTEIROS, prontos para exibição. */
+export interface RitmoExibivel {
+  mediaDiariaRealCents: number;
+  tetoInicialCents: number;
+  projecaoFechamentoCents: number;
+}
+
+/**
+ * Converte os indicadores fracionários em centavos inteiros para EXIBIÇÃO.
+ *
+ * Existe porque `ResultadoRitmo` guarda razões (ex.: 1031.25), e qualquer
+ * fronteira que formate dinheiro exige inteiro — `formatBRL` rejeita float
+ * (CLAUDE.md regra 1). Sem isto, cada consumidor arredondaria do seu jeito e
+ * a mesma média apareceria diferente em telas diferentes.
+ *
+ * Usa `round`, não `floor`: aqui não há total a preservar (não é rateio —
+ * ver `ratearCents`), e para um indicador de leitura o inteiro mais próximo
+ * é mais honesto que o truncado.
+ *
+ * O indicador cru continua fracionário — quem precisa de precisão usa
+ * `ResultadoRitmo` direto.
+ */
+export function ritmoExibivel(r: ResultadoRitmo): RitmoExibivel {
+  return {
+    mediaDiariaRealCents: Math.round(r.mediaDiariaRealCents),
+    tetoInicialCents: Math.round(r.tetoInicialCents),
+    projecaoFechamentoCents: Math.round(r.projecaoFechamentoCents),
+  };
+}
+
 export function indicadoresRitmo(e: EntradaRitmo): ResultadoRitmo {
   assertData(e.dataInicio);
   assertData(e.dataFim);
