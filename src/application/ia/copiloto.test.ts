@@ -15,10 +15,15 @@ import {
   criarDeps,
   cicloFake,
   transacaoFake,
+  ATOR_VIEWER,
+  FakeUsoIARepo,
   type FakeDeps,
 } from '@/application/__fakes__/fakes-ciclo-fechamento';
+import { ATOR_ANONIMO } from '@/domain/auth/ator';
+import { AcessoNegadoError } from '@/domain/auth/permissoes';
+import { LIMITES_IA_PADRAO } from '@/application/limite-ia';
 import { executarFerramenta } from './ferramentas';
-import { CopilotoIndisponivelError, MAX_TURNOS, responder } from './copiloto';
+import { CopilotoIndisponivelError, LimiteIAExcedidoError, MAX_TURNOS, responder } from './copiloto';
 import { MENSAGEM_LIMITE_DE_TURNOS, PROMPT_SISTEMA } from './prompt-sistema';
 
 const HOJE = '2026-07-20';
@@ -175,6 +180,103 @@ describe('responder — loop de tool calling', () => {
     await expect(responder(deps, { pergunta: 'oi' })).rejects.toBeInstanceOf(
       CopilotoIndisponivelError,
     );
+  });
+});
+
+describe('🔴 contrato de segurança da IA (limite-ia.ts)', () => {
+  it('VIEWER não dispara a IA — ela gasta dinheiro do dono (DA-3)', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'não deveria chegar aqui' }]);
+    const deps = { ...depsCom(ia), ator: ATOR_VIEWER };
+
+    await expect(responder(deps, { pergunta: 'quanto posso gastar?' })).rejects.toBeInstanceOf(
+      AcessoNegadoError,
+    );
+    // O provedor nem foi consultado: a negativa vem antes de gastar.
+    expect(ia.chamadas).toHaveLength(0);
+  });
+
+  it('ator anônimo também é barrado', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'x' }]);
+    const deps = { ...depsCom(ia), ator: ATOR_ANONIMO };
+
+    await expect(responder(deps, { pergunta: 'oi' })).rejects.toBeInstanceOf(AcessoNegadoError);
+    expect(ia.chamadas).toHaveLength(0);
+  });
+
+  it('teto diário de requisições nega ANTES de falar com o provedor', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'não deveria chegar aqui' }]);
+    const deps = {
+      ...depsCom(ia),
+      usoIA: new FakeUsoIARepo({
+        dia: HOJE,
+        uso: { requisicoes: LIMITES_IA_PADRAO.requisicoesPorDia, tokensEntrada: 0, tokensSaida: 0 },
+      }),
+    };
+
+    await expect(responder(deps, { pergunta: 'oi' })).rejects.toBeInstanceOf(LimiteIAExcedidoError);
+    expect(ia.chamadas).toHaveLength(0);
+  });
+
+  it('teto diário de tokens também nega antes da chamada', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'x' }]);
+    const deps = {
+      ...depsCom(ia),
+      usoIA: new FakeUsoIARepo({
+        dia: HOJE,
+        uso: { requisicoes: 1, tokensEntrada: LIMITES_IA_PADRAO.tokensPorDia, tokensSaida: 0 },
+      }),
+    };
+
+    await expect(responder(deps, { pergunta: 'oi' })).rejects.toBeInstanceOf(LimiteIAExcedidoError);
+    expect(ia.chamadas).toHaveLength(0);
+  });
+
+  it('registra requisição e tokens consumidos no dia', async () => {
+    const ia = new FakeProvedorIA([
+      {
+        tipo: 'FERRAMENTAS',
+        chamadas: [{ nome: 'situacao_hoje', argumentos: {} }],
+        consumo: { entrada: 120, saida: 15 },
+      },
+      { tipo: 'TEXTO', texto: 'ok', consumo: { entrada: 400, saida: 60 } },
+    ]);
+    const deps = depsCom(ia);
+
+    await responder(deps, { pergunta: 'quanto posso gastar?' });
+
+    expect(deps.usoIA.incrementos).toEqual([
+      { dia: HOJE, uso: { requisicoes: 1, tokensEntrada: 520, tokensSaida: 75 } },
+    ]);
+  });
+
+  it('registra o consumo mesmo quando o provedor falha no meio', async () => {
+    // Os turnos anteriores já foram cobrados — perder a contagem faria o teto
+    // de custo subestimar o gasto real.
+    const ia = new FakeProvedorIA([
+      {
+        tipo: 'FERRAMENTAS',
+        chamadas: [{ nome: 'situacao_hoje', argumentos: {} }],
+        consumo: { entrada: 300, saida: 20 },
+      },
+      { tipo: 'ERRO', motivo: 'INDISPONIVEL' },
+    ]);
+    const deps = depsCom(ia);
+
+    await expect(responder(deps, { pergunta: 'oi' })).rejects.toBeInstanceOf(ErroProvedorIA);
+
+    expect(deps.usoIA.incrementos).toEqual([
+      { dia: HOJE, uso: { requisicoes: 1, tokensEntrada: 300, tokensSaida: 20 } },
+    ]);
+  });
+
+  it('falha do contador não derruba a resposta já obtida', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'resposta boa' }]);
+    const usoIA = new FakeUsoIARepo();
+    usoIA.incrementar = () => Promise.reject(new Error('banco fora do ar'));
+
+    const resposta = await responder({ ...depsCom(ia), usoIA }, { pergunta: 'oi' });
+
+    expect(resposta.texto).toBe('resposta boa');
   });
 });
 

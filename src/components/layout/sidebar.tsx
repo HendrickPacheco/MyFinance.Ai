@@ -204,12 +204,15 @@ export function Sidebar({
   const podeEscrever = papel === 'OWNER';
   const [collapsed, setCollapsed] = React.useState(false);
 
+  // O Copiloto só aparece para o OWNER: cada pergunta gasta dinheiro real da
+  // conta de API do dono, então a IA é OWNER-only (decisão DA-3). Mostrar a
+  // rota a um VIEWER seria convidá-lo para uma tela que o servidor recusa.
   const itens = React.useMemo(
     () =>
-      mostrarCopiloto
+      mostrarCopiloto && podeEscrever
         ? [...ITENS.slice(0, 2), ITEM_COPILOTO, ...ITENS.slice(2)]
         : ITENS,
-    [mostrarCopiloto],
+    [mostrarCopiloto, podeEscrever],
   );
 
   React.useEffect(() => {

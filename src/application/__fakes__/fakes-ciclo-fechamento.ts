@@ -34,6 +34,7 @@ import type { DataCivil } from '@/shared/data';
 import type { Deps } from '../deps';
 import { RelogioFixo } from '@/infrastructure/relogio/relogio-sistema';
 import type { Ator } from '@/domain/auth/ator';
+import type { UsoIADia, UsoIARepository } from '@/domain/ports/uso-ia';
 import type { Usuario } from '@/domain/auth/usuario';
 import type { SessaoPort } from '@/domain/ports/sessao';
 import type { HashSenhaPort } from '@/domain/ports/hash-senha';
@@ -499,6 +500,8 @@ export interface FakeDeps extends Deps {
   sessoes: FakeSessaoPort;
   hashSenha: FakeHashSenha;
   rateLimiter: FakeRateLimiter;
+  /** Concreto (não opcional) para os testes poderem asserir os incrementos. */
+  usoIA: FakeUsoIARepo;
 }
 
 export const CONFIG_PADRAO: Config = {
@@ -556,6 +559,35 @@ export interface OpcoesFakeDeps {
   ator?: Ator;
   usuarios?: Usuario[];
   sessaoAtual?: Ator | null;
+  /** Uso de IA já acumulado no dia, para testar o teto de custo. */
+  usoIA?: UsoIADia;
+}
+
+/**
+ * Contador de uso da IA em memória. Registra o que foi incrementado para o
+ * teste poder asserir que os tokens gastos foram contabilizados.
+ */
+export class FakeUsoIARepo implements UsoIARepository {
+  public incrementos: { dia: DataCivil; uso: UsoIADia }[] = [];
+  private readonly porDia = new Map<DataCivil, UsoIADia>();
+
+  constructor(inicial?: { dia: DataCivil; uso: UsoIADia }) {
+    if (inicial) this.porDia.set(inicial.dia, { ...inicial.uso });
+  }
+
+  async doDia(dia: DataCivil): Promise<UsoIADia> {
+    return { ...(this.porDia.get(dia) ?? { requisicoes: 0, tokensEntrada: 0, tokensSaida: 0 }) };
+  }
+
+  async incrementar(dia: DataCivil, uso: UsoIADia): Promise<void> {
+    this.incrementos.push({ dia, uso: { ...uso } });
+    const atual = await this.doDia(dia);
+    this.porDia.set(dia, {
+      requisicoes: atual.requisicoes + uso.requisicoes,
+      tokensEntrada: atual.tokensEntrada + uso.tokensEntrada,
+      tokensSaida: atual.tokensSaida + uso.tokensSaida,
+    });
+  }
 }
 
 export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
@@ -577,6 +609,9 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     parcelamentos: new FakeParcelamentoRepo(),
     ciclos: new FakeCicloRepo(opcoes.ciclos ?? []),
     patrimonio: new FakePatrimonioRepo(opcoes.snapshots ?? []),
+    usoIA: new FakeUsoIARepo(
+      opcoes.usoIA ? { dia: opcoes.hoje ?? '2026-07-20', uso: opcoes.usoIA } : undefined,
+    ),
   };
 }
 
