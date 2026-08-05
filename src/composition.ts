@@ -17,8 +17,10 @@ import {
   PrismaCicloRepository,
   PrismaPatrimonioRepository,
 } from '@/infrastructure/repositories/prisma-repositories';
-import { iaHabilitada } from '@/infrastructure/ia/config-ia';
+import { embeddingHabilitado, iaHabilitada } from '@/infrastructure/ia/config-ia';
 import { criarProvedorIA } from '@/infrastructure/ia/provedor-ia';
+import { criarEmbeddingIA } from '@/infrastructure/ia/embeddings';
+import { PrismaMemoriaRepository } from '@/infrastructure/repositories/prisma-memoria';
 import {
   PrismaUsuarioRepository,
   PrismaSessaoRepository,
@@ -109,5 +111,10 @@ export async function criarDeps(): Promise<Deps> {
     // Com IA_HABILITADA=false o campo fica `undefined` e nenhuma tela muda.
     ia: iaHabilitada() ? criarProvedorIA() : undefined,
     usoIA: new PrismaUsoIARepository(prisma),
+    // Memória do copiloto (Fase E) — escopada por dono como todo o resto.
+    memorias: new PrismaMemoriaRepository(prisma, donoId),
+    // Independente de `ia`: sem OPENAI_MODEL_EMBEDDING a memória continua
+    // gravando e listando, só a busca semântica degrada.
+    embeddings: embeddingHabilitado() ? criarEmbeddingIA() : undefined,
   };
 }

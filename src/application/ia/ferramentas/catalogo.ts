@@ -35,13 +35,24 @@
  * `.nullable()`, que continua obrigatório na chamada e aceita `null` como
  * "não informado".
  *
- * ─── READ-ONLY (decisão D-8) ───
+ * ─── ESCRITA POR PROPOSTA (decisão D-8, revista em 04/08/2026) ───
  *
- * Não existe ferramenta de escrita. Nada de `criar_transacao`, `fechar_ciclo`
- * ou `atualizar_config`. Lançar gasto continua sendo ação do usuário na UI.
+ * A D-8 original dizia "não existe ferramenta de escrita". Isso foi revisto:
+ * existem ferramentas `propor_*`, e continua não existindo `criar_transacao`.
+ * A diferença não é de nome — nenhuma ferramenta grava. Uma `propor_*` valida,
+ * resolve nomes e devolve um objeto que a UI mostra com um botão; a gravação
+ * acontece na server action `confirmarProposta`, por clique do dono, chamando
+ * os mesmos casos de uso das telas.
+ *
+ * Segue proibido, e sem tarefa: `fechar_ciclo` e `atualizar_config`. Fechar
+ * ciclo credita provisão e move sobra; editar Config muda a verba do próximo
+ * ciclo. Nenhum dos dois cabe num "confirmar" de uma linha — são telas com
+ * aviso, e continuam sendo.
  */
 import { z } from 'zod';
 import type { DefinicaoFerramenta } from '@/domain/ports/ia';
+import { METODOS_PROPONIVEIS } from '../propostas';
+import { TIPOS_MEMORIA } from '@/domain/memoria/regras';
 
 const DATA_CIVIL = z
   .string()
@@ -213,7 +224,118 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
     comoFoiCalculado: 'domain/finance/projecao.ts: projetarComCenario',
     bloqueio: null,
   },
+
+  // ─── Escrita por proposta (D-8) ──────────────────────────────────────────
+
+  {
+    nome: 'opcoes_de_lancamento',
+    descricao:
+      'Lista as categorias e contas disponíveis, com seus ids, e a data de hoje. Chame ANTES de propor um lançamento ou parcelamento — é de onde saem os ids válidos. Nunca invente um id.',
+    argumentos: z.object({}),
+    origem:
+      'application/ia/ferramentas/escrita.ts: opcoesDeLancamento (leitura de Categoria e Conta, escopadas pelo dono)',
+    comoFoiCalculado:
+      'application/ia/ferramentas/escrita.ts: opcoesDeLancamento (leitura de Categoria e Conta)',
+    bloqueio: null,
+  },
+  {
+    nome: 'propor_lancamento',
+    descricao:
+      'Prepara um gasto para o usuário CONFIRMAR na tela. NÃO grava nada: devolve uma proposta que aparece com um botão de confirmar. Use quando o usuário disser que gastou algo ("gastei 47 no almoço", "lança 30 de uber"). Depois de chamar, diga o que preparou e peça a confirmação — nunca diga que já foi lançado.',
+    argumentos: z.object({
+      valorCents: z
+        .number()
+        .int()
+        .positive()
+        .describe('Valor em centavos inteiros (R$ 47,00 = 4700). Nunca use decimal.'),
+      descricao: z.string().min(1).max(120).describe('O que foi comprado, nas palavras do usuário.'),
+      data: DATA_CIVIL.nullable().describe('Data do gasto. null = hoje.'),
+      categoriaId: z
+        .string()
+        .nullable()
+        .describe('Id vindo de opcoes_de_lancamento. null = sem categoria.'),
+      contaId: z.string().nullable().describe('Id vindo de opcoes_de_lancamento. null = não informado.'),
+      metodo: z.enum(METODOS_PROPONIVEIS).nullable().describe('Meio de pagamento. null = não informado.'),
+    }),
+    origem: 'application/ia/propostas.ts → (na confirmação) application/transacoes.ts: criarTransacao',
+    comoFoiCalculado: 'application/ia/propostas.ts: descreverProposta',
+    bloqueio: null,
+    observacao: 'NÃO grava. Quem grava é a action confirmarProposta, por clique do dono.',
+  },
+  {
+    nome: 'propor_parcelamento',
+    descricao:
+      'Prepara um parcelamento para o usuário CONFIRMAR na tela. NÃO grava nada. Use quando o usuário decidir efetivamente parcelar algo. Para só SIMULAR o impacto antes de decidir, use simular_compra_parcelada — são coisas diferentes.',
+    argumentos: z.object({
+      descricao: z.string().min(1).max(120),
+      valorTotalCents: z
+        .number()
+        .int()
+        .positive()
+        .describe('Valor TOTAL da compra em centavos (R$ 3.000,00 = 300000).'),
+      numParcelas: z.number().int().min(2).max(60),
+      dataCompra: DATA_CIVIL.nullable().describe('Data da compra. null = hoje.'),
+      categoriaId: z.string().nullable(),
+      metodo: z.enum(METODOS_PROPONIVEIS).nullable(),
+    }),
+    origem:
+      'application/ia/propostas.ts → (na confirmação) application/transacoes.ts: criarParcelamento',
+    comoFoiCalculado: 'application/ia/propostas.ts: descreverProposta',
+    bloqueio: null,
+    observacao: 'NÃO grava. Quem grava é a action confirmarProposta, por clique do dono.',
+  },
+
+  // ─── Memória (Fase E) ────────────────────────────────────────────────────
+
+  {
+    nome: 'buscar_memoria',
+    descricao:
+      'Busca no que o usuário já pediu para você lembrar: planos, metas, preferências, linhas vermelhas e contexto de vida. Use quando a resposta depender do que ele quer ou de como ele decide, não de quanto ele tem. Memória NUNCA contém valor em dinheiro — para número, use as outras ferramentas.',
+    argumentos: z.object({
+      consulta: z
+        .string()
+        .min(1)
+        .max(300)
+        .describe('O assunto sobre o qual você quer lembrar, em linguagem natural.'),
+      limite: z.number().int().min(1).max(20).nullable().describe('Quantas memórias trazer. null = 5.'),
+    }),
+    origem: 'application/memoria.ts: buscarMemoria → pgvector (distância de cosseno)',
+    comoFoiCalculado: 'application/memoria.ts: buscarMemoria (pgvector, distância de cosseno)',
+    bloqueio: null,
+  },
+  {
+    nome: 'propor_memoria',
+    descricao:
+      'Prepara uma memória para o usuário CONFIRMAR. NÃO grava nada. Use quando ele revelar um plano, uma preferência, uma linha vermelha ou um contexto de vida que valha lembrar nas próximas conversas. O texto NÃO pode conter valor em dinheiro — guarde a intenção ("quero formar uma reserva"), nunca o número.',
+    argumentos: z.object({
+      tipoMemoria: z
+        .enum(TIPOS_MEMORIA)
+        .describe(
+          'PLANO = meta ou objetivo; PREFERENCIA = como ele gosta de decidir e o que recusa; CONTEXTO = vida, trabalho, família; CONVERSA = fato pontual que valha reter.',
+        ),
+      texto: z
+        .string()
+        .min(1)
+        .max(500)
+        .describe('A memória em uma frase, na terceira pessoa e SEM nenhum valor monetário.'),
+    }),
+    origem: 'domain/memoria/regras.ts: validarTextoMemoria → (na confirmação) application/memoria.ts: salvarMemoria',
+    comoFoiCalculado: 'domain/memoria/regras.ts: validarTextoMemoria',
+    bloqueio: null,
+    observacao: 'NÃO grava. Quem grava é a action confirmarProposta, por clique do dono.',
+  },
 ];
+
+/**
+ * Ferramentas que devolvem proposta em vez de dado. O loop as reconhece por
+ * esta lista para recolher as propostas — nunca por prefixo de nome, que
+ * quebraria silenciosamente numa renomeação.
+ */
+export const FERRAMENTAS_DE_PROPOSTA = [
+  'propor_lancamento',
+  'propor_parcelamento',
+  'propor_memoria',
+] as const;
 
 /**
  * Ferramentas que expõem verba. Todas devolvem `verbaVariavelCents`,

@@ -9,6 +9,7 @@
  * porque prompt não é código — se ninguém olhar, ninguém vê.
  */
 import { describe, expect, it } from 'vitest';
+import { formatBRL } from '@/shared/dinheiro';
 import { ErroProvedorIA, type MensagemIA } from '@/domain/ports/ia';
 import { FakeProvedorIA } from '@/application/__fakes__/fake-provedor-ia';
 import {
@@ -408,9 +409,25 @@ describe('🔴 auditoria do prompt de sistema', () => {
     expect(PROMPT_SISTEMA).toMatch(/verba livre/i);
   });
 
-  it('declara que o copiloto é read-only', () => {
-    expect(PROMPT_SISTEMA).toMatch(/só consegue LER/i);
-    expect(PROMPT_SISTEMA).toMatch(/não lança gastos/i);
+  /**
+   * A asserção antiga era "o copiloto é read-only". A D-8 foi revista em
+   * 04/08/2026: agora ele PREPARA ações. O que precisa ser garantido mudou de
+   * "ele não pode" para "ele não pode DIZER QUE JÁ FEZ" — porque a única forma
+   * de a escrita por proposta virar dano é o modelo narrar como concluído algo
+   * que ainda depende de um clique.
+   */
+  it('proíbe o copiloto de afirmar que já executou a ação', () => {
+    expect(PROMPT_SISTEMA).toMatch(/NUNCA diga que já foi feito/i);
+    expect(PROMPT_SISTEMA).toMatch(/não gravam nada/i);
+    expect(PROMPT_SISTEMA).toMatch(/peça a confirmação/i);
+  });
+
+  it('mantém fechar ciclo e configuração fora do alcance do copiloto', () => {
+    expect(PROMPT_SISTEMA).toMatch(/Fechar ciclo e alterar configuração continuam fora/i);
+  });
+
+  it('repete ao modelo que memória não guarda dinheiro', () => {
+    expect(PROMPT_SISTEMA).toMatch(/memória nunca contém valor em dinheiro/i);
   });
 
   it('pede texto puro, sem markdown', () => {
@@ -422,5 +439,141 @@ describe('🔴 auditoria do prompt de sistema', () => {
     expect(PROMPT_SISTEMA).toMatch(/gamificação/i);
     // E o próprio prompt não usa emoji.
     expect(PROMPT_SISTEMA).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+});
+
+/**
+ * Escrita por proposta (decisão D-8) vista do LOOP.
+ *
+ * A prova de que a ferramenta não grava está em `ferramentas.test.ts`. O que
+ * falta aqui é o outro lado do contrato: a proposta precisa CHEGAR à UI, e
+ * chegar só quando é confiável.
+ */
+describe('propostas no loop (D-8)', () => {
+  const CHAMADA_LANCAMENTO = {
+    nome: 'propor_lancamento',
+    argumentos: {
+      valorCents: 4_700,
+      descricao: 'Almoço',
+      data: null,
+      categoriaId: null,
+      contaId: null,
+      metodo: null,
+    },
+  };
+
+  it('recolhe a proposta e a entrega junto da resposta, sem gravar nada', async () => {
+    const ia = new FakeProvedorIA([
+      { tipo: 'FERRAMENTAS', chamadas: [CHAMADA_LANCAMENTO] },
+      { tipo: 'TEXTO', texto: 'Preparei o lançamento. Confirme abaixo para gravar.' },
+    ]);
+    const deps = depsCom(ia);
+
+    const resposta = await responder(deps, { pergunta: 'gastei 47 no almoço' });
+
+    expect(resposta.propostas).toHaveLength(1);
+    expect(resposta.propostas[0]?.proposta.tipo).toBe('LANCAMENTO');
+    // O banco não foi tocado: quem grava é a action, por clique do dono.
+    expect(deps.transacoes.itens).toHaveLength(2); // as duas do cenário base
+  });
+
+  it('uma pergunta comum não produz proposta nenhuma', async () => {
+    const ia = new FakeProvedorIA([
+      { tipo: 'FERRAMENTAS', chamadas: [{ nome: 'situacao_hoje', argumentos: {} }] },
+      { tipo: 'TEXTO', texto: 'Você ainda pode gastar hoje.' },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'quanto posso gastar hoje?' });
+
+    expect(resposta.propostas).toEqual([]);
+  });
+
+  it('proposta recusada pela ferramenta não vira botão', async () => {
+    const ia = new FakeProvedorIA([
+      {
+        tipo: 'FERRAMENTAS',
+        chamadas: [
+          {
+            nome: 'propor_memoria',
+            // Valor monetário: a guarda pura recusa no turno da proposta.
+            argumentos: { tipoMemoria: 'PLANO', texto: 'quer juntar R$ 50.000,00' },
+          },
+        ],
+      },
+      { tipo: 'TEXTO', texto: 'Não consigo guardar valores na memória.' },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'lembra que quero juntar 50 mil' });
+
+    expect(resposta.propostas).toEqual([]);
+    expect(resposta.ferramentasUsadas[0]?.falhou).toBe(true);
+  });
+
+  it('🔴 loop cortado por limite de turnos não oferece confirmação', async () => {
+    // A resposta admite não ter concluído; um botão "lançar R$ 47,00" ao lado
+    // dessa frase pediria confirmação de algo que o modelo não terminou.
+    const ia = new FakeProvedorIA(
+      Array.from({ length: MAX_TURNOS }, () => ({
+        tipo: 'FERRAMENTAS' as const,
+        chamadas: [CHAMADA_LANCAMENTO],
+      })),
+    );
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'gastei 47 no almoço' });
+
+    expect(resposta.incompleta).toBe(true);
+    expect(resposta.texto).toBe(MENSAGEM_LIMITE_DE_TURNOS);
+    expect(resposta.propostas).toEqual([]);
+  });
+
+  it('o valor da proposta não é acusado de alucinação', async () => {
+    // A proposta devolve o par `valorCents`/`valorFormatado`, então o detector
+    // de valor não rastreado reconhece o número que o modelo cita.
+    const ia = new FakeProvedorIA([
+      { tipo: 'FERRAMENTAS', chamadas: [CHAMADA_LANCAMENTO] },
+      { tipo: 'TEXTO', texto: `Preparei o lançamento de ${formatBRL(4_700)}. Confirme abaixo.` },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'gastei 47 no almoço' });
+
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+    expect(resposta.valoresCitados.map((v) => v.valorFormatado)).toContain(formatBRL(4_700));
+  });
+});
+
+/** Memória injetada no prompt de sistema (Fase E, tarefa E6). */
+describe('memória no prompt de sistema', () => {
+  it('injeta planos, preferências e contexto — e não conversas', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'ok' }]);
+    const deps = depsCom(ia);
+    await deps.memorias.criar({
+      tipo: 'PLANO',
+      texto: 'quer sair do aluguel até 2028',
+      origem: 'USUARIO',
+      embedding: null,
+    });
+    await deps.memorias.criar({
+      tipo: 'CONVERSA',
+      texto: 'comentou que viajou em julho',
+      origem: 'USUARIO',
+      embedding: null,
+    });
+
+    await responder(deps, { pergunta: 'e aí?' });
+
+    const sistema = ia.chamadas[0]?.mensagens.find((m) => m.papel === 'sistema');
+    expect(sistema?.conteudo).toContain('quer sair do aluguel até 2028');
+    // CONVERSA fica de fora: para essas existe `buscar_memoria` sob demanda,
+    // senão toda pergunta pagaria por histórico irrelevante.
+    expect(sistema?.conteudo).not.toContain('comentou que viajou em julho');
+  });
+
+  it('sem memória, o prompt de sistema fica idêntico ao original', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'ok' }]);
+
+    await responder(depsCom(ia), { pergunta: 'e aí?' });
+
+    const sistema = ia.chamadas[0]?.mensagens.find((m) => m.papel === 'sistema');
+    expect(sistema?.conteudo).toBe(PROMPT_SISTEMA);
   });
 });

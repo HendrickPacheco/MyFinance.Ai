@@ -17,6 +17,13 @@ import type { PrismaClient } from '@prisma/client';
  *   2 — adiciona `dados.pagamentosFixos` (rastreamento de "pago?" dos custos
  *       fixos). Mudança PURAMENTE ADITIVA: nenhum campo existente mudou de
  *       forma ou nome, só uma coleção nova apareceu.
+ *   3 — adiciona `dados.memorias` (memória do copiloto, Fase E). Também
+ *       aditiva. O VETOR NÃO VIAJA no arquivo: são 1536 floats por memória,
+ *       que multiplicariam o tamanho do backup por dezenas sem carregar
+ *       nenhuma informação que não possa ser recomputada. Memória restaurada
+ *       volta sem embedding — continua listada, editável e no prompt de
+ *       sistema; só sai da busca semântica até ser reindexada (há um botão
+ *       para isso na tela de memória).
  *
  * Por a mudança ser aditiva, um backup versão 1 continua importável na v2:
  * `dados.pagamentosFixos` é opcional no schema Zod e vira lista vazia quando
@@ -29,7 +36,7 @@ import type { PrismaClient } from '@prisma/client';
  * removido, ou de shape diferente) — nesse caso, sim, backups abaixo do
  * piso devem ser recusados por `BackupVersaoIncompativelError`.
  */
-export const BACKUP_VERSION = 2;
+export const BACKUP_VERSION = 3;
 const MIN_BACKUP_VERSION_COMPATIVEL = 1;
 
 const BACKUP_DIR = path.resolve(process.cwd(), 'data');
@@ -94,6 +101,7 @@ export async function exportarTudo(db: PrismaClient, donoId: string): Promise<un
     pagamentosFixos,
     transacoes,
     snapshots,
+    memorias,
   ] = await Promise.all([
     db.config.findUnique({ where: { donoId } }),
     db.conta.findMany({ where: doDono }),
@@ -105,6 +113,9 @@ export async function exportarTudo(db: PrismaClient, donoId: string): Promise<un
     db.pagamentoFixo.findMany({ where: doDono }),
     db.transacao.findMany({ where: doDono }),
     db.snapshotPatrimonio.findMany({ where: doDono, include: { itens: true } }),
+    // `embedding` é `Unsupported` no schema, então o Prisma Client não o lê e
+    // ele fica de fora por construção — não é preciso removê-lo à mão.
+    db.memoria.findMany({ where: doDono }),
   ]);
 
   return {
@@ -121,6 +132,7 @@ export async function exportarTudo(db: PrismaClient, donoId: string): Promise<un
       pagamentosFixos: pagamentosFixos.map(semDono),
       transacoes: transacoes.map(semDono),
       snapshots: snapshots.map(semDono),
+      memorias: memorias.map(semDono),
     },
   };
 }
@@ -313,6 +325,27 @@ const snapshotSchema = z
   })
   .strict();
 
+/**
+ * Memória do copiloto (Fase E). Sem `embedding` de propósito — ver o histórico
+ * de versões no topo do arquivo.
+ *
+ * 🔴 `texto` de um backup NÃO passa pela guarda `validarTextoMemoria`: um
+ * arquivo gerado antes de uma regra futura ficar mais rígida deve continuar
+ * restaurável (é a mesma razão de `MIN_BACKUP_VERSION_COMPATIVEL` existir).
+ * A guarda protege a ESCRITA NOVA, que é por onde o valor entraria.
+ */
+const memoriaSchema = z
+  .object({
+    id: z.string(),
+    tipo: z.string(),
+    texto: z.string(),
+    origem: z.string().optional(),
+    ativo: z.boolean().optional(),
+    createdAt: carimboISO.optional(),
+    updatedAt: carimboISO.optional(),
+  })
+  .strict();
+
 const backupSchema = z.object({
   version: z.number().int(),
   dados: z.object({
@@ -329,6 +362,9 @@ const backupSchema = z.object({
     pagamentosFixos: z.array(pagamentoFixoSchema).default([]),
     transacoes: z.array(transacaoSchema),
     snapshots: z.array(snapshotSchema),
+    // Mesma razão de `pagamentosFixos`: backups versão 1 e 2 não têm esta
+    // chave, e recusá-los deixaria o dono sem restaurar o próprio arquivo.
+    memorias: z.array(memoriaSchema).default([]),
   }),
 });
 
@@ -393,6 +429,8 @@ export async function importarTudo(
     await tx.categoria.deleteMany({ where: { donoId } });
     await tx.conta.deleteMany({ where: { donoId } });
     await tx.config.deleteMany({ where: { donoId } });
+    // Memoria não é referenciada por ninguém: a ordem dela é indiferente.
+    await tx.memoria.deleteMany({ where: { donoId } });
 
     // Ordem de criação respeita as FKs: entidades sem dependência primeiro,
     // depois as que referenciam (config -> conta; custoFixo -> conta;
@@ -409,6 +447,8 @@ export async function importarTudo(
     if (d.custosFixos.length) await tx.custoFixo.createMany({ data: comDono(d.custosFixos) });
     if (d.parcelamentos.length) await tx.parcelamento.createMany({ data: comDono(d.parcelamentos) });
     if (d.ciclos.length) await tx.ciclo.createMany({ data: comDono(d.ciclos) });
+    // Sem `embedding`: o vetor não viaja no arquivo e é reindexado sob demanda.
+    if (d.memorias.length) await tx.memoria.createMany({ data: comDono(d.memorias) });
     if (d.pagamentosFixos.length)
       await tx.pagamentoFixo.createMany({ data: comDono(d.pagamentosFixos) });
     if (d.transacoes.length) {

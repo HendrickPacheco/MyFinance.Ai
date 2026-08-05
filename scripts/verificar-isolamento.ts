@@ -21,6 +21,7 @@ import {
   PrismaCategoriaRepository,
   PrismaConfigRepository,
 } from '../src/infrastructure/repositories/prisma-repositories';
+import { PrismaMemoriaRepository } from '../src/infrastructure/repositories/prisma-memoria';
 import { semearWorkspace } from '../src/infrastructure/onboarding';
 import { exportarTudo } from '../src/infrastructure/backup';
 
@@ -182,10 +183,51 @@ async function main(): Promise<void> {
         categoriasB.find((c) => c.nome === 'Mercado')?.id,
   );
 
+  // A memória usa SQL CRU (pgvector não é tipado pelo Prisma), então ela não
+  // herda o escopo automático do Prisma Client — é a tabela onde um `where`
+  // esquecido vazaria sem ninguém notar. Por isso ela é verificada aqui, e não
+  // só por teste de unidade com fake.
+  console.log('\nMEMÓRIA (Fase E — SQL cru, sem escopo automático):');
+  const memA = new PrismaMemoriaRepository(prisma, a.id);
+  const memB = new PrismaMemoriaRepository(prisma, b.id);
+
+  const VETOR_A = Array.from({ length: 1536 }, (_, i) => (i === 0 ? 1 : 0));
+  const memoriaA = await memA.criar({
+    tipo: 'PLANO',
+    texto: 'plano secreto do dono A',
+    origem: 'USUARIO',
+    embedding: VETOR_A,
+  });
+
+  checar('B não lista a memória do A', (await memB.listar()).length === 0);
+  checar('B não obtém a memória do A por id', (await memB.obter(memoriaA.id)) === null);
+  checar(
+    'a busca semântica do B não alcança a memória do A',
+    (await memB.buscarPorEmbedding(VETOR_A)).every((m) => m.id !== memoriaA.id),
+  );
+  checar(
+    'B não vê a memória do A entre as sem embedding',
+    (await memB.listarSemEmbedding()).every((m) => m.id !== memoriaA.id),
+  );
+
+  await memB.arquivar(memoriaA.id);
+  await memB.definirEmbedding(memoriaA.id, Array.from({ length: 1536 }, () => 0.5));
+  const memoriaAposTentativas = await memA.obter(memoriaA.id);
+  checar('arquivar com id alheio não afeta a memória do A', memoriaAposTentativas?.ativo === true);
+  checar(
+    'a memória do A segue com o texto original',
+    memoriaAposTentativas?.texto === 'plano secreto do dono A',
+  );
+  checar(
+    'a busca do A ainda encontra a memória dele (embedding intacto)',
+    (await memA.buscarPorEmbedding(VETOR_A))[0]?.id === memoriaA.id,
+  );
+
   console.log('\nBACKUP — o export do B não contém dados do A:');
   const dumpB = JSON.stringify(await exportarTudo(prisma, b.id));
   checar('o dump do B não cita a transação do A', !dumpB.includes(txA.id));
   checar('o dump do B não cita a descrição secreta do A', !dumpB.includes('segredo do dono A'));
+  checar('o dump do B não cita a memória do A', !dumpB.includes('plano secreto do dono A'));
   checar('o dump do B não carrega donoId nenhum', !dumpB.includes('donoId'));
 
   console.log('\nCONFIG — uma por dono:');

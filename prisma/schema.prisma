@@ -264,6 +264,7 @@ model Usuario {
   parcelamentos   Parcelamento[]
   ciclos          Ciclo[]
   snapshots       SnapshotPatrimonio[]
+  memorias        Memoria[]
 }
 
 model Sessao {
@@ -289,4 +290,35 @@ model UsoIA {
   requisicoes   Int    @default(0)
   tokensEntrada Int    @default(0)
   tokensSaida   Int    @default(0)
+}
+
+/// Memória do copiloto (Fase E).
+///
+/// 🔴 REGRA INVIOLÁVEL: `texto` NUNCA guarda valor monetário. Um número
+/// gravado aqui não tem ciclo, não tem validade e não é recalculado — ele é
+/// citado amanhã como se ainda fosse verdade, e ninguém percebe. A guarda é
+/// `validarTextoMemoria` em src/domain/memoria/regras.ts, aplicada antes de
+/// qualquer gravação. Não existe caminho de escrita que a contorne.
+///
+/// Não há campo `*Cents` aqui de propósito, e não deve haver nunca.
+model Memoria {
+  id     String  @id @default(cuid())
+  donoId String
+  dono   Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  tipo   String // PLANO | PREFERENCIA | CONTEXTO | CONVERSA
+  texto  String
+  origem String  @default("USUARIO") // USUARIO | COPILOTO (proposta confirmada)
+  ativo  Boolean @default(true)
+
+  /// text-embedding-3-small, 1536 dimensões. `Unsupported` porque o Prisma não
+  /// tipa vetor: leitura e escrita deste campo são SQL cru, isoladas no adapter
+  /// (infrastructure/repositories/prisma-memoria.ts).
+  /// Nulo = ainda não indexado; a busca semântica não o alcança (degrada, não quebra).
+  embedding Unsupported("vector(1536)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([donoId, tipo, ativo])
+  @@index([donoId, ativo, createdAt])
 }

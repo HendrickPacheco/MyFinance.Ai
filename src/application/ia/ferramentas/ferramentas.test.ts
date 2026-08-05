@@ -62,6 +62,28 @@ const ARGUMENTOS: Record<string, unknown> = {
     dataCompra: null,
     numCiclos: null,
   },
+  // Propostas (D-8) e memória (Fase E). Entram na MESMA bateria genérica de
+  // propósito: o teste "%s não grava nada" acima é a prova executável de que
+  // uma ferramenta `propor_*` não escreve — o coração do contrato da D-8.
+  opcoes_de_lancamento: {},
+  propor_lancamento: {
+    valorCents: 4_700,
+    descricao: 'Almoço',
+    data: null,
+    categoriaId: null,
+    contaId: null,
+    metodo: null,
+  },
+  propor_parcelamento: {
+    descricao: 'Geladeira',
+    valorTotalCents: 300_000,
+    numParcelas: 10,
+    dataCompra: null,
+    categoriaId: null,
+    metodo: null,
+  },
+  buscar_memoria: { consulta: 'planos de longo prazo', limite: null },
+  propor_memoria: { tipoMemoria: 'PLANO', texto: 'quer sair do aluguel até 2028' },
 };
 
 function fotografar(deps: FakeDeps): string {
