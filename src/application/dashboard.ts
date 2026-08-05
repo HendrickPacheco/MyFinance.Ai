@@ -26,6 +26,7 @@ import {
   somarParceladosCents,
   gastoVariavelSemParcelasCents,
   extratoTransacoesVariaveis,
+  somarProgramadosCents,
   ordenarCategoriasPorUso,
   projetarPoupanca,
   formatarPeriodoCiclo,
@@ -104,10 +105,12 @@ async function montar(
     custosFixos,
     parcelados: parceladoInfo.parcelados,
   });
-  const categoriasFatia = montarFatiasCategoria(transacoes, categorias);
+  const categoriasFatia = montarFatiasCategoria(transacoes, categorias, hoje);
   const metodosFatia = montarFatiasMetodo(transacoes);
   const categoriasLancamento = montarCategoriasLancamento(transacoes, categorias);
-  const transacoesVariaveis = montarExtratoVariavel(transacoes, categorias, hoje);
+  // Extrato até o FIM do ciclo (não até hoje): competência futura já lançada
+  // aparece marcada como programada. Ver `montarExtratoVariavel`.
+  const transacoesVariaveis = montarExtratoVariavel(transacoes, categorias, hoje, ciclo.dataFim);
 
   const [provisoes, patrimonio, metas] = await Promise.all([
     montarProvisoes(deps),
@@ -132,7 +135,10 @@ async function montar(
     transacoesVariaveis,
     // Mesmo valor usado em `kpis.totalGastosCents` (via `gastoVariavelSemParcelas`
     // acima) — nunca recalculado à parte, para os dois números nunca divergirem.
+    // Soma só o REALIZADO: as linhas programadas do extrato ficam fora, no
+    // campo separado abaixo (competência futura não consome verba, SPEC 5.1).
     transacoesVariaveisTotalCents: gastoVariavelSemParcelas,
+    transacoesVariaveisProgramadasCents: somarProgramadosCents(transacoesVariaveis),
     patrimonio,
     metas,
     pendenciaFechamento,
@@ -229,16 +235,25 @@ function montarKpis(params: {
   };
 }
 
-/** Isolado do resto: uma categoria com dado inconsistente não pode derrubar o painel. */
+/**
+ * Fatias da pizza de categorias. Corta em `hoje` (mesmo predicado e mesmo
+ * corte de `gastoRealizadoCents`): a soma das fatias é a decomposição exata do
+ * KPI de gasto realizado e do rodapé "Realizado até hoje" do extrato. O que
+ * ainda não aconteceu aparece marcado no extrato, nunca calado num gráfico.
+ *
+ * Isolado do resto: uma categoria com dado inconsistente não pode derrubar o painel.
+ */
 function montarFatiasCategoria(
   transacoes: readonly Transacao[],
   categorias: readonly Categoria[],
+  hoje: string,
 ): FatiaCategoriaAgregada[] {
   try {
     const calc = paraCalculoCategorizado(transacoes, categorias);
     return agregarGastoPorCategoria(
       calc,
       categorias.map((c) => ({ id: c.id, nome: c.nome })),
+      hoje,
     );
   } catch (erro) {
     console.error('[dashboard] falha ao agregar gasto por categoria:', erro);
@@ -291,11 +306,19 @@ function montarCategoriasLancamento(
  * parcelas, gasto de provisão, RENDA e TRANSFERENCIA; ESTORNO entra marcado
  * com `ehEstorno`. Isolado do resto: transação com dado malformado não pode
  * derrubar o painel.
+ *
+ * Vai até `ateData` (= fim do ciclo), não até `hoje`: transação com competência
+ * futura dentro do ciclo entra marcada com `ehProgramado`. Cortar em `hoje`
+ * fazia ela sumir do painel inteiro — não é custo fixo, não é parcela, não é
+ * provisão — enquanto seguia visível no extrato da tela Ciclo e nos gráficos
+ * de categoria/método (que não filtram por data). O total continua sendo só o
+ * realizado; o programado vai em `transacoesVariaveisProgramadasCents`.
  */
 function montarExtratoVariavel(
   transacoes: readonly Transacao[],
   categorias: readonly Categoria[],
   hoje: string,
+  ateData: string,
 ): LinhaTransacaoVariavelCalc[] {
   try {
     const gruposPorCategoria = new Map(categorias.map((c) => [c.id, c.grupo]));
@@ -315,7 +338,7 @@ function montarExtratoVariavel(
       metodo: t.metodo,
     }));
 
-    return extratoTransacoesVariaveis(paraExtrato, hoje);
+    return extratoTransacoesVariaveis(paraExtrato, hoje, { ate: ateData });
   } catch (erro) {
     console.error('[dashboard] falha ao montar extrato de gasto variável:', erro);
     return [];

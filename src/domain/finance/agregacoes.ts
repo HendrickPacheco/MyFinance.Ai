@@ -146,15 +146,26 @@ export interface FatiaCategoriaAgregada {
  * Transações sem categoria caem no bucket "Sem categoria"; categorias que
  * existiram mas foram removidas do cadastro aparecem como "Categoria removida".
  * Ordenado do maior para o menor total.
+ *
+ * `ateData` é OBRIGATÓRIO e, no painel, é sempre `hoje`: com o mesmo predicado
+ * e o mesmo corte de `gastoRealizadoCents`, o total das fatias bate exatamente
+ * com o KPI de gasto realizado — a pizza é a decomposição dele, não outro
+ * número. Sem o corte, competência futura já lançada no ciclo (parcela do dia
+ * 10, entrada de acordo agendada) entrava calada na fatia e fazia o gráfico
+ * discordar do "Realizado até hoje" logo acima dele.
  */
 export function agregarGastoPorCategoria(
   transacoes: readonly TransacaoCategorizada[],
   categorias: readonly CategoriaNomeavel[],
+  ateData: DataCivil,
 ): FatiaCategoriaAgregada[] {
+  assertData(ateData);
+
   const nomesPorId = new Map(categorias.map((c) => [c.id, c.nome]));
   const totaisPorId = new Map<string, number>();
 
   for (const t of transacoes) {
+    if (t.data > ateData) continue; // comparação lexicográfica (SPEC 5.1)
     if (!contaComoVerbaVariavel(t)) continue;
     const chave = t.categoriaId ?? SEM_CATEGORIA_ID;
     const delta = t.tipo === 'DESPESA' ? t.valorCents : t.tipo === 'ESTORNO' ? -t.valorCents : 0;
@@ -253,6 +264,12 @@ export interface LinhaTransacaoVariavelCalc {
   metodo: MetodoPagamento | null;
   /** ESTORNO abate; a UI precisa distinguir para não mostrar como despesa. */
   ehEstorno: boolean;
+  /**
+   * Competência ainda no futuro (`data > hoje`): já lançada no ciclo, mas
+   * ainda NÃO consome verba nem entra em `gastoVariavelSemParcelasCents`. A UI
+   * precisa distinguir para não somar às cegas com o realizado.
+   */
+  ehProgramado: boolean;
 }
 
 /**
@@ -261,11 +278,22 @@ export interface LinhaTransacaoVariavelCalc {
  * exclusão de parcelas), mas devolvendo as linhas em vez do total — exclui
  * parcelas, gasto de provisão, RENDA e TRANSFERENCIA; inclui DESPESA e
  * ESTORNO marcando `ehEstorno`. Mais recentes primeiro.
+ *
+ * `hoje` separa realizado de programado (`ehProgramado`), NUNCA esconde linha:
+ * por padrão o corte de inclusão é o próprio `hoje`, mas passando
+ * `opcoes.ate` (tipicamente `ciclo.dataFim`) as competências futuras do ciclo
+ * vêm junto, marcadas. Omiti-las era o bug: uma transação com data futura
+ * ficava invisível no painel (não é fixo, não é parcela, não é provisão) e ao
+ * mesmo tempo aparecia no extrato da tela Ciclo e nos gráficos de categoria/
+ * método — que não filtram por data.
  */
 export function extratoTransacoesVariaveis(
   transacoes: readonly TransacaoParaExtrato[],
-  ateData: DataCivil,
+  hoje: DataCivil,
+  opcoes?: { ate?: DataCivil },
 ): LinhaTransacaoVariavelCalc[] {
+  assertData(hoje);
+  const ateData = opcoes?.ate ?? hoje;
   assertData(ateData);
 
   return transacoes
@@ -285,8 +313,26 @@ export function extratoTransacoesVariaveis(
       categoriaNome: t.categoriaNome,
       metodo: t.metodo,
       ehEstorno: t.tipo === 'ESTORNO',
+      ehProgramado: t.data > hoje,
     }))
     .sort((a, b) => b.data.localeCompare(a.data));
+}
+
+/**
+ * Soma líquida (DESPESA − ESTORNO) só das linhas PROGRAMADAS do extrato. É um
+ * número de exibição separado: nunca some com o total realizado nem com a
+ * verba consumida — competência futura não consome teto (SPEC 5.1), e juntar
+ * os dois num só número é exatamente o que faz o painel mentir.
+ */
+export function somarProgramadosCents(
+  linhas: readonly Pick<LinhaTransacaoVariavelCalc, 'valorCents' | 'ehEstorno' | 'ehProgramado'>[],
+): number {
+  let total = 0;
+  for (const l of linhas) {
+    if (!l.ehProgramado) continue;
+    total += l.ehEstorno ? -l.valorCents : l.valorCents;
+  }
+  return total;
 }
 
 export interface ResultadoPoupancaProjetada {
