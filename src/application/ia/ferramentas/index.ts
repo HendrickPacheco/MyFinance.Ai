@@ -21,6 +21,13 @@ import { estadoCiclo, gastosPorCategoria, pagamentosPendentes, situacaoHoje } fr
 import { analiseCorte, assinaturasDetectadas } from './analise';
 import { patrimonioResumo } from './patrimonio';
 import { projetarCiclosFerramenta, simularCompraParcelada } from './projecao';
+import {
+  buscarMemoriaFerramenta,
+  opcoesDeLancamento,
+  proporLancamento,
+  proporMemoria,
+  proporParcelamento,
+} from './escrita';
 
 /** Recebe os argumentos JÁ validados pelo schema da ferramenta. */
 type Executor = (deps: Deps, argumentos: never) => Promise<SaidaFerramenta>;
@@ -40,6 +47,12 @@ const EXECUTORES: Record<string, Executor> = {
   patrimonio_resumo: patrimonioResumo as Executor,
   projetar_ciclos: projetarCiclosFerramenta as Executor,
   simular_compra_parcelada: simularCompraParcelada as Executor,
+  // Propostas (D-8) e memória (Fase E). Nenhuma delas grava — ver escrita.ts.
+  opcoes_de_lancamento: opcoesDeLancamento as Executor,
+  propor_lancamento: proporLancamento as Executor,
+  propor_parcelamento: proporParcelamento as Executor,
+  buscar_memoria: buscarMemoriaFerramenta as Executor,
+  propor_memoria: proporMemoria as Executor,
 };
 
 export const NOMES_DE_FERRAMENTA = Object.keys(EXECUTORES);

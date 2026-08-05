@@ -8,6 +8,7 @@ import {
   somarParceladosCents,
   gastoVariavelSemParcelasCents,
   extratoTransacoesVariaveis,
+  somarProgramadosCents,
   projetarPoupanca,
   formatarPeriodoCiclo,
   type TransacaoCategorizada,
@@ -15,6 +16,7 @@ import {
   type TransacaoComParcela,
   type TransacaoParaExtrato,
 } from './agregacoes';
+import { gastoRealizadoCents } from './teto';
 
 describe('calcularPercentuais', () => {
   it('lista vazia devolve lista vazia', () => {
@@ -72,8 +74,11 @@ describe('agregarGastoPorCategoria', () => {
     { id: 'cat-lazer', nome: 'Lazer' },
   ];
 
+  /** Corte depois de tudo: isola os casos que não são sobre data. */
+  const ATE_FIM = '2026-08-31';
+
   it('lista vazia devolve lista vazia', () => {
-    expect(agregarGastoPorCategoria([], categorias)).toEqual([]);
+    expect(agregarGastoPorCategoria([], categorias, ATE_FIM)).toEqual([]);
   });
 
   it('soma DESPESA e abate ESTORNO, ignora RENDA/TRANSFERENCIA e provisão', () => {
@@ -85,7 +90,7 @@ describe('agregarGastoPorCategoria', () => {
       { data: '2026-08-05', valorCents: 300, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-lazer', provisaoId: 'prov-1' },
     ];
 
-    const resultado = agregarGastoPorCategoria(transacoes, categorias);
+    const resultado = agregarGastoPorCategoria(transacoes, categorias, ATE_FIM);
 
     expect(resultado).toEqual([
       { categoriaId: 'cat-mercado', nome: 'Mercado', totalCents: 4000, percentual: 66.7 },
@@ -97,7 +102,7 @@ describe('agregarGastoPorCategoria', () => {
     const transacoes: TransacaoCategorizada[] = [
       { data: '2026-08-01', valorCents: 1000, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-inexistente' },
     ];
-    const resultado = agregarGastoPorCategoria(transacoes, categorias);
+    const resultado = agregarGastoPorCategoria(transacoes, categorias, ATE_FIM);
     expect(resultado).toEqual([
       { categoriaId: 'cat-inexistente', nome: 'Categoria removida', totalCents: 1000, percentual: 100 },
     ]);
@@ -107,7 +112,7 @@ describe('agregarGastoPorCategoria', () => {
     const transacoes: TransacaoCategorizada[] = [
       { data: '2026-08-01', valorCents: 1000, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: null },
     ];
-    const resultado = agregarGastoPorCategoria(transacoes, categorias);
+    const resultado = agregarGastoPorCategoria(transacoes, categorias, ATE_FIM);
     expect(resultado[0]?.nome).toBe('Sem categoria');
     expect(resultado[0]?.totalCents).toBe(1000);
   });
@@ -117,10 +122,48 @@ describe('agregarGastoPorCategoria', () => {
       { data: '2026-08-01', valorCents: 1000, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-mercado' },
       { data: '2026-08-02', valorCents: 3000, tipo: 'ESTORNO', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-mercado' },
     ];
-    const resultado = agregarGastoPorCategoria(transacoes, categorias);
+    const resultado = agregarGastoPorCategoria(transacoes, categorias, ATE_FIM);
     expect(resultado).toEqual([
       { categoriaId: 'cat-mercado', nome: 'Mercado', totalCents: -2000, percentual: 100 },
     ]);
+  });
+
+  it('competência futura fica fora da fatia (corte lexicográfico em ateData)', () => {
+    const transacoes: TransacaoCategorizada[] = [
+      { data: '2026-08-04', valorCents: 1000, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-mercado' },
+      { data: '2026-08-05', valorCents: 500, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-mercado' },
+      { data: '2026-08-10', valorCents: 78336, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-lazer' },
+    ];
+
+    const resultado = agregarGastoPorCategoria(transacoes, categorias, '2026-08-05');
+
+    // A do dia 10 sumiu; a de hoje (05) ficou — o corte é `>`, não `>=`.
+    expect(resultado).toEqual([
+      { categoriaId: 'cat-mercado', nome: 'Mercado', totalCents: 1500, percentual: 100 },
+    ]);
+  });
+
+  it('o total das fatias bate exatamente com gastoRealizadoCents (a pizza é a decomposição do KPI)', () => {
+    const hoje = '2026-08-05';
+    const transacoes: TransacaoCategorizada[] = [
+      { data: '2026-08-01', valorCents: 5000, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-mercado' },
+      { data: '2026-08-02', valorCents: 1000, tipo: 'ESTORNO', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-mercado' },
+      { data: '2026-08-03', valorCents: 2000, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-lazer' },
+      { data: '2026-08-04', valorCents: 900, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-lazer', provisaoId: 'prov-1' },
+      { data: '2026-08-10', valorCents: 78336, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', categoriaId: 'cat-lazer' },
+    ];
+
+    const totalDasFatias = agregarGastoPorCategoria(transacoes, categorias, hoje).reduce(
+      (soma, f) => soma + f.totalCents,
+      0,
+    );
+
+    expect(totalDasFatias).toBe(gastoRealizadoCents(transacoes, hoje));
+    expect(totalDasFatias).toBe(6000);
+  });
+
+  it('rejeita data de corte mal formada', () => {
+    expect(() => agregarGastoPorCategoria([], categorias, '2026-8-05')).toThrow(TypeError);
   });
 });
 
@@ -313,7 +356,7 @@ describe('extratoTransacoesVariaveis', () => {
     expect(extratoTransacoesVariaveis(transacoes, '2026-08-31')).toEqual([]);
   });
 
-  it('respeita a data de corte (comparação lexicográfica)', () => {
+  it('sem `ate`, o corte é o próprio hoje (comparação lexicográfica)', () => {
     const transacoes: TransacaoParaExtrato[] = [
       { ...base, transacaoId: 'tx-dentro', data: '2026-08-02' },
       { ...base, transacaoId: 'tx-fora', data: '2026-08-10' },
@@ -322,8 +365,25 @@ describe('extratoTransacoesVariaveis', () => {
     expect(resultado.map((l) => l.transacaoId)).toEqual(['tx-dentro']);
   });
 
-  it('rejeita data de corte mal formada', () => {
+  it('com `ate` = fim do ciclo, competência futura ENTRA marcada com ehProgramado', () => {
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-hoje', data: '2026-08-05' },
+      { ...base, transacaoId: 'tx-futura', data: '2026-08-10' },
+      { ...base, transacaoId: 'tx-fora-do-ciclo', data: '2026-09-10' },
+    ];
+    const resultado = extratoTransacoesVariaveis(transacoes, '2026-08-05', { ate: '2026-08-31' });
+
+    expect(resultado.map((l) => l.transacaoId)).toEqual(['tx-futura', 'tx-hoje']);
+    expect(resultado.find((l) => l.transacaoId === 'tx-futura')?.ehProgramado).toBe(true);
+    // Competência de hoje é realizada, não programada (o corte é `>`, não `>=`).
+    expect(resultado.find((l) => l.transacaoId === 'tx-hoje')?.ehProgramado).toBe(false);
+  });
+
+  it('rejeita data mal formada em hoje e em `ate`', () => {
     expect(() => extratoTransacoesVariaveis([], '2026-08-1')).toThrow(TypeError);
+    expect(() => extratoTransacoesVariaveis([], '2026-08-01', { ate: '2026-8-31' })).toThrow(
+      TypeError,
+    );
   });
 
   it('o total líquido do extrato (estorno maior que despesa, negativo) bate exatamente com gastoVariavelSemParcelasCents', () => {
@@ -357,6 +417,39 @@ describe('extratoTransacoesVariaveis', () => {
 
     expect(totalDoExtrato).toBe(gastoVariavelSemParcelasCents(transacoes, ateData));
     expect(totalDoExtrato).toBe(4000);
+  });
+
+  it('linha programada aparece no extrato mas NÃO entra no total realizado', () => {
+    const hoje = '2026-08-05';
+    const transacoes: TransacaoParaExtrato[] = [
+      { ...base, transacaoId: 'tx-realizada', valorCents: 4000, data: '2026-08-04' },
+      { ...base, transacaoId: 'tx-programada', valorCents: 78336, data: '2026-08-10' },
+    ];
+
+    const linhas = extratoTransacoesVariaveis(transacoes, hoje, { ate: '2026-08-31' });
+
+    expect(linhas).toHaveLength(2);
+    // O total realizado (o que consome verba) segue ignorando a futura.
+    expect(gastoVariavelSemParcelasCents(transacoes, hoje)).toBe(4000);
+    expect(somarProgramadosCents(linhas)).toBe(78336);
+  });
+});
+
+describe('somarProgramadosCents', () => {
+  const linha = { valorCents: 1000, ehEstorno: false, ehProgramado: true };
+
+  it('lista vazia soma zero', () => {
+    expect(somarProgramadosCents([])).toBe(0);
+  });
+
+  it('ignora linhas realizadas', () => {
+    expect(somarProgramadosCents([{ ...linha, ehProgramado: false }])).toBe(0);
+  });
+
+  it('estorno programado abate', () => {
+    expect(
+      somarProgramadosCents([linha, { valorCents: 300, ehEstorno: true, ehProgramado: true }]),
+    ).toBe(700);
   });
 });
 

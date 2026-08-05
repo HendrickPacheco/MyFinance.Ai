@@ -20,17 +20,26 @@ import type { Deps } from '@/application/deps';
 import { exigirOwner } from '@/domain/auth/permissoes';
 import { avaliarLimiteIA } from '@/application/limite-ia';
 import type { ChamadaFerramenta, ConsumoTokens, MensagemIA } from '@/domain/ports/ia';
-import { definicoesParaProvedor } from './ferramentas/catalogo';
+import { FERRAMENTAS_DE_PROPOSTA, definicoesParaProvedor } from './ferramentas/catalogo';
 import { executarFerramenta } from './ferramentas';
 import type { SaidaFerramenta } from './ferramentas/saida';
+import { propostaSchema, type PropostaExibivel } from './propostas';
 import {
   MENSAGEM_LIMITE_DE_TURNOS,
   MENSAGEM_SEM_RESPOSTA,
   PROMPT_SISTEMA,
+  blocoDeMemoria,
 } from './prompt-sistema';
 
 /** Teto de idas ao modelo numa única pergunta. Defesa de custo e de loop. */
 export const MAX_TURNOS = 6;
+
+/**
+ * Teto de memórias no prompt de sistema. Elas viajam em TODO turno, então o
+ * custo é multiplicado pelo número de turnos da pergunta — é a mesma razão de
+ * o histórico ser cortado na server action.
+ */
+export const MAX_MEMORIAS_NO_PROMPT = 30;
 
 /** Encontra "R$ 1.234,56" no texto — o formato que `formatBRL` produz. */
 const VALOR_BRL = /R\$\s?\d{1,3}(?:\.\d{3})*,\d{2}/g;
@@ -70,6 +79,12 @@ export interface ValorCitado {
 export interface RespostaCopiloto {
   texto: string;
   ferramentasUsadas: FerramentaUsada[];
+  /**
+   * Escritas que o copiloto PREPAROU e que ainda não existem (decisão D-8).
+   * A UI as mostra com um botão; quem grava é `confirmarProposta`, por clique
+   * do dono. Uma resposta com proposta não mudou nada no banco.
+   */
+  propostas: PropostaExibivel[];
   /** Valores do texto final que vieram comprovadamente de uma ferramenta. */
   valoresCitados: ValorCitado[];
   /**
@@ -141,6 +156,30 @@ async function registrarUso(deps: Deps, dia: string, consumo: ConsumoTokens): Pr
   }
 }
 
+/**
+ * Planos, preferências e contexto de vida entram no prompt de sistema (Fase E).
+ *
+ * Leitura pura de banco, sem embedding: são poucas linhas e mudam o tom de
+ * toda resposta, então não faz sentido pagar uma vetorização por turno para
+ * decidir se entram. Conversas antigas ficam de fora — para essas o modelo
+ * chama `buscar_memoria` quando precisar.
+ *
+ * Falha aqui NÃO derruba a pergunta: um copiloto sem memória ainda responde;
+ * um copiloto que quebra porque a memória falhou, não.
+ */
+async function contextoDeMemoria(deps: Deps): Promise<string> {
+  if (!deps.memorias) return '';
+  try {
+    const memorias = await deps.memorias.listar({
+      tipos: ['PLANO', 'PREFERENCIA', 'CONTEXTO'],
+      limite: MAX_MEMORIAS_NO_PROMPT,
+    });
+    return blocoDeMemoria(memorias);
+  } catch {
+    return '';
+  }
+}
+
 async function executarLoop(
   deps: Deps,
   ia: NonNullable<Deps['ia']>,
@@ -148,7 +187,7 @@ async function executarLoop(
   consumo: ConsumoTokens,
 ): Promise<RespostaCopiloto> {
   const mensagens: MensagemIA[] = [
-    { papel: 'sistema', conteudo: PROMPT_SISTEMA },
+    { papel: 'sistema', conteudo: PROMPT_SISTEMA + (await contextoDeMemoria(deps)) },
     ...(entrada.historico ?? []),
     { papel: 'usuario', conteudo: entrada.pergunta },
   ];
@@ -210,6 +249,39 @@ function registrar(chamada: ChamadaFerramenta, saida: SaidaFerramenta): Ferramen
   };
 }
 
+/**
+ * Recolhe as propostas devolvidas pelas ferramentas `propor_*` (D-8).
+ *
+ * Revalida cada uma contra `propostaSchema` mesmo tendo a ferramenta acabado
+ * de validar. Não é paranoia gratuita: é a mesma razão pela qual o registro de
+ * ferramentas revalida os argumentos do modelo — a saída aqui chega tipada
+ * como `unknown`, e o objeto vai para a UI e volta para uma action de ESCRITA.
+ * Confiar que alguém já validou é exatamente como o dado errado entra.
+ *
+ * Proposta malformada é descartada em silêncio: o texto do modelo continua
+ * valendo, o dono simplesmente não vê um botão.
+ */
+function recolherPropostas(
+  saidas: readonly { nome: string; saida: SaidaFerramenta }[],
+): PropostaExibivel[] {
+  const propostas: PropostaExibivel[] = [];
+  const deProposta = new Set<string>(FERRAMENTAS_DE_PROPOSTA);
+
+  for (const { nome, saida } of saidas) {
+    if (!deProposta.has(nome)) continue;
+
+    const exibivel = saida.proposta as PropostaExibivel | undefined;
+    if (!exibivel || typeof exibivel !== 'object') continue;
+
+    const validada = propostaSchema.safeParse(exibivel.proposta);
+    if (!validada.success) continue;
+
+    propostas.push({ ...exibivel, proposta: validada.data });
+  }
+
+  return propostas;
+}
+
 /** Todo par (campo, valor formatado) que as ferramentas devolveram. */
 function valoresDisponiveis(
   saidas: readonly { nome: string; saida: SaidaFerramenta }[],
@@ -262,6 +334,10 @@ function montarResposta(params: {
   return {
     texto: params.texto,
     ferramentasUsadas: params.usadas,
+    // Loop cortado pelo limite não oferece botão de confirmar: a resposta
+    // admite não ter concluído, e um cartão "lançar R$ 47,00" ao lado dessa
+    // frase pediria confirmação de algo que o modelo não terminou de pensar.
+    propostas: params.incompleta ? [] : recolherPropostas(params.saidas),
     valoresCitados: citados,
     valoresNaoRastreados: naoRastreados,
     semFerramenta: params.usadas.length === 0,

@@ -35,6 +35,15 @@ import type { Deps } from '../deps';
 import { RelogioFixo } from '@/infrastructure/relogio/relogio-sistema';
 import type { Ator } from '@/domain/auth/ator';
 import type { UsoIADia, UsoIARepository } from '@/domain/ports/uso-ia';
+import type {
+  Memoria,
+  MemoriaComRelevancia,
+  MemoriaPort,
+  NovaMemoria,
+} from '@/domain/ports/memoria';
+import type { TipoMemoria } from '@/domain/memoria/regras';
+import type { EmbeddingPort, ResultadoEmbedding } from '@/domain/ports/embeddings';
+import { ErroProvedorIA } from '@/domain/ports/ia';
 import type { Usuario } from '@/domain/auth/usuario';
 import type { SessaoPort } from '@/domain/ports/sessao';
 import type { HashSenhaPort } from '@/domain/ports/hash-senha';
@@ -502,6 +511,8 @@ export interface FakeDeps extends Deps {
   rateLimiter: FakeRateLimiter;
   /** Concreto (não opcional) para os testes poderem asserir os incrementos. */
   usoIA: FakeUsoIARepo;
+  /** Concreto para os testes poderem inspecionar o que foi guardado. */
+  memorias: FakeMemoriaRepo;
 }
 
 export const CONFIG_PADRAO: Config = {
@@ -561,6 +572,10 @@ export interface OpcoesFakeDeps {
   sessaoAtual?: Ator | null;
   /** Uso de IA já acumulado no dia, para testar o teto de custo. */
   usoIA?: UsoIADia;
+  /** Memórias já existentes (Fase E). */
+  memorias?: Memoria[];
+  /** Sem isto não há embedding, e a busca degrada para "mais recentes". */
+  embeddings?: EmbeddingPort;
 }
 
 /**
@@ -590,6 +605,120 @@ export class FakeUsoIARepo implements UsoIARepository {
   }
 }
 
+/**
+ * Memória em memória (Fase E). Guarda o vetor recebido para o teste poder
+ * asserir que o embedding chegou — e ordena a "busca semântica" por distância
+ * euclidiana simples, o suficiente para provar que o caso de uso usa a ordem
+ * que o adapter devolve, sem simular pgvector.
+ */
+export class FakeMemoriaRepo implements MemoriaPort {
+  public itens: (Memoria & { embedding: readonly number[] | null })[] = [];
+  public arquivadas: string[] = [];
+  private proximoId = 1;
+
+  constructor(iniciais: Memoria[] = []) {
+    this.itens = iniciais.map((m) => ({ ...m, embedding: null }));
+  }
+
+  async criar(nova: NovaMemoria): Promise<Memoria> {
+    const criada: Memoria = {
+      id: `mem-${this.proximoId++}`,
+      tipo: nova.tipo,
+      texto: nova.texto,
+      origem: nova.origem,
+      ativo: true,
+      criadoEm: new Date('2026-08-04T12:00:00Z'),
+    };
+    this.itens.push({ ...criada, embedding: nova.embedding });
+    return criada;
+  }
+
+  async listar(opcoes?: {
+    tipos?: readonly TipoMemoria[];
+    incluirArquivadas?: boolean;
+    limite?: number;
+  }): Promise<Memoria[]> {
+    return this.itens
+      .filter((m) => (opcoes?.incluirArquivadas ? true : m.ativo))
+      .filter((m) => (opcoes?.tipos?.length ? opcoes.tipos.includes(m.tipo) : true))
+      .slice(0, opcoes?.limite ?? undefined)
+      .map(({ embedding: _embedding, ...m }) => m);
+  }
+
+  async obter(id: string): Promise<Memoria | null> {
+    const achada = this.itens.find((m) => m.id === id);
+    if (!achada) return null;
+    const { embedding: _embedding, ...m } = achada;
+    return m;
+  }
+
+  async buscarPorEmbedding(
+    embedding: readonly number[],
+    opcoes?: { limite?: number; tipos?: readonly TipoMemoria[] },
+  ): Promise<MemoriaComRelevancia[]> {
+    const distancia = (v: readonly number[]): number =>
+      Math.sqrt(v.reduce((s, x, i) => s + (x - (embedding[i] ?? 0)) ** 2, 0));
+
+    return this.itens
+      .filter((m) => m.ativo && m.embedding !== null)
+      .filter((m) => (opcoes?.tipos?.length ? opcoes.tipos.includes(m.tipo) : true))
+      .map(({ embedding: vetor, ...m }) => ({ ...m, distancia: distancia(vetor ?? []) }))
+      .sort((a, b) => a.distancia - b.distancia)
+      .slice(0, opcoes?.limite ?? 5);
+  }
+
+  async listarSemEmbedding(limite = 100): Promise<Memoria[]> {
+    return this.itens
+      .filter((m) => m.ativo && m.embedding === null)
+      .slice(0, limite)
+      .map(({ embedding: _embedding, ...m }) => m);
+  }
+
+  async definirEmbedding(id: string, embedding: readonly number[]): Promise<void> {
+    const achada = this.itens.find((m) => m.id === id);
+    if (achada) achada.embedding = embedding;
+  }
+
+  async arquivar(id: string): Promise<void> {
+    this.arquivadas.push(id);
+    const achada = this.itens.find((m) => m.id === id);
+    if (achada) achada.ativo = false;
+  }
+
+  async reativar(id: string): Promise<void> {
+    const achada = this.itens.find((m) => m.id === id);
+    if (achada) achada.ativo = true;
+  }
+
+  async excluirTodas(): Promise<void> {
+    this.itens = [];
+  }
+}
+
+/**
+ * Embedding determinístico e sem rede: o vetor é o histograma dos códigos de
+ * caractere. Textos parecidos ficam perto, o que basta para testar ordenação
+ * sem depender de provedor.
+ */
+export class FakeEmbedding implements EmbeddingPort {
+  readonly dimensoes = 8;
+  public chamadas: string[] = [];
+  public falhar = false;
+
+  async gerar(texto: string): Promise<ResultadoEmbedding> {
+    this.chamadas.push(texto);
+    if (this.falhar) {
+      throw new ErroProvedorIA('INDISPONIVEL', 'falha programada no fake de embedding');
+    }
+    const vetor: number[] = Array.from({ length: this.dimensoes }, () => 0);
+    for (const char of texto) {
+      const posicao = char.charCodeAt(0) % this.dimensoes;
+      vetor[posicao] = (vetor[posicao] ?? 0) + 1;
+    }
+    return { vetor, consumo: { entrada: texto.length, saida: 0 } };
+  }
+}
+
 export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
   const config = opcoes.config === undefined ? clone(CONFIG_PADRAO) : opcoes.config;
   return {
@@ -612,6 +741,10 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     usoIA: new FakeUsoIARepo(
       opcoes.usoIA ? { dia: opcoes.hoje ?? '2026-07-20', uso: opcoes.usoIA } : undefined,
     ),
+    memorias: new FakeMemoriaRepo(opcoes.memorias ?? []),
+    // `undefined` por padrão: a maioria dos testes não deve pagar embedding.
+    // Quem testa busca semântica passa `embeddings: new FakeEmbedding()`.
+    embeddings: opcoes.embeddings,
   };
 }
 

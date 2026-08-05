@@ -14,6 +14,11 @@
  * ganha um selo "estorno" e cor neutra (nunca a cor de despesa), para o
  * usuário não ler o extrato como se tudo ali fosse gasto.
  *
+ * Mesma lógica para competência FUTURA dentro do ciclo (`ehProgramado`): a
+ * linha aparece — antes sumia do painel inteiro — mas com selo "programado" e
+ * cor neutra, e o valor entra no rodapé "Programado até o fim do ciclo", nunca
+ * no "Realizado até hoje".
+ *
  * Editar/excluir reaproveitam as server actions de `@/actions/transacoes` e
  * o mesmo fluxo de confirmação retroativa de `src/components/ciclo/transacao-linha.tsx`
  * (transação tocando ciclo já fechado -> `requerConfirmacao` -> reenviar com
@@ -283,7 +288,14 @@ function LinhaExtratoVariavel({
         <div className="text-xs text-faint">{formatarDataCurta(transacao.data)}</div>
 
         <div className="min-w-0">
-          <p className="truncate text-sm text-fg">{descricaoExibida}</p>
+          <p className="flex items-center gap-2 truncate text-sm text-fg">
+            <span className="truncate">{descricaoExibida}</span>
+            {transacao.ehProgramado ? (
+              <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+                programado
+              </span>
+            ) : null}
+          </p>
           {erro ? <p className="mt-1 text-xs text-negativo">{erro}</p> : null}
         </div>
 
@@ -301,8 +313,18 @@ function LinhaExtratoVariavel({
               <span className="sr-only">(estorno, abate da verba)</span>
             </span>
           ) : (
-            <span className="tnum text-sm font-medium text-negativo">
+            // Programado nunca usa a cor de despesa: o dinheiro ainda não saiu
+            // e ainda não consome o teto do dia.
+            <span
+              className={cn(
+                'tnum text-sm font-medium',
+                transacao.ehProgramado ? 'text-muted' : 'text-negativo',
+              )}
+            >
               -{formatBRL(transacao.valorCents)}
+              {transacao.ehProgramado ? (
+                <span className="sr-only">(programado, ainda não consome a verba)</span>
+              ) : null}
             </span>
           )}
         </div>
@@ -340,10 +362,12 @@ function LinhaExtratoVariavel({
 export function ExtratoVariaveis({
   transacoes,
   totalCents,
+  programadasCents,
   categoriasLancamento,
 }: {
   transacoes: LinhaTransacaoVariavel[];
   totalCents: number;
+  programadasCents: number;
   categoriasLancamento: OpcaoCategoria[];
 }) {
   const categoriasVariaveis = categoriasLancamento.filter((c) => c.grupo === 'VARIAVEL');
@@ -375,9 +399,19 @@ export function ExtratoVariaveis({
               ))}
             </ul>
             <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
-              <span className="text-sm font-medium text-fg">Total do extrato</span>
+              <span className="text-sm font-medium text-fg">Realizado até hoje</span>
               <span className="tnum text-lg font-semibold text-fg">{formatBRL(totalCents)}</span>
             </div>
+            {/* Linha SEPARADA de propósito: programado ainda não consome verba,
+                então nunca é somado ao realizado num número só. */}
+            {programadasCents !== 0 ? (
+              <div className="mt-1 flex items-center justify-between">
+                <span className="text-sm text-muted">Programado até o fim do ciclo</span>
+                <span className="tnum text-sm font-medium text-muted">
+                  {formatBRL(programadasCents)}
+                </span>
+              </div>
+            ) : null}
           </>
         )}
       </CardContent>

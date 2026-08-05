@@ -9,6 +9,7 @@ import {
   CATALOGO_FERRAMENTAS,
   FERRAMENTAS_BLOQUEADAS,
   FERRAMENTAS_COM_VERBA,
+  FERRAMENTAS_DE_PROPOSTA,
   FERRAMENTAS_LIBERADAS,
   definicoesParaProvedor,
 } from './catalogo';
@@ -50,11 +51,33 @@ describe('catálogo de ferramentas', () => {
     }
   });
 
-  it('nenhuma ferramenta é de escrita', () => {
-    const proibido = /(criar|lancar|lançar|atualizar|excluir|fechar|salvar|marcar|pagar)/i;
+  /**
+   * A D-8 foi revista em 04/08/2026: passaram a existir ferramentas `propor_*`.
+   * O que continua proibido é ferramenta que EXECUTA — o verbo no imperativo.
+   * `propor_lancamento` pode existir; `criar_transacao` não.
+   */
+  it('nenhuma ferramenta executa escrita — só propõe', () => {
+    const executa = /^(criar|lancar|lançar|atualizar|editar|excluir|fechar|salvar|marcar|pagar)_/i;
 
     for (const f of CATALOGO_FERRAMENTAS) {
-      expect(f.nome, `${f.nome} tem cara de escrita`).not.toMatch(proibido);
+      expect(f.nome, `${f.nome} tem nome de ferramenta que executa`).not.toMatch(executa);
+    }
+  });
+
+  it('toda ferramenta propor_* está declarada em FERRAMENTAS_DE_PROPOSTA', () => {
+    // O loop recolhe propostas por esta lista, não por prefixo de nome. Uma
+    // `propor_*` fora dela devolveria a proposta e o botão nunca apareceria.
+    const porPrefixo = CATALOGO_FERRAMENTAS.map((f) => f.nome).filter((n) => n.startsWith('propor_'));
+    expect([...FERRAMENTAS_DE_PROPOSTA].sort()).toEqual(porPrefixo.sort());
+  });
+
+  it('fechar ciclo e alterar configuração continuam sem ferramenta', () => {
+    // Explicitamente fora de escopo (ver cabeçalho do catálogo): creditam
+    // provisão, movem sobra e mudam a verba do próximo ciclo — não cabem num
+    // "confirmar" de uma linha.
+    const nomes = CATALOGO_FERRAMENTAS.map((f) => f.nome);
+    for (const proibida of ['fechar_ciclo', 'atualizar_config', 'propor_fechamento']) {
+      expect(nomes).not.toContain(proibida);
     }
   });
 

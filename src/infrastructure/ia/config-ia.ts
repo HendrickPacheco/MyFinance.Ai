@@ -58,3 +58,38 @@ export function lerConfigIA(): ConfigIA {
     maxTentativas: inteiroPositivoOpcional('IA_MAX_TENTATIVAS', MAX_TENTATIVAS_PADRAO),
   };
 }
+
+// ─── Embeddings (Fase E) ────────────────────────────────────────────────────
+
+export interface ConfigEmbedding extends ConfigIA {
+  /** Precisa casar com a coluna `vector(N)` da tabela `Memoria`. */
+  dimensoes: number;
+}
+
+/**
+ * 1536 é a dimensão de `text-embedding-3-small` e a declarada na migração
+ * `20260804210000_memoria_copiloto`. Mudar aqui sem migrar a coluna faz o
+ * Postgres recusar toda gravação de memória.
+ */
+const DIMENSOES_EMBEDDING_PADRAO = 1536;
+
+/**
+ * A memória degrada em vez de quebrar quando não há modelo de embedding
+ * configurado: sem `OPENAI_MODEL_EMBEDDING` a busca semântica não existe, mas
+ * gravar, listar e arquivar memória continuam funcionando. Por isso este
+ * `null`, e não uma exceção como em `lerConfigIA`.
+ */
+export function embeddingHabilitado(): boolean {
+  const modelo = process.env.OPENAI_MODEL_EMBEDDING;
+  return iaHabilitada() && modelo != null && modelo.trim() !== '';
+}
+
+export function lerConfigEmbedding(): ConfigEmbedding {
+  return {
+    apiKey: obrigatoria('OPENAI_API_KEY'),
+    modelo: obrigatoria('OPENAI_MODEL_EMBEDDING'),
+    dimensoes: inteiroPositivoOpcional('OPENAI_EMBEDDING_DIMENSOES', DIMENSOES_EMBEDDING_PADRAO),
+    timeoutMs: inteiroPositivoOpcional('IA_TIMEOUT_MS', TIMEOUT_MS_PADRAO),
+    maxTentativas: inteiroPositivoOpcional('IA_MAX_TENTATIVAS', MAX_TENTATIVAS_PADRAO),
+  };
+}
