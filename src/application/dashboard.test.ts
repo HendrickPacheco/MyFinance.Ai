@@ -313,6 +313,37 @@ describe('obterEstadoPainel — categoriasLancamento e transacoesVariaveis (form
     expect(parcelaVariavelDoTotalGastos).toBe(estado.transacoesVariaveisTotalCents);
     expect(estado.transacoesVariaveisTotalCents).toBe(15_000);
   });
+
+  // Regressão: transação lançada com competência FUTURA dentro do ciclo sumia
+  // do painel inteiro (não é fixo, não é parcela, não é provisão) enquanto
+  // seguia visível no extrato da tela Ciclo e nos gráficos — que não filtram
+  // por data. Agora aparece marcada, sem contaminar o realizado.
+  it('competência futura dentro do ciclo aparece no extrato marcada como programada, fora do total realizado', async () => {
+    const deps = criarDeps({
+      hoje: '2026-07-20',
+      ciclos: [CICLO_JULHO],
+      transacoes: [
+        transacaoFake({ id: 'tx-hoje', data: '2026-07-20', valorCents: 4_000, cicloId: CICLO_JULHO.id }),
+        transacaoFake({ id: 'tx-futura', data: '2026-07-28', valorCents: 78_336, cicloId: CICLO_JULHO.id }),
+      ],
+    });
+
+    const estado = await obterEstadoPainel(deps);
+
+    expect(estado.transacoesVariaveis.map((l) => l.transacaoId)).toEqual(['tx-futura', 'tx-hoje']);
+    expect(estado.transacoesVariaveis.find((l) => l.transacaoId === 'tx-futura')?.ehProgramado).toBe(true);
+    expect(estado.transacoesVariaveis.find((l) => l.transacaoId === 'tx-hoje')?.ehProgramado).toBe(false);
+
+    // O realizado (e portanto verba/teto) ignora a futura — só o campo separado a soma.
+    expect(estado.transacoesVariaveisTotalCents).toBe(4_000);
+    expect(estado.transacoesVariaveisProgramadasCents).toBe(78_336);
+    expect(estado.kpis.gastoRealizadoCents).toBe(4_000);
+
+    // A pizza é a decomposição do realizado: a futura não entra calada nela.
+    const totalDasFatias = estado.categorias.reduce((soma, f) => soma + f.totalCents, 0);
+    expect(totalDasFatias).toBe(estado.kpis.gastoRealizadoCents);
+    expect(totalDasFatias).toBe(4_000);
+  });
 });
 
 describe('obterEstadoPainel — parcelados com transacaoId e pago', () => {
