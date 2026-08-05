@@ -24,6 +24,7 @@ const { perguntarCopiloto } = await import('./ia');
 const RESPOSTA: RespostaCopiloto = {
   texto: 'ok',
   ferramentasUsadas: [],
+  propostas: [],
   valoresCitados: [],
   valoresNaoRastreados: [],
   semFerramenta: true,

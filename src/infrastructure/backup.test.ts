@@ -15,6 +15,7 @@ import {
   BackupSalvaguardaError,
   BackupVersaoIncompativelError,
 } from './backup';
+import { contemValorMonetario } from '@/domain/memoria/regras';
 
 vi.mock('node:fs', () => ({
   promises: { mkdir: vi.fn(async () => undefined), writeFile: vi.fn(async () => undefined) },
@@ -49,6 +50,8 @@ const NOMES_TABELAS = [
   'transacao',
   'snapshotPatrimonio',
   'itemPatrimonio',
+  // Memória do copiloto (Fase E, BACKUP_VERSION 3). Sem FK própria.
+  'memoria',
 ] as const;
 
 type NomeTabela = (typeof NOMES_TABELAS)[number];
@@ -116,6 +119,7 @@ function criarFakePrisma(): FakePrisma {
     transacao: [],
     snapshotPatrimonio: [],
     itemPatrimonio: [],
+    memoria: [],
   };
   const estado = { transacoesAbertas: 0, ordemInsercaoTransacao: [] as string[] };
 
@@ -352,6 +356,25 @@ function semear(tabelas: Tabelas): void {
     { id: 'item-2', snapshotId: 'snap-1', nome: 'Bitcoin', classe: 'CRIPTO', valorCents: 1 },
   );
 
+  // Memória do copiloto (Fase E). Sem `embedding` de propósito: o vetor não é
+  // legível pelo Prisma Client (campo `Unsupported`) e não viaja no backup.
+  tabelas.memoria.push(
+    {
+      id: 'mem-1',
+      tipo: 'PLANO',
+      texto: 'quer sair do aluguel até 2028',
+      origem: 'USUARIO',
+      ativo: true,
+    },
+    {
+      id: 'mem-2',
+      tipo: 'PREFERENCIA',
+      texto: 'corta lazer antes de cortar alimentação',
+      origem: 'COPILOTO',
+      ativo: false,
+    },
+  );
+
   carimbarDono();
 }
 
@@ -390,6 +413,7 @@ describe('exportarTudo', () => {
         'config',
         'contas',
         'custosFixos',
+        'memorias',
         'pagamentosFixos',
         'parcelamentos',
         'provisoes',
@@ -849,5 +873,87 @@ describe('mass-assignment (TASKS-AUTH V2): schema estrito por tabela', () => {
 
     await expect(importarTudo(db.client, payload, DONO_TESTE)).rejects.toThrow();
     expect(db.tabelas.snapshotPatrimonio).toEqual([]);
+  });
+});
+
+/**
+ * Memória do copiloto no backup (Fase E, tarefa E8 — BACKUP_VERSION 3).
+ *
+ * O ciclo de aceite da E8: export -> limpar -> import -> estado idêntico.
+ */
+describe('memória do copiloto (BACKUP_VERSION 3)', () => {
+  it('exporta as memórias, ativas e arquivadas, sem o vetor', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+
+    const payload = (await exportarTudo(db.client, DONO_TESTE)) as {
+      dados: { memorias: Record<string, unknown>[] };
+    };
+
+    expect(payload.dados.memorias).toHaveLength(2);
+    // Arquivada também vai: ela é histórico do que o copiloto já soube.
+    expect(payload.dados.memorias.map((m) => m.ativo).sort()).toEqual([false, true]);
+    // O vetor NÃO viaja: são 1536 floats por memória, e é recomputável.
+    for (const memoria of payload.dados.memorias) {
+      expect(memoria).not.toHaveProperty('embedding');
+      // `donoId` nunca sai no arquivo (backup é portátil).
+      expect(memoria).not.toHaveProperty('donoId');
+    }
+  });
+
+  it('round-trip: export -> zerado -> import devolve as memórias idênticas', async () => {
+    const origem = criarFakePrisma();
+    semear(origem.tabelas);
+    const payload = await exportarTudo(origem.client, DONO_TESTE);
+
+    const destino = criarFakePrisma();
+    await importarTudo(destino.client, payload, DONO_TESTE);
+
+    const restauradas = destino.tabelas.memoria;
+    expect(restauradas).toHaveLength(2);
+
+    const plano = restauradas.find((m) => m.id === 'mem-1');
+    expect(plano?.texto).toBe('quer sair do aluguel até 2028');
+    expect(plano?.tipo).toBe('PLANO');
+    expect(plano?.origem).toBe('USUARIO');
+    // Recarimbada com o dono de quem importou, nunca com nada vindo do arquivo.
+    expect(plano?.donoId).toBe(DONO_TESTE);
+  });
+
+  it('🔴 memória restaurada não carrega valor monetário nenhum', async () => {
+    const origem = criarFakePrisma();
+    semear(origem.tabelas);
+
+    const payload = (await exportarTudo(origem.client, DONO_TESTE)) as {
+      dados: { memorias: Record<string, unknown>[] };
+    };
+
+    // A guarda de escrita (validarTextoMemoria) impede o valor de entrar; este
+    // teste garante que o backup não é um caminho lateral de volta.
+    for (const memoria of payload.dados.memorias) {
+      expect(contemValorMonetario(String(memoria.texto))).toBe(false);
+      expect(Object.keys(memoria).some((k) => k.endsWith('Cents'))).toBe(false);
+    }
+  });
+
+  it('importa backup versão 2 (sem a chave memorias) sem quebrar', async () => {
+    const origem = criarFakePrisma();
+    semear(origem.tabelas);
+    const payload = (await exportarTudo(origem.client, DONO_TESTE)) as {
+      version: number;
+      dados: Record<string, unknown>;
+    };
+
+    // Simula um arquivo gerado antes da Fase E existir.
+    const antigo = {
+      ...payload,
+      version: 2,
+      dados: { ...payload.dados, memorias: undefined },
+    };
+    delete (antigo.dados as Record<string, unknown>).memorias;
+
+    const destino = criarFakePrisma();
+    await expect(importarTudo(destino.client, antigo, DONO_TESTE)).resolves.toBeDefined();
+    expect(destino.tabelas.memoria).toHaveLength(0);
   });
 });

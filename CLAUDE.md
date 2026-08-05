@@ -11,7 +11,8 @@ antes de mudanças estruturais.
 - Home responsiva (revisão de 03/08/2026): **painel de administração no desktop**
   (≥1024px, sidebar + KPIs + gráficos) e a tela Hoje original no mobile. Ver SPEC 7.1.
 - Telas: home (`/`), Ciclo (`/ciclo`), Análise (`/analise`), Patrimônio (`/patrimonio`),
-  Fechamento (`/fechar-ciclo`), Configuração (`/config`), Backup (`/config/backup`).
+  Fechamento (`/fechar-ciclo`), Configuração (`/config`), Backup (`/config/backup`),
+  Copiloto (`/copiloto`) e memória do copiloto (`/copiloto/memoria`).
 - Banco: **PostgreSQL local** (`financial_dev`), migrado do SQLite em 03/08/2026.
 - Em uso real, com dados do dono: renda R$ 30.000, meta R$ 18.000, 10 custos fixos
   (R$ 4.884), 13 parcelamentos (R$ 4.393,88/mês), ciclo = mês civil (`diaRecebimento` 1).
@@ -32,6 +33,11 @@ da sessão. Consequências que não podem ser violadas:
   é **composta com `donoId`** (senão um usuário bloqueia o nome/data do outro).
 - Confira com `pnpm verificar:isolamento` (cria dois donos reais, tenta vazar
   nos dois sentidos, limpa tudo e confere que seus dados não mudaram).
+- **SQL cru não herda o escopo automático do Prisma Client.** A tabela `Memoria`
+  usa SQL cru (pgvector não é tipado pelo Prisma), então lá o risco não é
+  `findUnique` — é esquecer `AND "donoId" = $n` numa query montada à mão. Toda
+  consulta de `prisma-memoria.ts` filtra por dono, e o script de isolamento
+  cobre essa tabela justamente por isso.
 
 ### Armadilha recorrente desta sessão
 
@@ -69,6 +75,14 @@ Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
    usuário vê e escreve só as próprias finanças. Ver `TASKS-AUTH.md`. Segue
    valendo: **sem integração bancária**, e **sem tela de auto-cadastro**
    (usuário se cria por `pnpm db:seed-owner` ou direto no banco).
+7b. **A IA nunca grava direto** (decisão D-8, revista em 04/08/2026). O copiloto
+   PROPÕE, o dono CONFIRMA, e o caso de uso de sempre EXECUTA. Ferramenta de IA
+   que chama `criarTransacao` é bug, não feature — ver `TASKS-IA.md` §12.
+7c. **Memória do copiloto NUNCA guarda valor em dinheiro** (Fase E). O número de
+   hoje é falso amanhã, e dentro de um embedding ninguém percebe que envelheceu.
+   A guarda é `validarTextoMemoria` (`src/domain/memoria/regras.ts`), aplicada
+   antes de qualquer gravação e de qualquer embedding. Memória é OWNER-only,
+   inclusive na leitura (D-12).
 8. **Nunca bloquear lançamento de gasto** por pendência de fechamento de ciclo.
 9. Sem gráfico na tela Hoje. Sem dados fake/mock nas telas — estado vazio com ação.
 
