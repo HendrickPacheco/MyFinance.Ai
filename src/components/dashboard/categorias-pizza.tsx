@@ -4,6 +4,11 @@
  * Pizza de gastos variáveis por categoria (o gráfico que a planilha do
  * usuário já tinha). Paleta categórica fixa (ver `cores.ts`) — cor segue a
  * categoria, nunca o rank; 9ª+ categoria dobra em "Outros" cinza neutro.
+ *
+ * Mostra só o REALIZADO até hoje (o read-model já corta em `hoje`, ver
+ * `montarFatiasCategoria`): a soma das fatias é a decomposição exata do KPI de
+ * gasto realizado. Competência futura já lançada no ciclo aparece no extrato
+ * marcada como "programado" — nunca calada aqui dentro.
  */
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, type TooltipProps } from 'recharts';
 import { Card, CardHeader, CardTitle, CardContent, EmptyState } from '@/components/ui';
@@ -40,6 +45,7 @@ export function CategoriasPizza({ categorias }: { categorias: FatiaCategoria[] }
       <Card>
         <CardHeader>
           <CardTitle>Gastos por categoria</CardTitle>
+          <p className="mt-0.5 text-xs text-faint">Realizado até hoje</p>
         </CardHeader>
         <CardContent>
           <EmptyState

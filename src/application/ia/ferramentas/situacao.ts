@@ -101,7 +101,13 @@ export async function gastosPorCategoria(
       percentual: c.percentual,
       ...dinheiros({ total: c.totalCents }),
     })),
-    ...dinheiros({ gastoVariavelTotal: painel.transacoesVariaveisTotalCents }),
+    // As fatias e `gastoVariavelTotal` são ambos REALIZADO até hoje (mesmo
+    // corte). O que já foi lançado com competência futura no ciclo vai à
+    // parte: sem esse campo o copiloto acharia que o dinheiro não existe.
+    ...dinheiros({
+      gastoVariavelTotal: painel.transacoesVariaveisTotalCents,
+      gastoVariavelProgramado: painel.transacoesVariaveisProgramadasCents,
+    }),
     comoFoiCalculado: ORIGEM_CATEGORIAS,
   };
 }

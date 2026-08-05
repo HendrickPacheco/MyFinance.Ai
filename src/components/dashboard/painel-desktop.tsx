@@ -36,6 +36,7 @@ export function PainelDesktop({ estado }: { estado: EstadoPainel }) {
       <ExtratoVariaveis
         transacoes={estado.transacoesVariaveis}
         totalCents={estado.transacoesVariaveisTotalCents}
+        programadasCents={estado.transacoesVariaveisProgramadasCents}
         categoriasLancamento={estado.categoriasLancamento}
       />
 

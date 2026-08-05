@@ -11,6 +11,8 @@ import type { HashSenhaPort } from '@/domain/ports/hash-senha';
 import type { RateLimiterPort } from '@/domain/ports/rate-limiter';
 import type { UsuarioRepository } from '@/domain/ports/usuarios';
 import type { UsoIARepository } from '@/domain/ports/uso-ia';
+import type { MemoriaPort } from '@/domain/ports/memoria';
+import type { EmbeddingPort } from '@/domain/ports/embeddings';
 import type {
   ConfigRepository,
   ContaRepository,
@@ -59,4 +61,16 @@ export interface Deps {
    * que `ia`: com `IA_HABILITADA=false` nada disso é montado.
    */
   usoIA?: UsoIARepository;
+  /**
+   * Memória do copiloto (Fase E). Opcional para o app continuar subindo numa
+   * instalação sem a extensão pgvector — sem ela o copiloto simplesmente não
+   * lembra de nada, em vez de a tela quebrar.
+   */
+  memorias?: MemoriaPort;
+  /**
+   * Gerador de embeddings. Separado de `ia` de propósito: com a camada de IA
+   * ligada mas sem `OPENAI_MODEL_EMBEDDING`, a memória funciona e só a busca
+   * semântica degrada para "mais recentes primeiro".
+   */
+  embeddings?: EmbeddingPort;
 }

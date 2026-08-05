@@ -1205,9 +1205,11 @@ verba variável.
 | merge auth/multi-tenant | ✅ | `16eb878` |
 | correção do contrato de segurança da IA | ✅ | `3ec8945` |
 | **D6, D7** (testes finais e auditoria da camada) | ⬜ pendente | — |
-| **Fase E** (memória) | ⬜ pendente, destravada | — |
+| **Fase E** (memória) — E1 a E8 | ✅ 04/08/2026 | ver §11 |
+| **D-8 revista** (escrita por proposta) | ✅ 04/08/2026 | ver §12 |
 
-Suíte: **617 testes verdes**, `tsc` limpo, `next build` verde.
+Suíte: **706 testes verdes**, `tsc` limpo, `next build` verde,
+`pnpm verificar:isolamento` verde (agora cobrindo a `Memoria`).
 
 ### 10.1 Tarefas e achados que o plano original não previu
 
@@ -1250,7 +1252,7 @@ funcionava, mas **todo lançamento de gasto falhava**. Se voltar a acontecer:
 
 ---
 
-## 11. Fase E — Memória do copiloto (planejada, não iniciada)
+## 11. Fase E — Memória do copiloto ✅ CONCLUÍDA em 04/08/2026
 
 Decisões do dono já fechadas:
 
@@ -1342,8 +1344,119 @@ model Memoria {
   sem o vetor — decidir; reindexar no import é aceitável e evita payload gigante).
   Ciclo de aceite: export → limpar → import → estado idêntico.
 
-### 11.5 Decisão em aberto para o dono
+### 11.5 D-12 — RESOLVIDA em 04/08/2026
 
-**D-12 — Um VIEWER pode ler as memórias do dono?** Inclinação registrada: **não**.
-Memória contém plano e contexto de vida, mais sensível que os números que o VIEWER já
-enxerga. Precisa de confirmação antes da E5.
+**Um VIEWER pode ler as memórias do dono? NÃO.** Confirmado pelo dono. Memória é
+OWNER-only inclusive na LEITURA: `listarMemorias`, `buscarMemoria`, `salvarMemoria`,
+`arquivarMemoria` e `reindexarMemorias` chamam `exigirOwner` na primeira linha — não
+`exigirEscrita`, que deixaria o VIEWER ler. Coberto por teste
+(`src/application/memoria.test.ts`, bloco "memória é OWNER-only").
+
+### 11.6 O que foi entregue, e onde
+
+| Tarefa | Arquivo principal |
+|---|---|
+| E1 migração | `prisma/migrations/20260804210000_memoria_copiloto/migration.sql` (escrita à mão: o Prisma não emite `CREATE EXTENSION` nem índice HNSW) |
+| E2 guarda pura | `src/domain/memoria/regras.ts` + `regras.test.ts` (28 testes) |
+| E3 porta e adapter | `src/domain/ports/memoria.ts` · `src/infrastructure/repositories/prisma-memoria.ts` |
+| E4 embeddings | `src/domain/ports/embeddings.ts` · `src/infrastructure/ia/embeddings.ts` · `OPENAI_MODEL_EMBEDDING` |
+| E5 casos de uso | `src/application/memoria.ts` + `memoria.test.ts` (17 testes) |
+| E6 ferramentas e prompt | `buscar_memoria` e `propor_memoria` em `ferramentas/escrita.ts` · `blocoDeMemoria` em `prompt-sistema.ts` |
+| E7 UI | `app/copiloto/memoria/page.tsx` · `src/components/ia/gerenciar-memoria.tsx` · `src/actions/memoria.ts` |
+| E8 backup | `BACKUP_VERSION` 2 → 3 em `src/infrastructure/backup.ts` |
+
+**Decisões tomadas durante a implementação, que o plano não fixava:**
+
+1. **O vetor NÃO viaja no backup** (E8 deixava em aberto). São 1536 floats por
+   memória — multiplicariam o arquivo por dezenas para carregar algo recomputável.
+   Consequência que precisou de código novo, e que o plano não previa: memória
+   restaurada volta sem vetor e sairia da busca semântica **permanentemente**. Por isso
+   existe `reindexarMemorias` (caso de uso + botão "Reindexar busca" na tela). Sem ele,
+   a E8 teria criado uma degradação silenciosa e irreversível.
+2. **Degradação em três níveis, nunca falha.** Sem `OPENAI_MODEL_EMBEDDING`, com o teto
+   diário estourado, ou com o provedor fora do ar: a memória **é gravada mesmo assim**,
+   sem vetor. Perder o que o dono pediu para guardar é pior que perder a busca sobre
+   isso. `buscarMemoria` então cai para "as mais recentes" e devolve `distancia: NaN` —
+   recência não pode se passar por relevância.
+3. **A guarda pura roda ANTES do embedding.** Validar depois de vetorizar seria pagar
+   para descobrir que o texto não podia ser guardado. Há teste asserindo zero chamadas
+   ao provedor quando o texto tem valor monetário.
+4. **A guarda também roda no turno da PROPOSTA** (`propor_memoria`), não só na
+   confirmação: assim o modelo recebe o motivo e reescreve a frase sem o número,
+   enquanto o dono ainda não viu botão nenhum.
+5. **Ano é a exceção deliberada** do detector de valor: "sair do aluguel até 2028" passa;
+   "juntar 50000" não. A janela é 1900–2100.
+6. **`Memoria` entrou no `pnpm verificar:isolamento`.** Ela usa SQL cru (pgvector não é
+   tipado pelo Prisma), então **não herda o escopo automático do Prisma Client** — é a
+   tabela onde um `where` esquecido vazaria sem ninguém notar. Fake não provaria isso.
+
+**Verificado contra a API real:** `text-embedding-3-small`, 1536 dimensões.
+Similaridade de "quer sair do aluguel até 2028" com "quer comprar a casa própria" =
+**0,45**; com "prefere cortar lazer antes de alimentação" = **0,13**. A busca separa
+assunto de assunto.
+
+---
+
+## 12. Decisão D-8 revista — escrita por proposta (04/08/2026)
+
+**O que motivou:** o dono relatou que o copiloto "não consegue fazer coisas simples,
+fala que não pode fazer". Não era bug: `prompt-sistema.ts` mandava literalmente
+recusar ("Você só consegue LER"), e o catálogo tinha 9 ferramentas, todas de leitura.
+Era a D-8 original funcionando como escrita.
+
+**O contrato novo, em uma linha:** o copiloto **propõe**, o dono **confirma**, o caso
+de uso de sempre **executa**. Nenhuma ferramenta de IA grava no banco — isso não mudou,
+e não deve mudar.
+
+**Por que não deixar o modelo gravar direto.** A Fase D inteira se apoia em "o modelo é
+tradutor, não fonte do número". Uma ferramenta `criar_transacao` inverte isso: o valor
+gravado passa a ser o que o modelo digitou, sem ninguém conferir. E diferente de uma
+resposta errada — que o dono lê e descarta — um lançamento errado **fica**: consome
+verba, entra no teto de amanhã e contamina o fechamento. A rede da Fase D
+(`valoresNaoRastreados`) não cobre isso: ela confere o que o modelo **disse**, não o que
+ele **gravaria**.
+
+**Como funciona:**
+
+- `propor_lancamento`, `propor_parcelamento`, `propor_memoria` validam, resolvem ids em
+  nomes legíveis e devolvem uma `PropostaExibivel`. Não escrevem.
+- O loop recolhe as propostas em `RespostaCopiloto.propostas`, **revalidando** cada uma
+  contra `propostaSchema` — a saída chega como `unknown` e vai para uma action de escrita.
+- `CartaoProposta` mostra valor formatado, data e categoria **pelo nome**, com botão que
+  diz o que vai acontecer ("Lançar R$ 47,00"), não "OK".
+- `confirmarProposta` (`src/actions/ia.ts`) revalida do zero e chama `criarTransacao` /
+  `criarParcelamento` / `salvarMemoria` — os mesmos das telas, com `exigirEscrita`,
+  guarda de ciclo fechado e efeito de saldo. **Zero caminho paralelo.**
+- `opcoes_de_lancamento` (leitura) dá os ids reais. Id inexistente vira erro para o
+  modelo corrigir, nunca lançamento sem categoria em silêncio.
+
+**Continua proibido, e sem tarefa:** `fechar_ciclo` e `atualizar_config`. Fechar ciclo
+credita provisão e move sobra; editar Config muda a verba do próximo ciclo. Nenhum dos
+dois cabe num "confirmar" de uma linha — são telas com aviso, e continuam sendo. Há
+teste asserindo que essas ferramentas não existem.
+
+**O que a segurança NÃO depende:** de a proposta ter vindo do copiloto. Ela viaja até o
+navegador e volta, então é entrada não confiável como qualquer outra. A segurança vem de
+(1) revalidação por schema, (2) os casos de uso das telas com suas guardas, e (3) os
+repositórios já escopados por `donoId`. Confirmar uma proposta forjada não consegue nada
+que o dono já não pudesse fazer pelo formulário.
+
+**Testes que sustentam isso:**
+
+- `ferramentas.test.ts` → "%s não grava nada" roda para **toda** ferramenta do catálogo,
+  inclusive as `propor_*`. É a prova executável do contrato.
+- `propostas.test.ts` → proposta executável e legível; categoria inexistente recusada;
+  decimal recusado; memória com valor recusada com instrução de reescrita.
+- `copiloto.test.ts` → proposta chega à UI sem tocar o banco; pergunta comum não gera
+  proposta; proposta recusada não vira botão; **loop cortado por limite de turnos não
+  oferece confirmação** (a resposta admite não ter concluído — um botão ao lado dela
+  pediria confirmação de algo que o modelo não terminou de pensar).
+- `catalogo.test.ts` → nenhuma ferramenta com nome de execução; toda `propor_*` está em
+  `FERRAMENTAS_DE_PROPOSTA` (o loop recolhe por essa lista, não por prefixo).
+
+### 12.1 O que ficou de fora, deliberadamente
+
+- Renda, transferência e estorno não são proponíveis: têm efeito em saldo de conta e em
+  fechamento que não cabe num clique.
+- Editar e excluir transação existente por proposta.
+- Marcar custo fixo como pago por proposta.

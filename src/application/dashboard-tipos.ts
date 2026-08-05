@@ -136,6 +136,13 @@ export interface LinhaTransacaoVariavel {
   metodo: MetodoPagamento | null;
   /** ESTORNO abate; a UI precisa distinguir para não mostrar como despesa. */
   ehEstorno: boolean;
+  /**
+   * Competência ainda no futuro dentro deste ciclo: já lançada, mas ainda não
+   * consome verba nem entra em `transacoesVariaveisTotalCents`. A UI marca a
+   * linha como "programado" — some-la do extrato fazia a transação ficar
+   * invisível no painel inteiro.
+   */
+  ehProgramado: boolean;
 }
 
 /** Bloco de patrimônio/investimentos — o que a planilha do usuário não mostra. */
@@ -190,10 +197,20 @@ export interface EstadoPainel {
    * ordenadas por frequência real de uso no ciclo (as mais usadas na frente).
    */
   categoriasLancamento: OpcaoCategoria[];
-  /** Extrato de gastos variáveis do ciclo, mais recentes primeiro. */
+  /**
+   * Extrato de gastos variáveis do ciclo INTEIRO (inclusive competência
+   * futura, marcada com `ehProgramado`), mais recentes primeiro.
+   */
   transacoesVariaveis: LinhaTransacaoVariavel[];
-  /** Soma líquida do extrato acima (DESPESA − ESTORNO). */
+  /** Soma líquida (DESPESA − ESTORNO) só do que já foi REALIZADO (até hoje). */
   transacoesVariaveisTotalCents: number;
+  /**
+   * Soma líquida só das linhas programadas (competência futura). Campo
+   * SEPARADO de propósito: não consome verba nem entra em `totalGastosCents` —
+   * juntar os dois num número só faria o painel mostrar como gasto dinheiro
+   * que ainda não saiu.
+   */
+  transacoesVariaveisProgramadasCents: number;
   patrimonio: ResumoPatrimonioPainel;
   metas: ResumoMetas;
   /** Ciclo anterior ainda sem fechar — aviso, nunca bloqueio (regra 10). */

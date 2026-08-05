@@ -17,6 +17,7 @@ import { AlertTriangle, MessageCircle, Wrench } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import { semMarkdown } from '@/shared/texto';
 import type { RespostaCopiloto } from '@/application/ia/copiloto';
+import { CartaoProposta } from './cartao-proposta';
 
 /** Realça os valores que vieram de ferramenta, para o olho achar o número. */
 function TextoComValores({ texto: bruto, valores }: { texto: string; valores: readonly string[] }) {
@@ -77,6 +78,15 @@ export function RespostaComProveniencia({ resposta }: { resposta: RespostaCopilo
           A consulta foi interrompida por limite de etapas — a resposta pode estar incompleta.
         </p>
       ) : null}
+
+      {/*
+        Propostas (D-8). Vêm DEPOIS do texto e antes da proveniência: o dono lê
+        o que o copiloto entendeu, confere o valor no cartão e só então clica.
+        Nada aqui existe no banco até o clique.
+      */}
+      {resposta.propostas.map((item, i) => (
+        <CartaoProposta key={i} item={item} />
+      ))}
 
       <Proveniencia resposta={resposta} />
     </div>
