@@ -8,6 +8,7 @@
  */
 import { Card, CardHeader, CardTitle, CardContent, EmptyState } from '@/components/ui';
 import { PagamentoToggle } from './pagamento-toggle';
+import { AbrirParcelamentoBotao } from './parcelamento-botao';
 import { formatBRL } from '@/shared/dinheiro';
 import { marcarParcelaPaga } from '@/actions/pagamentos';
 import type { LinhaParcelada } from '@/application/dashboard-tipos';
@@ -34,6 +35,7 @@ export function ParceladosLista({
           <EmptyState
             titulo="Nenhuma parcela neste ciclo"
             descricao="Compras parceladas lançadas aparecem aqui, uma linha por competência."
+            acao={<AbrirParcelamentoBotao />}
           />
         </CardContent>
       </Card>
@@ -44,8 +46,9 @@ export function ParceladosLista({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex items-center justify-between">
         <CardTitle>Parcelamentos do ciclo</CardTitle>
+        <AbrirParcelamentoBotao />
       </CardHeader>
       <CardContent className="p-0">
         <ul className="divide-y divide-border">
