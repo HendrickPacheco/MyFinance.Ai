@@ -6,6 +6,7 @@
  */
 import { KpiFaixa } from './kpi-faixa';
 import { LancamentoPainel } from './lancamento-painel';
+import { ParcelamentoModal } from './parcelamento-modal';
 import { ExtratoVariaveis } from './extrato-variaveis';
 import { CategoriasPizza } from './categorias-pizza';
 import { MetodosPagamento } from './metodos-pagamento';
@@ -32,6 +33,12 @@ export function PainelDesktop({ estado }: { estado: EstadoPainel }) {
           Fica montado aqui porque é aqui que `hoje`/`categoriasLancamento`
           existem; a página continua só leitura enquanto o modal está fechado. */}
       <LancamentoPainel hoje={estado.hoje} categorias={estado.categoriasLancamento} />
+
+      {/* Mesmo raciocínio do `LancamentoPainel` acima: o modal não renderiza
+          nada visível — é "Nova compra parcelada", aberto pelo botão do card
+          `ParceladosLista` (Server Component, então a abertura viaja por
+          evento de `window`, ver `EVENTO_ABRIR_PARCELAMENTO`). */}
+      <ParcelamentoModal hoje={estado.hoje} categorias={estado.categoriasLancamento} />
 
       <ExtratoVariaveis
         transacoes={estado.transacoesVariaveis}
