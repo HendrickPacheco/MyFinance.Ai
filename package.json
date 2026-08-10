@@ -20,7 +20,8 @@
     "db:seed-owner": "tsx --env-file=.env prisma/seed-owner.ts",
     "verificar:isolamento": "tsx --env-file=.env scripts/verificar-isolamento.ts",
     "ia:verificar": "tsx --env-file=.env scripts/verificar-capacidade-ia.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "senha:redefinir": "tsx --env-file=.env scripts/redefinir-senha.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
