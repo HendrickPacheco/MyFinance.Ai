@@ -1,0 +1,2 @@
+- [Fake upsert bug in fakes-ciclo-fechamento.ts](fakes_ciclo_fechamento_upsert_bug.md) — FakeCustoFixoRepo/FakeProvisaoRepo.salvar were append-only, not upsert-by-id; fixed 10/08/2026, check siblings before trusting.
+- [use-server export constraint](use_server_helper_export_constraint.md) — 'use server' files can't export non-serializable-arg helpers (e.g. fns taking callbacks); put shared logic in a plain module instead.

@@ -4,6 +4,7 @@ import { useState, useTransition, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Delete } from 'lucide-react';
 import { formatBRL } from '@/shared/dinheiro';
+import { Toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { criarTransacao, excluirTransacao } from '@/actions/transacoes';
 
@@ -140,18 +141,7 @@ export function LancamentoRapido({ categorias }: { categorias: CategoriaChip[] }
 
       {/* Toast de undo (5s) */}
       {toast ? (
-        <div className="fixed inset-x-0 bottom-24 z-50 flex justify-center px-4">
-          <div className="flex items-center gap-4 rounded-full border border-border-strong bg-surface-2 px-5 py-3 shadow-lg">
-            <span className="text-sm text-fg">Lançado {toast.texto}</span>
-            <button
-              type="button"
-              onClick={desfazer}
-              className="text-sm font-semibold text-accent hover:underline"
-            >
-              Desfazer
-            </button>
-          </div>
-        </div>
+        <Toast texto={`Lançado ${toast.texto}`} acao={{ label: 'Desfazer', onClick: desfazer }} />
       ) : null}
     </div>
   );

@@ -7,7 +7,7 @@
 import { KpiFaixa } from './kpi-faixa';
 import { LancamentoPainel } from './lancamento-painel';
 import { ParcelamentoModal } from './parcelamento-modal';
-import { ExtratoVariaveis } from './extrato-variaveis';
+import { ExtratoVariaveis } from '@/components/transacoes/extrato-variaveis';
 import { CategoriasPizza } from './categorias-pizza';
 import { MetodosPagamento } from './metodos-pagamento';
 import { ComprometidoLista } from './comprometido-lista';
@@ -41,6 +41,7 @@ export function PainelDesktop({ estado }: { estado: EstadoPainel }) {
       <ParcelamentoModal hoje={estado.hoje} categorias={estado.categoriasLancamento} />
 
       <ExtratoVariaveis
+        escopo="ciclo"
         transacoes={estado.transacoesVariaveis}
         totalCents={estado.transacoesVariaveisTotalCents}
         programadasCents={estado.transacoesVariaveisProgramadasCents}

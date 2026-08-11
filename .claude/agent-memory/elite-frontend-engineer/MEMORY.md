@@ -4,3 +4,4 @@
 - [Pago toggle pattern](pattern_pago_toggle.md) — optimistic checkbox for "marcar pago", bind() for passing server actions across RSC boundary, count-not-sum rule for missing money aggregates.
 - [Lançamento painel pattern](pattern_lancamento_painel.md) — keyboard-first money-entry form, digit-accumulation input (no parseBRL on free text), global "N" shortcut, sticky-field-after-save UX.
 - [Collapsible sidebar pattern](pattern_collapsible_sidebar.md) — CSS-driven width via pre-paint inline script + `data-sidebar` attr on `<html>` (`suppressHydrationWarning` needed), `TooltipPortal` primitive for icon-only tooltips (fixed-position, avoids nav's overflow clipping), why tooltip/hooks can't live inside `.map()`.
+- [Lote transacional](pattern_lote_transacional.md) — `TransacaoRepository.aplicarLote` + `somarEfeitos` para escrita atômica multi-tabela; por que não virou Unit-of-Work e como provar isolamento (`deleteMany` não lança).

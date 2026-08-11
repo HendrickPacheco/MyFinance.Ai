@@ -231,6 +231,10 @@ const custoFixoSchema = z
     diaVencimento: z.number().int(),
     ativo: z.boolean().optional(),
     contaId: z.string().nullish(),
+    // Opcionais: backup gerado ANTES da migração de vigência não os traz, e
+    // ausente = custo constante, que é o comportamento de sempre.
+    vigenteDe: dataCivil.nullish(),
+    vigenteAte: dataCivil.nullish(),
   })
   .strict();
 
@@ -253,6 +257,8 @@ const parcelamentoSchema = z
     numParcelas: z.number().int(),
     dataCompra: dataCivil,
     categoriaId: z.string().nullish(),
+    /** Ausente em backup anterior à migração = parcelamento em andamento. */
+    encerradoEm: dataCivil.nullish(),
   })
   .strict();
 

@@ -20,6 +20,10 @@ import {
   PrismaTransacaoRepository,
   PrismaCategoriaRepository,
   PrismaConfigRepository,
+  PrismaCustoFixoRepository,
+  PrismaPagamentoFixoRepository,
+  PrismaProvisaoRepository,
+  PrismaParcelamentoRepository,
 } from '../src/infrastructure/repositories/prisma-repositories';
 import { PrismaMemoriaRepository } from '../src/infrastructure/repositories/prisma-memoria';
 import { semearWorkspace } from '../src/infrastructure/onboarding';
@@ -76,6 +80,10 @@ async function main(): Promise<void> {
     transacoes: new PrismaTransacaoRepository(prisma, a.id),
     ciclos: new PrismaCicloRepository(prisma, a.id),
     config: new PrismaConfigRepository(prisma, a.id),
+    custosFixos: new PrismaCustoFixoRepository(prisma, a.id),
+    pagamentosFixos: new PrismaPagamentoFixoRepository(prisma, a.id),
+    provisoes: new PrismaProvisaoRepository(prisma, a.id),
+    parcelamentos: new PrismaParcelamentoRepository(prisma, a.id),
   };
   const repoB = {
     contas: new PrismaContaRepository(prisma, b.id),
@@ -83,6 +91,10 @@ async function main(): Promise<void> {
     transacoes: new PrismaTransacaoRepository(prisma, b.id),
     ciclos: new PrismaCicloRepository(prisma, b.id),
     config: new PrismaConfigRepository(prisma, b.id),
+    custosFixos: new PrismaCustoFixoRepository(prisma, b.id),
+    pagamentosFixos: new PrismaPagamentoFixoRepository(prisma, b.id),
+    provisoes: new PrismaProvisaoRepository(prisma, b.id),
+    parcelamentos: new PrismaParcelamentoRepository(prisma, b.id),
   };
 
   // ── Dados só do A ─────────────────────────────────────────────────────────
@@ -221,6 +233,152 @@ async function main(): Promise<void> {
   checar(
     'a busca do A ainda encontra a memória dele (embedding intacto)',
     (await memA.buscarPorEmbedding(VETOR_A))[0]?.id === memoriaA.id,
+  );
+
+  // Repositórios de gestão de custos (TASKS-CUSTOS.md, fase de portas). São os
+  // métodos que a tela de CRUD vai chamar com um id vindo da URL — exatamente
+  // o caminho por onde um `findUnique({ where: { id } })` esquecido devolveria
+  // a linha de outro dono.
+  console.log('\nCUSTOS — B não lê nem apaga cadastro do A:');
+  const custoA = await repoA.custosFixos.salvar({
+    id: '',
+    nome: 'Aluguel secreto do A',
+    valorCents: 240_000,
+    diaVencimento: 5,
+    ativo: true,
+    contaId: null,
+    vigenteDe: null,
+    vigenteAte: null,
+  });
+  const provisaoA = await repoA.provisoes.salvar({
+    id: '',
+    nome: 'IPVA do A',
+    valorAnualCents: 180_000,
+    mesEsperado: 1,
+    acumuladoCents: 50_000,
+    ativo: true,
+  });
+  const parcelamentoA = await repoA.parcelamentos.criar({
+    id: '',
+    descricao: 'Notebook do A',
+    valorTotalCents: 349_900,
+    numParcelas: 12,
+    dataCompra: '2026-09-03',
+    categoriaId: null,
+    encerradoEm: null,
+  });
+
+  // `contarPorCustoFixoAgrupado` usa `groupBy`, que também é query do Prisma
+  // Client e NÃO herda escopo automático: sem `donoId` no where, a tela de
+  // custos do B veria a contagem de pagamentos do A e ofereceria/negaria
+  // exclusão pelo motivo errado.
+  await repoA.pagamentosFixos.marcarPago(custoA.id, cicloA.ciclo.id, '2026-09-05');
+
+  checar('obter(custo fixo do A) devolve null', (await repoB.custosFixos.obter(custoA.id)) === null);
+  checar(
+    'contarPorCustoFixo(custo do A) é 0 para o B',
+    (await repoB.pagamentosFixos.contarPorCustoFixo(custoA.id)) === 0,
+  );
+  checar(
+    'contarPorCustoFixoAgrupado do B não cita o custo do A',
+    (await repoB.pagamentosFixos.contarPorCustoFixoAgrupado())[custoA.id] === undefined,
+  );
+  checar(
+    'contarPorCustoFixoAgrupado do A enxerga o próprio pagamento',
+    (await repoA.pagamentosFixos.contarPorCustoFixoAgrupado())[custoA.id] === 1,
+  );
+  checar(
+    'listarTodos do B não traz o custo do A',
+    (await repoB.custosFixos.listarTodos()).every((c) => c.id !== custoA.id),
+  );
+  checar('obter(provisão do A) devolve null', (await repoB.provisoes.obter(provisaoA.id)) === null);
+  checar(
+    'listarTodas do B não traz a provisão do A',
+    (await repoB.provisoes.listarTodas()).every((p) => p.id !== provisaoA.id),
+  );
+  checar(
+    'obter(parcelamento do A) devolve null',
+    (await repoB.parcelamentos.obter(parcelamentoA.id)) === null,
+  );
+  checar(
+    'listar do B não traz o parcelamento do A',
+    (await repoB.parcelamentos.listar()).every((p) => p.id !== parcelamentoA.id),
+  );
+  checar(
+    'listarPorParcelamento(id do A) vem vazio para o B',
+    (await repoB.transacoes.listarPorParcelamento(parcelamentoA.id)).length === 0,
+  );
+
+  await esperaErro('excluir(custo fixo do A) é recusado', () =>
+    repoB.custosFixos.excluir(custoA.id),
+  );
+  await esperaErro('excluir(provisão do A) é recusado', () =>
+    repoB.provisoes.excluir(provisaoA.id),
+  );
+  await esperaErro('atualizar(parcelamento do A) é recusado', () =>
+    repoB.parcelamentos.atualizar(parcelamentoA.id, { encerradoEm: '2026-09-30' }),
+  );
+
+  checar('o custo fixo do A segue existindo', (await repoA.custosFixos.obter(custoA.id)) !== null);
+  checar(
+    'a provisão do A segue com o acumulado intacto',
+    (await repoA.provisoes.obter(provisaoA.id))?.acumuladoCents === 50_000,
+  );
+  checar(
+    'o parcelamento do A segue em andamento',
+    (await repoA.parcelamentos.obter(parcelamentoA.id))?.encerradoEm === null,
+  );
+
+  // ── aplicarLote (TASKS-CUSTOS Fase 8, §5.1 ticket 1) ──────────────────────
+  // Query NOVA e a mais perigosa do adapter: um único `$transaction` que
+  // APAGA transação, CRIA transação e INCREMENTA saldo de conta e acumulado
+  // de provisão. `deleteMany`/`updateMany` não lançam com id alheio — só
+  // afetam zero linhas —, então a prova aqui não é "deu erro", é "os dados do
+  // A não mudaram" e "o que o B criou nasceu no dono B".
+  console.log('\nLOTE TRANSACIONAL — aplicarLote do B não alcança o A:');
+  const contasA = await repoA.contas.listar();
+  const contaA = contasA[0];
+  const saldoAAntes = contaA?.saldoCents ?? 0;
+
+  const criadasPeloB = await repoB.transacoes.aplicarLote({
+    excluir: [txA.id],
+    criar: [
+      {
+        id: '',
+        data: '2026-09-11',
+        valorCents: 777,
+        tipo: 'DESPESA',
+        descricao: 'lote do B',
+        metodo: null,
+        categoriaId: null,
+        contaId: null,
+        contaDestinoId: null,
+        provisaoId: null,
+        parcelamentoId: null,
+        parcelaNum: null,
+        estornoDeId: null,
+        cicloId: null,
+        pagoEm: null,
+      },
+    ],
+    ajustesConta: contaA ? [{ contaId: contaA.id, deltaCents: 999_999 }] : [],
+    ajustesProvisao: [{ provisaoId: provisaoA.id, deltaCents: 999_999 }],
+  });
+
+  checar('a transação do A NÃO foi apagada pelo lote do B', (await repoA.transacoes.obter(txA.id)) !== null);
+  checar(
+    'o saldo da conta do A não foi creditado pelo lote do B',
+    contaA ? (await repoA.contas.obter(contaA.id))?.saldoCents === saldoAAntes : true,
+  );
+  checar(
+    'o acumulado da provisão do A não foi creditado pelo lote do B',
+    (await repoA.provisoes.obter(provisaoA.id))?.acumuladoCents === 50_000,
+  );
+  checar(
+    'a transação criada no lote nasceu no dono B',
+    criadasPeloB.length === 1 &&
+      (await repoB.transacoes.obter(criadasPeloB[0]?.id ?? '')) !== null &&
+      (await repoA.transacoes.obter(criadasPeloB[0]?.id ?? '')) === null,
   );
 
   console.log('\nBACKUP — o export do B não contém dados do A:');

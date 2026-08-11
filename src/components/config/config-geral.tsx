@@ -3,7 +3,17 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, Select } from '@/components/ui';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  Segmented,
+  Select,
+} from '@/components/ui';
 import { formatBRL, parseBRL } from '@/shared/dinheiro';
 import { atualizarConfig } from '@/actions/config';
 import type { Config, Conta } from '@/domain/model/entidades';
@@ -141,22 +151,16 @@ export function ConfigGeral({
 
         <div>
           <Label>Meta de poupança (tratada como conta a pagar)</Label>
-          <div className="mb-2 flex gap-2">
-            <button
-              type="button"
-              onClick={() => setUsarPercent(false)}
-              className={tabCls(!usarPercent)}
-            >
-              Valor fixo
-            </button>
-            <button
-              type="button"
-              onClick={() => setUsarPercent(true)}
-              className={tabCls(usarPercent)}
-            >
-              % da renda
-            </button>
-          </div>
+          <Segmented
+            className="mb-2"
+            ariaLabel="Forma da meta de poupança"
+            valor={usarPercent ? 'percent' : 'fixo'}
+            onChange={(v) => setUsarPercent(v === 'percent')}
+            opcoes={[
+              { value: 'fixo', label: 'Valor fixo' },
+              { value: 'percent', label: '% da renda' },
+            ]}
+          />
           {usarPercent ? (
             <div className="flex items-center gap-2">
               <Input
@@ -283,10 +287,4 @@ export function ConfigGeral({
       </CardContent>
     </Card>
   );
-}
-
-function tabCls(ativo: boolean): string {
-  return `min-h-[40px] rounded-lg px-3 text-sm ${
-    ativo ? 'bg-accent text-accent-fg' : 'bg-surface-2 text-muted'
-  }`;
 }

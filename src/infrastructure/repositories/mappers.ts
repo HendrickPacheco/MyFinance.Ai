@@ -85,6 +85,8 @@ export function toCustoFixo(r: PCustoFixo): CustoFixo {
     diaVencimento: r.diaVencimento,
     ativo: r.ativo,
     contaId: r.contaId,
+    vigenteDe: r.vigenteDe,
+    vigenteAte: r.vigenteAte,
   };
 }
 
@@ -136,6 +138,7 @@ export function toParcelamento(r: PParcelamento): Parcelamento {
     numParcelas: r.numParcelas,
     dataCompra: r.dataCompra,
     categoriaId: r.categoriaId,
+    encerradoEm: r.encerradoEm,
   };
 }
 

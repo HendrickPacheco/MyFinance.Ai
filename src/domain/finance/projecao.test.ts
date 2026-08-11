@@ -11,7 +11,7 @@ import { addMeses, type DataCivil } from '@/shared/data';
 import { somaCents } from '@/shared/dinheiro';
 import { diasTotaisCiclo, limitesCiclo } from './ciclo';
 import { gerarParcelas } from './parcelamento';
-import { poupancaAlvoCents, verbaVariavelCents } from './verba';
+import { poupancaAlvoCents, verbaVariavelCents, type CustoComVigencia } from './verba';
 import { projetarCiclos, projetarComCenario } from './projecao';
 import type { CicloProjetado, EntradaProjecao, ObrigacaoFutura } from './projecao-tipos';
 
@@ -444,5 +444,256 @@ describe('projetarCiclos — contratos', () => {
         expect(Number.isInteger(valor), `${campo} = ${String(valor)} não é inteiro`).toBe(true);
       }
     }
+  });
+});
+
+describe('projetarCiclos — vigência de custo fixo (Fase 6)', () => {
+  /** Custo com vigência, com os defaults do cadastro (constante para sempre). */
+  function custo(over: Partial<CustoComVigencia> = {}): CustoComVigencia {
+    return { valorCents: 100_000, vigenteDe: null, vigenteAte: null, ...over };
+  }
+
+  it('sem custosComVigencia, o resultado é IDÊNTICO ao escalar de hoje (R6)', () => {
+    const entrada = entradaBase({ numCiclos: 12 });
+
+    expect(projetarCiclos({ ...entrada, custosComVigencia: undefined })).toStrictEqual(
+      projetarCiclos(entrada),
+    );
+  });
+
+  it('custosComVigencia sem nenhuma data equivale ao escalar de mesma soma', () => {
+    const base = entradaBase({ numCiclos: 6, fixosCents: 300_000 });
+    const comLista = {
+      ...base,
+      custosComVigencia: [custo({ valorCents: 200_000 }), custo({ valorCents: 100_000 })],
+    };
+
+    expect(projetarCiclos(comLista)).toStrictEqual(projetarCiclos(base));
+  });
+
+  it('custo fixo com vigenteAte em 12/2026 não entra no ciclo 01/2027', () => {
+    // diaRecebimento 1 => ciclo k começa em 01/mm. Ciclo 1 = 08/2026.
+    const entrada = entradaBase({
+      dataBase: '2026-08-04',
+      diaRecebimento: 1,
+      numCiclos: 6,
+      fixosCents: 0, // provaria nada se o fallback também somasse
+      custosComVigencia: [custo({ valorCents: 100_000, vigenteAte: '2026-12-31' })],
+    });
+
+    const ciclos = projetarCiclos(entrada);
+
+    // 08, 09, 10, 11, 12/2026 pagam; 01/2027 não.
+    expect(em(ciclos, 4).inicio).toBe('2026-12-01');
+    expect(em(ciclos, 4).fixosCents).toBe(100_000);
+    expect(em(ciclos, 5).inicio).toBe('2027-01-01');
+    expect(em(ciclos, 5).fixosCents).toBe(0);
+  });
+
+  it('o fixo do ciclo entra na verba daquele ciclo, não só no campo exibido', () => {
+    const entrada = entradaBase({
+      dataBase: '2026-08-04',
+      diaRecebimento: 1,
+      numCiclos: 6,
+      fixosCents: 0,
+      metaPoupancaCents: 0,
+      rendaPrevistaCents: 1_000_000,
+      valoresProvisaoAnualCents: [],
+      custosComVigencia: [custo({ valorCents: 100_000, vigenteAte: '2026-12-31' })],
+    });
+
+    const ciclos = projetarCiclos(entrada);
+
+    expect(em(ciclos, 4).verbaVariavelCents).toBe(900_000); // ainda paga o custo
+    expect(em(ciclos, 5).verbaVariavelCents).toBe(1_000_000); // a verba respira
+  });
+
+  it('custo com vigenteDe futuro só entra a partir do ciclo dele', () => {
+    const entrada = entradaBase({
+      dataBase: '2026-08-04',
+      diaRecebimento: 1,
+      numCiclos: 4,
+      fixosCents: 0,
+      custosComVigencia: [custo({ valorCents: 70_000, vigenteDe: '2026-10-15' })],
+    });
+
+    const ciclos = projetarCiclos(entrada);
+
+    expect(em(ciclos, 0).fixosCents).toBe(0); // 08/2026
+    expect(em(ciclos, 1).fixosCents).toBe(0); // 09/2026
+    expect(em(ciclos, 2).inicio).toBe('2026-10-01');
+    expect(em(ciclos, 2).fixosCents).toBe(70_000); // entra inteiro, sem rateio
+    expect(em(ciclos, 3).fixosCents).toBe(70_000);
+  });
+
+  it('cicloCongelado mantém o fixosCents gravado mesmo com vigência que o excluiria', () => {
+    const entrada = entradaBase({
+      dataBase: '2026-08-04',
+      diaRecebimento: 1,
+      numCiclos: 3,
+      fixosCents: 0,
+      cicloCongelado: {
+        inicio: '2026-08-01',
+        fim: '2026-08-31',
+        rendaPrevistaCents: 3_000_000,
+        poupancaAlvoCents: 1_800_000,
+        fixosCents: 488_400,
+        provisaoMensalCents: 0,
+        verbaVariavelCents: 711_600,
+        rolloverRecebidoCents: 0,
+      },
+      // Vigência já encerrada: excluiria o custo de TODOS os ciclos do horizonte.
+      custosComVigencia: [custo({ valorCents: 488_400, vigenteAte: '2026-07-31' })],
+    });
+
+    const ciclos = projetarCiclos(entrada);
+
+    expect(em(ciclos, 0).fixosCents).toBe(488_400); // congelado, intocado
+    expect(em(ciclos, 0).verbaVariavelCents).toBe(711_600);
+    expect(em(ciclos, 1).fixosCents).toBe(0); // vigência só afeta ciclos >= 2
+  });
+});
+
+describe('projetarCiclos — detalhe das obrigações do ciclo (Fase 6)', () => {
+  it('soma(obrigacoesDoCiclo.valorCents) === parcelasComprometidasCents em todo ciclo', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({
+        numCiclos: 12,
+        obrigacoesFuturas: [
+          ...parcelasMensais({
+            valorTotalCents: 999_999,
+            numParcelas: 7,
+            dataCompra: '2026-08-10',
+            parcelamentoId: 'pc-a',
+          }),
+          ...parcelasMensais({
+            valorTotalCents: 120_000,
+            numParcelas: 3,
+            dataCompra: '2026-09-20',
+            parcelamentoId: 'pc-b',
+          }),
+        ],
+      }),
+    );
+
+    for (const ciclo of ciclos) {
+      expect(somaCents(ciclo.obrigacoesDoCiclo.map((o) => o.valorCents))).toBe(
+        ciclo.parcelasComprometidasCents,
+      );
+    }
+  });
+
+  it('parcela de 12x comprada em 03/2026 some do ciclo 03/2027 e termina em 02/2027', () => {
+    const obrigacoes: ObrigacaoFutura[] = gerarParcelas({
+      valorTotalCents: 1_200_000,
+      numParcelas: 12,
+      dataCompra: '2026-03-10',
+    }).map((p, i) => ({
+      data: p.data,
+      valorCents: p.valorCents,
+      parcelamentoId: 'pc-12x',
+      descricao: 'Notebook',
+      parcelaNum: i + 1,
+      numParcelas: 12,
+    }));
+
+    const ciclos = projetarCiclos(
+      entradaBase({
+        dataBase: '2026-03-10',
+        diaRecebimento: 1,
+        numCiclos: 13,
+        obrigacoesFuturas: obrigacoes,
+      }),
+    );
+
+    const fevereiro = em(ciclos, 11);
+    const marco = em(ciclos, 12);
+
+    expect(fevereiro.inicio).toBe('2027-02-01');
+    expect(fevereiro.parcelasComprometidasCents).toBe(100_000);
+    expect(fevereiro.terminamNesteCiclo).toStrictEqual([
+      { parcelamentoId: 'pc-12x', descricao: 'Notebook', valorMensalCents: 100_000 },
+    ]);
+
+    expect(marco.inicio).toBe('2027-03-01');
+    expect(marco.parcelasComprometidasCents).toBe(0);
+    expect(marco.obrigacoesDoCiclo).toStrictEqual([]);
+    expect(marco.terminamNesteCiclo).toStrictEqual([]);
+  });
+
+  it('sem parcelaNum/numParcelas na entrada, nada é anunciado como fim de parcelamento', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({
+        numCiclos: 6,
+        obrigacoesFuturas: parcelasMensais({
+          valorTotalCents: 300_000,
+          numParcelas: 3,
+          dataCompra: '2026-08-10',
+        }),
+      }),
+    );
+
+    for (const ciclo of ciclos) {
+      expect(ciclo.terminamNesteCiclo).toStrictEqual([]);
+      for (const obrigacao of ciclo.obrigacoesDoCiclo) {
+        expect(obrigacao.parcelaNum).toBeNull();
+        expect(obrigacao.numParcelas).toBeNull();
+        expect(obrigacao.descricao).toBeNull();
+      }
+    }
+  });
+
+  it('a compra hipotética detalha a parcela mas NUNCA vira fim de parcelamento', () => {
+    const { comCenario } = projetarComCenario(entradaBase({ numCiclos: 6 }), {
+      descricao: 'Geladeira',
+      valorTotalCents: 300_000,
+      numParcelas: 3,
+      dataCompra: '2026-08-10',
+    });
+
+    const primeiro = em(comCenario, 0);
+    expect(primeiro.obrigacoesDoCiclo).toStrictEqual([
+      {
+        parcelamentoId: null,
+        descricao: 'Geladeira',
+        valorCents: 100_000,
+        parcelaNum: 1,
+        numParcelas: 3,
+      },
+    ]);
+
+    // A 3a (última) parcela cai no ciclo 3, e ainda assim nada é anunciado:
+    // sem `parcelamentoId` não há compromisso real terminando.
+    expect(em(comCenario, 2).obrigacoesDoCiclo[0]?.parcelaNum).toBe(3);
+    for (const ciclo of comCenario) {
+      expect(ciclo.terminamNesteCiclo).toStrictEqual([]);
+    }
+  });
+
+  it('detalhe não vaza para a verba (regressão D-11)', () => {
+    const entrada = entradaBase({
+      numCiclos: 6,
+      obrigacoesFuturas: parcelasMensais({
+        valorTotalCents: 600_000,
+        numParcelas: 6,
+        dataCompra: '2026-08-10',
+      }),
+    });
+
+    const ciclo = em(projetarCiclos(entrada), 1);
+    const doMotor = verbaVariavelCents({
+      rendaPrevistaCents: entrada.rendaPrevistaCents,
+      poupancaAlvoCents: poupancaAlvoCents({
+        rendaPrevistaCents: entrada.rendaPrevistaCents,
+        metaPoupancaCents: entrada.metaPoupancaCents,
+        metaPoupancaPercent: entrada.metaPoupancaPercent,
+      }),
+      fixosCents: entrada.fixosCents,
+      provisaoMensalCents: 0,
+      rolloverRecebidoCents: 0,
+    });
+
+    expect(ciclo.obrigacoesDoCiclo.length).toBeGreaterThan(0);
+    expect(ciclo.verbaVariavelCents).toBe(doMotor);
   });
 });

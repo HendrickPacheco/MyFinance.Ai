@@ -2,12 +2,26 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, CalendarRange, Scissors, TrendingUp, Settings } from 'lucide-react';
+import {
+  Home,
+  CalendarRange,
+  Receipt,
+  BarChart3,
+  Scissors,
+  TrendingUp,
+  Settings,
+} from 'lucide-react';
 import { cn } from '@/lib/cn';
 
+// Mesma ordem da sidebar do desktop (`layout/sidebar.tsx`): Custos entra logo
+// depois de Ciclo, e Projeção logo depois de Custos. Sem esta entrada a seção
+// existe só no desktop — foi assim que ela nasceu na Fase 7, e no mobile não
+// havia como chegar nela.
 const ITENS = [
   { href: '/', label: 'Hoje', icon: Home },
   { href: '/ciclo', label: 'Ciclo', icon: CalendarRange },
+  { href: '/custos', label: 'Custos', icon: Receipt },
+  { href: '/projecao', label: 'Projeção', icon: BarChart3 },
   { href: '/analise', label: 'Análise', icon: Scissors },
   { href: '/patrimonio', label: 'Patrimônio', icon: TrendingUp },
   { href: '/config', label: 'Ajustes', icon: Settings },
@@ -27,13 +41,22 @@ export function Nav() {
               key={item.href}
               href={item.href}
               className={cn(
-                'flex min-h-[44px] flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1 text-[11px] transition-colors',
+                // `min-w-0` + rótulo truncado: com 7 itens a 375px cada célula
+                // fica com ~48px, e "Patrimônio" é mais largo que isso. Sem o
+                // truncate o texto empurraria a barra e o BODY DA PÁGINA
+                // passaria a rolar na horizontal — o mesmo defeito que o
+                // extrato teve na Fase 9. A largura da barra é fixa; o que
+                // cede é o rótulo.
+                'flex min-h-[44px] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-0.5 py-1 text-[10px] tracking-tight transition-colors',
                 ativo ? 'text-accent' : 'text-faint hover:text-muted',
               )}
               aria-current={ativo ? 'page' : undefined}
             >
-              <Icon size={20} strokeWidth={ativo ? 2.4 : 1.8} />
-              <span>{item.label}</span>
+              <Icon size={20} strokeWidth={ativo ? 2.4 : 1.8} aria-hidden="true" />
+              {/* `title`: o rótulo truncado continua legível no toque longo. */}
+              <span className="w-full truncate text-center" title={item.label}>
+                {item.label}
+              </span>
             </Link>
           );
         })}

@@ -14,6 +14,10 @@ export async function recalcularCicloAtual(): Promise<Resultado<Ciclo>> {
     const deps = await criarDeps();
     const c = await ucRecalcular(deps);
     for (const p of ['/', '/ciclo']) revalidatePath(p);
+    // O banner e a barra de totais de /custos mostram a verba do ciclo — e
+    // recalcular é exatamente a ação que a muda. `'layout'` porque a barra vive
+    // no layout compartilhado das três abas.
+    revalidatePath('/custos', 'layout');
     return c;
   });
 }

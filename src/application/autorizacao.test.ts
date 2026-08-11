@@ -26,6 +26,7 @@ import {
   excluirTransacao,
   estornarTransacao,
 } from './transacoes';
+import { encerrarParcelamento, editarParcelamento } from './parcelamentos';
 import { garantirCicloAtual, puxarDaReserva, recalcularCicloAtual } from './ciclos';
 import { fecharCiclo } from './fechamento';
 import {
@@ -35,6 +36,14 @@ import {
   upsertCustoFixo,
   upsertProvisao,
 } from './config';
+import {
+  desativarCustoFixo,
+  reativarCustoFixo,
+  excluirCustoFixo,
+  desativarProvisao,
+  reativarProvisao,
+  excluirProvisao,
+} from './custos';
 import { criarSnapshot } from './patrimonio';
 import {
   desmarcarCustoFixoPago,
@@ -46,17 +55,63 @@ import { CONFIG_PADRAO } from './__fakes__/fakes-ciclo-fechamento';
 
 const CICLO = cicloFake({ id: 'c1', dataInicio: '2026-07-05', dataFim: '2026-08-04' });
 const TX = transacaoFake({ id: 'tx-1', cicloId: 'c1', categoriaId: CATEGORIA_VARIAVEL.id });
+const PARCELAMENTO = {
+  id: 'parc-1',
+  descricao: 'Notebook',
+  valorTotalCents: 120_000,
+  numParcelas: 12,
+  dataCompra: '2026-07-05',
+  categoriaId: CATEGORIA_VARIAVEL.id,
+  encerradoEm: null,
+};
+const PARCELA = transacaoFake({
+  id: 'parcela-1',
+  cicloId: 'c1',
+  categoriaId: CATEGORIA_VARIAVEL.id,
+  parcelamentoId: 'parc-1',
+  parcelaNum: 1,
+});
+const CUSTO_FIXO = {
+  id: 'cf-1',
+  nome: 'Luz',
+  valorCents: 10_000,
+  diaVencimento: 10,
+  ativo: true,
+  contaId: null,
+  vigenteDe: null,
+  vigenteAte: null,
+};
+const PROVISAO = {
+  id: 'prov-1',
+  nome: 'IPVA',
+  valorAnualCents: 120_000,
+  mesEsperado: 1,
+  acumuladoCents: 0,
+  ativo: true,
+};
 
 function deps(ator = ATOR_VIEWER): FakeDeps {
-  return criarDeps({ ator, ciclos: [CICLO], transacoes: [TX] });
+  const d = criarDeps({
+    ator,
+    ciclos: [CICLO],
+    transacoes: [TX, PARCELA],
+    custosFixos: [CUSTO_FIXO],
+    provisoes: [PROVISAO],
+  });
+  d.parcelamentos.itens.push(PARCELAMENTO);
+  return d;
 }
 
 /** Fotografia do estado gravável, para provar que nada mudou. */
 async function fotografar(d: FakeDeps) {
   return JSON.stringify({
     transacoes: await d.transacoes.listarPorCiclo('c1'),
+    parcelas: await d.transacoes.listarPorParcelamento('parc-1'),
+    parcelamentos: await d.parcelamentos.listar(),
     ciclos: await d.ciclos.obter('c1'),
     config: await d.config.obter(),
+    custosFixos: await d.custosFixos.listarTodos(),
+    provisoes: await d.provisoes.listarTodas(),
   });
 }
 
@@ -76,6 +131,8 @@ const ESCRITAS: ReadonlyArray<readonly [string, (d: FakeDeps) => Promise<unknown
   ['editarTransacao', (d) => editarTransacao(d, 'tx-1', { valorCents: 5000, categoriaId: CATEGORIA_VARIAVEL.id })],
   ['excluirTransacao', (d) => excluirTransacao(d, 'tx-1')],
   ['estornarTransacao', (d) => estornarTransacao(d, 'tx-1', 1000)],
+  ['encerrarParcelamento', (d) => encerrarParcelamento(d, 'parc-1')],
+  ['editarParcelamento', (d) => editarParcelamento(d, 'parc-1', { descricao: 'Novo nome' })],
   ['recalcularCicloAtual', (d) => recalcularCicloAtual(d)],
   ['puxarDaReserva', (d) => puxarDaReserva(d, 10_000)],
   ['fecharCiclo', (d) => fecharCiclo(d, 'c1', { rendaRealizadaCents: 800_000 })],
@@ -83,7 +140,17 @@ const ESCRITAS: ReadonlyArray<readonly [string, (d: FakeDeps) => Promise<unknown
   ['upsertConta', (d) => upsertConta(d, { id: '', nome: 'X', tipo: 'VARIAVEL', saldoCents: 0, incluiPatrimonio: true, arquivada: false })],
   [
     'upsertCustoFixo',
-    (d) => upsertCustoFixo(d, { id: '', nome: 'Luz', valorCents: 10_000, diaVencimento: 10, ativo: true, contaId: null }),
+    (d) =>
+      upsertCustoFixo(d, {
+        id: '',
+        nome: 'Luz',
+        valorCents: 10_000,
+        diaVencimento: 10,
+        ativo: true,
+        contaId: null,
+        vigenteDe: null,
+        vigenteAte: null,
+      }),
   ],
   [
     'upsertProvisao',
@@ -102,6 +169,12 @@ const ESCRITAS: ReadonlyArray<readonly [string, (d: FakeDeps) => Promise<unknown
     (d) => upsertCategoria(d, { id: '', nome: 'Nova', grupo: 'VARIAVEL', essencial: false, icone: null, cor: null, ordem: 9 }),
   ],
   ['criarSnapshot', (d) => criarSnapshot(d, '2026-08-01', [{ nome: 'CDB', classe: 'RENDA_FIXA', valorCents: 100 }])],
+  ['desativarCustoFixo', (d) => desativarCustoFixo(d, 'cf-1')],
+  ['reativarCustoFixo', (d) => reativarCustoFixo(d, 'cf-1')],
+  ['excluirCustoFixo', (d) => excluirCustoFixo(d, 'cf-1')],
+  ['desativarProvisao', (d) => desativarProvisao(d, 'prov-1')],
+  ['reativarProvisao', (d) => reativarProvisao(d, 'prov-1')],
+  ['excluirProvisao', (d) => excluirProvisao(d, 'prov-1')],
   ['marcarCustoFixoPago', (d) => marcarCustoFixoPago(d, 'cf-1')],
   ['desmarcarCustoFixoPago', (d) => desmarcarCustoFixoPago(d, 'cf-1')],
   ['marcarParcelaPaga', (d) => marcarParcelaPaga(d, 'tx-1')],

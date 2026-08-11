@@ -222,23 +222,77 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
 }
 
 /**
+ * O ciclo em curso, resumido para a UI conseguir escrever uma frase com datas
+ * e valores concretos ("o ciclo atual (01/08 – 31/08) continua em R$ 3.005,46").
+ * `proximoInicio` é a véspera+1 do fim — a data a partir da qual uma mudança
+ * de cadastro passa a valer.
+ *
+ * Datas saem daqui como `DataCivil` crua, nunca formatadas: formatação é
+ * responsabilidade da UI (`formatarDataCurta`), não da camada de aplicação.
+ */
+export interface CicloAtualResumo {
+  inicio: DataCivil;
+  fim: DataCivil;
+  /** Primeiro dia do ciclo seguinte (`fim` + 1 dia). */
+  proximoInicio: DataCivil;
+  /** Verba variável do ciclo COMO ESTÁ AGORA, depois da operação. */
+  verbaCents: number;
+}
+
+/**
+ * O que uma edição de cadastro (custo fixo, provisão, config) provocou no
+ * ciclo em curso. Existe porque a frase "vale a partir do próximo ciclo" é
+ * MENTIRA quando `recalcularCicloAtualSeVazio` recalcula — e ele recalcula
+ * justamente no dia 1 do ciclo, quando o dono está arrumando os custos e a
+ * verba de hoje muda na hora (TASKS-CUSTOS §4.3 item 0).
+ *
+ * União discriminada de propósito: `verbaAntesCents` só existe quando houve
+ * recálculo, então o ramo "não recalculou" não consegue nem citá-lo.
+ */
+export type EfeitoNoCicloAtual =
+  | { recalculou: false; ciclo: CicloAtualResumo | null }
+  | { recalculou: true; ciclo: CicloAtualResumo; verbaAntesCents: number };
+
+function resumirCiclo(ciclo: Ciclo): CicloAtualResumo {
+  return {
+    inicio: ciclo.dataInicio,
+    fim: ciclo.dataFim,
+    proximoInicio: addDias(ciclo.dataFim, 1),
+    verbaCents: ciclo.verbaVariavelCents,
+  };
+}
+
+/**
  * Recalcula o ciclo atual automaticamente SÓ se ele ainda não tem transações.
  * Um ciclo vazio não tem histórico a proteger — então ajustar a Config (ex.:
  * definir a renda no onboarding) pode reconfigurá-lo sem violar o
  * congelamento (SPEC 5.2). Havendo qualquer lançamento, nada muda aqui.
+ *
+ * Devolve `EfeitoNoCicloAtual` para quem chamou poder dizer ao dono o que de
+ * fato aconteceu com números — sem nenhuma consulta a mais: o ciclo já estava
+ * lido aqui de qualquer jeito.
  */
-export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<void> {
+export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<EfeitoNoCicloAtual> {
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirEscrita(deps.ator);
 
   const config = await deps.config.obter();
-  if (!config) return;
+  if (!config) return { recalculou: false, ciclo: null };
 
   const ciclo = await deps.ciclos.obterAtual(deps.relogio.hoje());
-  if (!ciclo) return;
+  if (!ciclo) return { recalculou: false, ciclo: null };
+  // R1 (congelamento do passado): um ciclo fechado já teve `sobraCents`
+  // apurado e seu rollover (se houver) creditado no ciclo seguinte. Reescrever
+  // `fixosCents`/`provisaoMensalCents`/`verbaVariavelCents` depois disso
+  // corrompe silenciosamente essa reconciliação — "vazio" não é licença para
+  // recalcular um ciclo fechado, só um ciclo aberto sem histórico ainda.
+  if (ciclo.fechado) return { recalculou: false, ciclo: resumirCiclo(ciclo) };
 
   const transacoes = await deps.transacoes.listarPorCiclo(ciclo.id);
-  if (transacoes.length > 0) return; // tem histórico -> respeita o congelamento
+  // Tem histórico -> respeita o congelamento. O resumo devolvido carrega a
+  // verba INTACTA, que é exatamente o número da frase "o ciclo atual continua
+  // em R$ X".
+  if (transacoes.length > 0) return { recalculou: false, ciclo: resumirCiclo(ciclo) };
 
   const rendaPrevistaCents = config.rendaBaseCents;
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
@@ -253,13 +307,66 @@ export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<void> {
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
   });
 
-  await deps.ciclos.atualizar(ciclo.id, {
+  const atualizado = await deps.ciclos.atualizar(ciclo.id, {
     rendaPrevistaCents,
     poupancaAlvoCents: poupancaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
     verbaVariavelCents: verba,
   });
+
+  return {
+    recalculou: true,
+    ciclo: resumirCiclo(atualizado),
+    verbaAntesCents: ciclo.verbaVariavelCents,
+  };
+}
+
+/**
+ * O que `recalcularCicloAtual` FARIA, sem fazer. Existe para o
+ * `ConfirmInline` do botão "Recalcular ciclo atual" mostrar o valor de antes e
+ * o de depois (TASKS-CUSTOS §4.3 item 3) — transformando uma ação abstrata em
+ * decisão informada.
+ *
+ * Read-only de verdade: usa `obterAtual` em vez de `garantirCicloAtual`, então
+ * abrir a tela nunca cria ciclo como efeito colateral. `null` quando não há
+ * ciclo aberto ou Config — sem ciclo não há delta a mostrar.
+ *
+ * Nenhum cálculo novo mora aqui: reusa `parametrosCongelados` +
+ * `verbaVariavelCents`, exatamente os mesmos que `recalcularCicloAtual` usa.
+ * Se os dois divergirem, o número prometido ao dono vira mentira.
+ */
+export interface PreviaRecalculo {
+  inicio: DataCivil;
+  fim: DataCivil;
+  verbaAtualCents: number;
+  verbaRecalculadaCents: number;
+}
+
+export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecalculo | null> {
+  const config = await deps.config.obter();
+  if (!config) return null;
+
+  const ciclo = await deps.ciclos.obterAtual(deps.relogio.hoje());
+  if (!ciclo) return null;
+
+  const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
+    deps,
+    ciclo.rendaPrevistaCents,
+  );
+
+  return {
+    inicio: ciclo.dataInicio,
+    fim: ciclo.dataFim,
+    verbaAtualCents: ciclo.verbaVariavelCents,
+    verbaRecalculadaCents: verbaVariavelCents({
+      rendaPrevistaCents: ciclo.rendaPrevistaCents,
+      poupancaAlvoCents: poupancaCents,
+      fixosCents,
+      provisaoMensalCents: provMensalCents,
+      rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
+    }),
+  };
 }
 
 /**

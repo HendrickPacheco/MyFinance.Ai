@@ -1204,7 +1204,7 @@ verba variável.
 | D5 (UI com proveniência) | ✅ | `560bf1c` |
 | merge auth/multi-tenant | ✅ | `16eb878` |
 | correção do contrato de segurança da IA | ✅ | `3ec8945` |
-| **D6, D7** (testes finais e auditoria da camada) | ⬜ pendente | — |
+| **D6, D7** (testes finais e auditoria da camada) | ✅ 10/08/2026 | ver §13 |
 | **Fase E** (memória) — E1 a E8 | ✅ 04/08/2026 | ver §11 |
 | **D-8 revista** (escrita por proposta) | ✅ 04/08/2026 | ver §12 |
 
@@ -1460,3 +1460,52 @@ que o dono já não pudesse fazer pelo formulário.
   fechamento que não cabe num clique.
 - Editar e excluir transação existente por proposta.
 - Marcar custo fixo como pago por proposta.
+
+---
+
+## 13. D6 e D7 — testes finais e auditoria da camada de IA ✅ 10/08/2026
+
+### D6 — o trabalho já estava feito, faltava o carimbo
+
+Os dois arquivos que a tarefa manda criar já existiam, escritos junto com D3 e a Fase E.
+A revisão de 10/08 conferiu critério a critério, sem escrever teste novo:
+
+| Critério de aceite | Onde |
+|---|---|
+| Fake pede `simular_compra_parcelada` → loop executa com os argumentos certos | `copiloto.test.ts:71` |
+| Limite de turnos → corta e responde honestamente | `copiloto.test.ts:131` |
+| Ferramenta inexistente não quebra o loop | `copiloto.test.ts:148` |
+| Argumento fora do schema vira erro tratado | `copiloto.test.ts:160`, `ferramentas.test.ts:254` |
+| **Nenhuma ferramenta escreve** nos repositórios fake | `ferramentas.test.ts:126` — roda para *todo* o catálogo, comparando uma fotografia do estado antes/depois |
+| `formatBRL(Cents) === Formatado` em toda saída | `ferramentas.test.ts:144` — varre a saída recursivamente e exige o irmão `*Formatado` de cada `*Cents` |
+| 🔴 `estado_ciclo` devolve os três campos de verba, coerentes | `ferramentas.test.ts:196` |
+
+O teste "não grava nada" é o que sustenta a trava 5 do §1.2 **depois** da D-8 revista: as
+ferramentas de escrita da Fase E propõem, não executam, e o teste prova isso para o catálogo
+inteiro em vez de para uma lista mantida à mão.
+
+### D7 — auditoria
+
+Verificações mecânicas, todas verdes em 10/08:
+
+| Item | Resultado |
+|---|---|
+| SDK fora de `infrastructure/ia/` | vazio (os 2 hits são texto de mensagem de erro e um comentário) |
+| Model id hardcoded em `src/` | vazio — `OPENAI_MODEL` é a única origem |
+| Porta com um método e nada morto | `ProvedorIAPort.completarComTools` é o único |
+| `any` novo na camada | vazio |
+| Float monetário em fronteira nova | nenhum; os 3 `z.number()` do catálogo são `.int()` e nenhum é dinheiro (`numParcelas`, `limite`) |
+| `new Date(` com data civil | vazio — os hits são instantes ISO completos em teste |
+| Migração de schema introduzida | `git diff prisma/` vazio |
+| `pnpm test` · `typecheck` · `build` | 715 verdes · limpo · verde |
+
+O que **trafega para a OpenAI** está listado explicitamente no `README.md`, seção "O que
+trafega para a OpenAI". Achado da auditoria: o registro tem um item que ninguém tinha
+escrito antes — as ferramentas de proposta (`escrita.ts`) mandam **ids internos** de
+categoria, conta e memória, porque a proposta precisa referenciar a linha a confirmar. São
+UUIDs sem significado fora deste banco, mas é dado que sai da máquina e agora está no
+registro.
+
+`README.md` ganhou também o `OPENAI_MODEL_EMBEDDING`, o contrato do teto de custo
+(OWNER-only + `LIMITES_IA_PADRAO` + contador durável) e a regra **"toda conta nova vira
+função pura, nunca prompt"**, que era critério de aceite da D7 e não estava em lugar nenhum.

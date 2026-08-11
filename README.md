@@ -83,11 +83,46 @@ Vem **desligada** por default. Para ligar, preencha no `.env` (ver `.env.example
 | `IA_HABILITADA` | liga/desliga a camada inteira (default `false`) |
 | `OPENAI_API_KEY` | credencial |
 | `OPENAI_MODEL` | id do modelo — mora aqui, nunca no código |
+| `OPENAI_MODEL_EMBEDDING` | modelo de embedding da memória do copiloto; ausente = memória grava e lista, só a busca semântica desliga |
 | `IA_TIMEOUT_MS` | opcional, default 60000 |
 | `IA_MAX_TENTATIVAS` | opcional, default 2 |
 
 Com `IA_HABILITADA=false`, `criarDeps()` devolve `ia: undefined` e o app roda exatamente
 como antes — nenhum caso de uso existente depende do campo.
+
+**A IA é OWNER-only e tem teto durável.** É a única parte do app que gasta dinheiro real
+por requisição, então `responder()` faz três coisas antes de falar com o provedor:
+`exigirOwner(ator)`, `avaliarLimiteIA(uso do dia)` e, depois da resposta, o registro do
+consumo. Os limites padrão vivem em `src/application/limite-ia.ts`
+(`LIMITES_IA_PADRAO`: 50 requisições e 500 mil tokens por dia). O contador é durável em
+Postgres — reiniciar o servidor não zera o teto.
+
+**Regra que governa a camada inteira: toda conta nova vira função pura, nunca prompt.**
+Se o copiloto precisa de um número que o motor ainda não sabe calcular, o trabalho é
+escrever a função em `src/domain/finance/` com teste e expô-la como ferramenta — não
+descrever a fórmula no prompt de sistema. Fórmula em prompt não é testável, varia entre
+execuções e faz o motor deixar de ser fonte de verdade.
+
+### O que trafega para a OpenAI
+
+Registro explícito (decisão D-2: o dono aprovou que o dado saia da máquina). Numa conversa
+típica sobem quatro coisas, e só elas:
+
+1. **Prompt de sistema** (`src/application/ia/prompt-sistema.ts`) — texto fixo, sem dado seu.
+2. **Memórias** de tipo plano/preferência/contexto, injetadas no prompt de sistema a cada
+   turno. Nunca contêm valor em dinheiro — `validarTextoMemoria` rejeita antes de gravar.
+3. **Sua pergunta e o histórico da conversa** em aberto na tela.
+4. **A saída das ferramentas executadas** — e é aqui que vai o dado financeiro de verdade:
+   verba, teto do dia, gasto realizado, nomes e valores de categorias, custos fixos,
+   parcelamentos, saldos de conta. Valores reais, em centavos e formatados.
+
+Sobem também **ids internos** de categoria, conta e memória (`src/application/ia/
+ferramentas/escrita.ts`): as ferramentas de proposta precisam referenciar a linha que o
+dono vai confirmar. São UUIDs sem significado fora deste banco.
+
+O que **não** sobe: senha ou hash, id de sessão, `donoId`, e-mail, e nada do banco que uma
+ferramenta do catálogo não devolva. Não há log local do texto das conversas (decisão D-5) —
+só metadados de consumo em `UsoIADia`.
 
 `src/infrastructure/ia/config-ia.ts` é o **único** arquivo do repo que lê `OPENAI_*`. O
 domínio (`src/domain/ports/ia.ts`) não conhece nome de provedor, nome de modelo nem variável

@@ -56,7 +56,7 @@ import { X } from 'lucide-react';
 import { formatBRL } from '@/shared/dinheiro';
 import { cn } from '@/lib/cn';
 import { criarTransacao, excluirTransacao } from '@/actions/transacoes';
-import { Button, ConfirmInline, Input, Label, Modal, Select } from '@/components/ui';
+import { Button, ConfirmInline, Input, Label, Modal, Select, Toast } from '@/components/ui';
 import { METODO_PAGAMENTO, type MetodoPagamento } from '@/domain/model/enums';
 import type { OpcaoCategoria } from '@/application/dashboard-tipos';
 import type { DataCivil } from '@/shared/data';
@@ -392,18 +392,11 @@ export function LancamentoPainel({ hoje, categorias }: LancamentoPainelProps) {
       </div>
 
       {toast ? (
-        <div className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
-          <div className="flex items-center gap-4 rounded-full border border-border-strong bg-surface-2 px-5 py-3 shadow-lg">
-            <span className="text-sm text-fg">Lançado {toast.texto}</span>
-            <button
-              type="button"
-              onClick={desfazer}
-              className="text-sm font-semibold text-accent hover:underline"
-            >
-              Desfazer
-            </button>
-          </div>
-        </div>
+        <Toast
+          texto={`Lançado ${toast.texto}`}
+          acao={{ label: 'Desfazer', onClick: desfazer }}
+          posicao="baixa"
+        />
       ) : null}
     </Modal>
   );
