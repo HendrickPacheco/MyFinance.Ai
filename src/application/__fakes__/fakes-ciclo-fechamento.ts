@@ -24,7 +24,9 @@ import type {
   Ciclo,
   Config,
   Conta,
+  Conversa,
   CustoFixo,
+  MensagemConversa,
   PagamentoFixo,
   Parcelamento,
   ProvisaoAnual,
@@ -50,6 +52,7 @@ import type { SessaoPort } from '@/domain/ports/sessao';
 import type { HashSenhaPort } from '@/domain/ports/hash-senha';
 import type { RateLimiterPort } from '@/domain/ports/rate-limiter';
 import { EmailJaUsadoError, type NovoUsuario, type UsuarioRepository } from '@/domain/ports/usuarios';
+import type { ConversaComMensagens, ConversaPort, NovoTurno } from '@/domain/ports/conversa';
 
 function clone<T>(v: T): T {
   return structuredClone(v);
@@ -718,6 +721,8 @@ export interface FakeDeps extends Deps {
   usoIA: FakeUsoIARepo;
   /** Concreto para os testes poderem inspecionar o que foi guardado. */
   memorias: FakeMemoriaRepo;
+  /** Concreto para os testes poderem inspecionar conversas/mensagens gravadas. */
+  conversas: FakeConversaRepo;
 }
 
 export const CONFIG_PADRAO: Config = {
@@ -907,6 +912,90 @@ export class FakeMemoriaRepo implements MemoriaPort {
 }
 
 /**
+ * Conversas do copiloto em memória (Fase 1 da persistência). `anexarTurno`
+ * espelha a garantia do adapter real: as duas mensagens são empurradas juntas
+ * e `atualizadaEm` é bumpado, ou nada é gravado — um `conversaId` que não
+ * existe nesta lista lança, do mesmo jeito que o `updateMany` do Prisma afeta
+ * zero linhas e a transação real aborta.
+ */
+export class FakeConversaRepo implements ConversaPort {
+  public conversas: Conversa[] = [];
+  public mensagens: MensagemConversa[] = [];
+  private proximoId = 1;
+
+  async criar(titulo: string): Promise<Conversa> {
+    const agora = new Date('2026-08-11T12:00:00Z');
+    const conversa: Conversa = {
+      id: `conversa-${this.proximoId++}`,
+      titulo: titulo.trim() || 'Nova conversa',
+      criadaEm: agora,
+      atualizadaEm: agora,
+    };
+    this.conversas.push(conversa);
+    return clone(conversa);
+  }
+
+  async listar(): Promise<Conversa[]> {
+    return clone(
+      [...this.conversas].sort((a, b) => b.atualizadaEm.getTime() - a.atualizadaEm.getTime()),
+    );
+  }
+
+  async obterComMensagens(id: string): Promise<ConversaComMensagens | null> {
+    const conversa = this.conversas.find((c) => c.id === id);
+    if (!conversa) return null;
+    const mensagens = this.mensagens
+      .filter((m) => m.conversaId === id)
+      .sort((a, b) => a.criadaEm.getTime() - b.criadaEm.getTime());
+    return clone({ conversa, mensagens });
+  }
+
+  async anexarTurno(conversaId: string, turno: NovoTurno): Promise<void> {
+    const conversa = this.conversas.find((c) => c.id === conversaId);
+    if (!conversa) throw new Error(`Conversa ${conversaId} não encontrada.`);
+
+    const agora = new Date();
+    conversa.atualizadaEm = agora;
+
+    this.mensagens.push(
+      {
+        id: `msg-${this.proximoId++}`,
+        conversaId,
+        papel: 'usuario',
+        conteudo: turno.pergunta,
+        proveniencia: null,
+        criadaEm: agora,
+      },
+      {
+        id: `msg-${this.proximoId++}`,
+        conversaId,
+        papel: 'assistente',
+        conteudo: turno.resposta,
+        proveniencia: turno.proveniencia,
+        criadaEm: agora,
+      },
+    );
+  }
+
+  async ultimasMensagens(conversaId: string, limite: number): Promise<MensagemConversa[]> {
+    const daConversa = this.mensagens
+      .filter((m) => m.conversaId === conversaId)
+      .sort((a, b) => a.criadaEm.getTime() - b.criadaEm.getTime());
+    return clone(daConversa.slice(Math.max(0, daConversa.length - limite)));
+  }
+
+  async renomear(id: string, titulo: string): Promise<void> {
+    const conversa = this.conversas.find((c) => c.id === id);
+    if (conversa) conversa.titulo = titulo.trim() || 'Nova conversa';
+  }
+
+  async excluir(id: string): Promise<void> {
+    this.conversas = this.conversas.filter((c) => c.id !== id);
+    this.mensagens = this.mensagens.filter((m) => m.conversaId !== id);
+  }
+}
+
+/**
  * Embedding determinístico e sem rede: o vetor é o histograma dos códigos de
  * caractere. Textos parecidos ficam perto, o que basta para testar ordenação
  * sem depender de provedor.
@@ -962,6 +1051,7 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     // `undefined` por padrão: a maioria dos testes não deve pagar embedding.
     // Quem testa busca semântica passa `embeddings: new FakeEmbedding()`.
     embeddings: opcoes.embeddings,
+    conversas: new FakeConversaRepo(),
   };
 }
 

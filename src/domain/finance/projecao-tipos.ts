@@ -71,12 +71,33 @@ export interface FimDeParcelamento {
 }
 
 /** Uma compra parcelada futura a simular (pré-mortem de compra). */
-export interface CenarioHipotetico {
+export interface CenarioCompraParcelada {
+  tipo: 'compraParcelada';
   descricao: string;
   valorTotalCents: number;
   numParcelas: number;
   dataCompra: DataCivil;
 }
+
+/**
+ * Renda hipotética a substituir a renda vigente nos ciclos que ainda não
+ * nasceram (caso real 11/08/2026: "se minha renda cair para 15k, dou conta
+ * das parcelas?"). NUNCA reescreve o ciclo congelado — ver `CicloCongelado` e
+ * o cabeçalho de `projecao.ts` sobre por que o ciclo em curso é imutável.
+ */
+export interface CenarioRendaHipotetica {
+  tipo: 'rendaHipotetica';
+  rendaHipoteticaCents: number;
+}
+
+/**
+ * Uma hipótese a sobrepor à linha de base. Discriminada por `tipo` — cada
+ * variante afeta uma parte diferente da projeção (obrigação nova vs.
+ * parâmetro trocado), e `projetarCiclos` decide o que fazer só olhando este
+ * campo. Adicionar uma terceira hipótese é adicionar um membro aqui, nunca
+ * uma segunda função que duplica `projetarCiclos`.
+ */
+export type CenarioHipotetico = CenarioCompraParcelada | CenarioRendaHipotetica;
 
 /**
  * O ciclo atual, como está CONGELADO no banco (SPEC 5.2). Quando presente, é

@@ -191,6 +191,7 @@ describe('projetarComCenario — pré-mortem de compra', () => {
   it('R$ 3.000 em 10x soma exatamente 300000 nas parcelas adicionadas', () => {
     const entrada = entradaBase({ numCiclos: 12 });
     const { delta } = projetarComCenario(entrada, {
+      tipo: 'compraParcelada',
       descricao: 'Notebook',
       valorTotalCents: 300_000,
       numParcelas: 10,
@@ -203,6 +204,7 @@ describe('projetarComCenario — pré-mortem de compra', () => {
   it('o delta por ciclo é o valor da parcela, e zero fora da janela', () => {
     const entrada = entradaBase({ numCiclos: 12 });
     const { delta } = projetarComCenario(entrada, {
+      tipo: 'compraParcelada',
       descricao: 'Notebook',
       valorTotalCents: 300_000,
       numParcelas: 10,
@@ -226,6 +228,7 @@ describe('projetarComCenario — pré-mortem de compra', () => {
   it('a base não é contaminada pelo cenário', () => {
     const entrada = entradaBase({ numCiclos: 6 });
     const { base } = projetarComCenario(entrada, {
+      tipo: 'compraParcelada',
       descricao: 'Notebook',
       valorTotalCents: 300_000,
       numParcelas: 10,
@@ -240,6 +243,7 @@ describe('projetarComCenario — pré-mortem de compra', () => {
     // Piso em 22.000 deixa a base folgada e uma parcela de R$ 400 derruba.
     const entrada = entradaBase({ numCiclos: 6, pisoDiarioVerbaCents: 22_000 });
     const { base, comCenario, delta } = projetarComCenario(entrada, {
+      tipo: 'compraParcelada',
       descricao: 'Sofá',
       valorTotalCents: 120_000,
       numParcelas: 3,
@@ -254,6 +258,77 @@ describe('projetarComCenario — pré-mortem de compra', () => {
 
     expect(delta[1]?.passouAFicarAbaixoDoPiso).toBe(false);
     expect(delta[2]?.passouAFicarAbaixoDoPiso).toBe(true);
+  });
+});
+
+describe('projetarComCenario — renda hipotética (caso real 11/08/2026)', () => {
+  const congelado = {
+    inicio: '2026-07-05',
+    fim: '2026-08-04',
+    rendaPrevistaCents: 3_000_000,
+    poupancaAlvoCents: 1_800_000,
+    fixosCents: 488_400,
+    provisaoMensalCents: 0,
+    verbaVariavelCents: 711_600,
+    rolloverRecebidoCents: 0,
+  };
+
+  it('o ciclo congelado é IMUTÁVEL: a renda hipotética não o reescreve', () => {
+    const entrada = entradaBase({ cicloCongelado: congelado, numCiclos: 3 });
+
+    const { base, comCenario } = projetarComCenario(entrada, {
+      tipo: 'rendaHipotetica',
+      rendaHipoteticaCents: 1_500_000,
+    });
+
+    expect(em(comCenario, 0)).toEqual(em(base, 0));
+    expect(em(comCenario, 0).rendaPrevistaCents).toBe(3_000_000);
+    expect(em(comCenario, 0).verbaVariavelCents).toBe(711_600);
+  });
+
+  it('os ciclos que ainda não nasceram usam a renda hipotética, não a vigente', () => {
+    const entrada = entradaBase({ cicloCongelado: congelado, numCiclos: 3 });
+
+    const { comCenario } = projetarComCenario(entrada, {
+      tipo: 'rendaHipotetica',
+      rendaHipoteticaCents: 1_500_000,
+    });
+
+    expect(em(comCenario, 1).rendaPrevistaCents).toBe(1_500_000);
+    expect(em(comCenario, 2).rendaPrevistaCents).toBe(1_500_000);
+    // Meta (18.000) já não cabe em 15.000: a verba variável do motor negativa
+    // é o sinal correto de "meta não cabe", não um bug de subtração.
+    expect(em(comCenario, 1).verbaVariavelCents).toBe(1_500_000 - 1_800_000 - 488_400);
+  });
+
+  it('sem ciclo congelado, todos os ciclos (inclusive o primeiro) usam a hipótese', () => {
+    const entrada = entradaBase({ numCiclos: 3 });
+
+    const { comCenario } = projetarComCenario(entrada, {
+      tipo: 'rendaHipotetica',
+      rendaHipoteticaCents: 1_500_000,
+    });
+
+    expect(comCenario.every((c) => c.rendaPrevistaCents === 1_500_000)).toBe(true);
+  });
+
+  it('não altera obrigações: renda hipotética nunca acrescenta parcela', () => {
+    const entrada = entradaBase({
+      cicloCongelado: congelado,
+      numCiclos: 3,
+      obrigacoesFuturas: [
+        { data: '2026-08-10', valorCents: 50_000, parcelamentoId: 'pc-1' },
+      ],
+    });
+
+    const { base, comCenario } = projetarComCenario(entrada, {
+      tipo: 'rendaHipotetica',
+      rendaHipoteticaCents: 1_500_000,
+    });
+
+    expect(em(comCenario, 1).parcelasComprometidasCents).toBe(
+      em(base, 1).parcelasComprometidasCents,
+    );
   });
 });
 
@@ -645,6 +720,7 @@ describe('projetarCiclos — detalhe das obrigações do ciclo (Fase 6)', () => 
 
   it('a compra hipotética detalha a parcela mas NUNCA vira fim de parcelamento', () => {
     const { comCenario } = projetarComCenario(entradaBase({ numCiclos: 6 }), {
+      tipo: 'compraParcelada',
       descricao: 'Geladeira',
       valorTotalCents: 300_000,
       numParcelas: 3,

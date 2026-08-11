@@ -44,27 +44,27 @@ model Config {
 
 model Conta {
   id               String  @id @default(cuid())
-  donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  donoId           String
+  dono             Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   nome             String
   tipo             String // FIXOS | VARIAVEL | RESERVA | INVESTIMENTO
   saldoCents       Int     @default(0)
   incluiPatrimonio Boolean @default(true)
   arquivada        Boolean @default(false)
 
-  transacoes      Transacao[] @relation("ContaOrigem")
-  transacoesDestino Transacao[] @relation("ContaDestino")
-  custosFixos     CustoFixo[]
-  configDestino   Config[]
-  itensPatrimonio ItemPatrimonio[]
+  transacoes        Transacao[]      @relation("ContaOrigem")
+  transacoesDestino Transacao[]      @relation("ContaDestino")
+  custosFixos       CustoFixo[]
+  configDestino     Config[]
+  itensPatrimonio   ItemPatrimonio[]
 
   @@index([donoId])
 }
 
 model CustoFixo {
   id            String  @id @default(cuid())
-  donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  donoId        String
+  dono          Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   nome          String
   valorCents    Int
   diaVencimento Int // 1-31
@@ -77,8 +77,8 @@ model CustoFixo {
   // seu próprio fixosCents). Servem para a projeção parar de contar um custo
   // que vai acabar, e é isso que faz a verba "respirar" nos meses seguintes.
   // null/null = constante para sempre (comportamento anterior à migração).
-  vigenteDe     String? // YYYY-MM-DD
-  vigenteAte    String? // YYYY-MM-DD
+  vigenteDe  String? // YYYY-MM-DD
+  vigenteAte String? // YYYY-MM-DD
 
   pagamentos PagamentoFixo[]
 
@@ -92,8 +92,8 @@ model CustoFixo {
 // naturalmente na virada do ciclo porque a unicidade é por (custoFixoId, cicloId).
 model PagamentoFixo {
   id          String   @id @default(cuid())
-  donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  donoId      String
+  dono        Usuario  @relation(fields: [donoId], references: [id], onDelete: Cascade)
   custoFixoId String
   cicloId     String
   pagoEm      String // YYYY-MM-DD — data civil em que o usuário marcou como pago
@@ -104,14 +104,13 @@ model PagamentoFixo {
 
   @@unique([custoFixoId, cicloId])
   @@index([cicloId])
-
   @@index([donoId])
 }
 
 model ProvisaoAnual {
   id              String      @id @default(cuid())
-  donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  donoId          String
+  dono            Usuario     @relation(fields: [donoId], references: [id], onDelete: Cascade)
   nome            String // "IPVA", "Presentes de Natal"
   valorAnualCents Int
   mesEsperado     Int? // 1-12, quando o gasto costuma acontecer
@@ -125,7 +124,7 @@ model ProvisaoAnual {
 model Categoria {
   id         String      @id @default(cuid())
   donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  dono       Usuario     @relation(fields: [donoId], references: [id], onDelete: Cascade)
   nome       String
   grupo      String // VARIAVEL | FIXO | RENDA
   essencial  Boolean     @default(false) // usado na análise de corte
@@ -140,9 +139,9 @@ model Categoria {
 }
 
 model Transacao {
-  id             String  @id @default(cuid())
-  donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  id             String     @id @default(cuid())
+  donoId         String
+  dono           Usuario    @relation(fields: [donoId], references: [id], onDelete: Cascade)
   data           String // YYYY-MM-DD — data de COMPETÊNCIA (quando o gasto ocorreu)
   valorCents     Int // sempre positivo; o sinal vem do tipo
   tipo           String // DESPESA | RENDA | TRANSFERENCIA | ESTORNO
@@ -180,14 +179,13 @@ model Transacao {
   @@index([cicloId])
   @@index([categoriaId])
   @@index([provisaoId])
-
   @@index([donoId])
 }
 
 model Parcelamento {
-  id              String      @id @default(cuid())
-  donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  id              String  @id @default(cuid())
+  donoId          String
+  dono            Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
   descricao       String
   valorTotalCents Int
   numParcelas     Int
@@ -198,18 +196,18 @@ model Parcelamento {
   // (e as de ciclo fechado) permanecem. Não é delete do parcelamento — a FK
   // Transacao.parcelamentoId é Restrict e as parcelas passadas seguem vivas.
   // null = em andamento.
-  encerradoEm     String? // YYYY-MM-DD
+  encerradoEm String? // YYYY-MM-DD
 
-  transacoes      Transacao[]
+  transacoes Transacao[]
 
   @@index([donoId])
 }
 
 // Snapshot dos parâmetros no início do ciclo — CONGELADO (SPEC 5.2).
 model Ciclo {
-  id                    String  @id @default(cuid())
-  donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  id                    String          @id @default(cuid())
+  donoId                String
+  dono                  Usuario         @relation(fields: [donoId], references: [id], onDelete: Cascade)
   dataInicio            String
   dataFim               String
   rendaPrevistaCents    Int
@@ -218,8 +216,8 @@ model Ciclo {
   fixosCents            Int // soma congelada
   provisaoMensalCents   Int // soma congelada
   verbaVariavelCents    Int // derivado e congelado
-  rolloverRecebidoCents Int     @default(0) // sobra (±) herdada do ciclo anterior (destino=ROLLOVER)
-  fechado               Boolean @default(false)
+  rolloverRecebidoCents Int             @default(0) // sobra (±) herdada do ciclo anterior (destino=ROLLOVER)
+  fechado               Boolean         @default(false)
   fechadoEm             String?
   sobraCents            Int?
   observacao            String?
@@ -233,7 +231,7 @@ model Ciclo {
 model SnapshotPatrimonio {
   id         String           @id @default(cuid())
   donoId     String
-  dono       Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  dono       Usuario          @relation(fields: [donoId], references: [id], onDelete: Cascade)
   data       String // YYYY-MM-DD, 1 por mês
   itens      ItemPatrimonio[]
   totalCents Int
@@ -281,17 +279,19 @@ model Usuario {
 
   // Cada usuário é dono do PRÓPRIO conjunto de finanças (multi-tenant).
   // `onDelete: Cascade` do outro lado: apagar o usuário leva os dados dele.
-  config          Config?
-  contas          Conta[]
-  categorias      Categoria[]
-  custosFixos     CustoFixo[]
-  pagamentosFixos PagamentoFixo[]
-  provisoes       ProvisaoAnual[]
-  transacoes      Transacao[]
-  parcelamentos   Parcelamento[]
-  ciclos          Ciclo[]
-  snapshots       SnapshotPatrimonio[]
-  memorias        Memoria[]
+  config            Config?
+  contas            Conta[]
+  categorias        Categoria[]
+  custosFixos       CustoFixo[]
+  pagamentosFixos   PagamentoFixo[]
+  provisoes         ProvisaoAnual[]
+  transacoes        Transacao[]
+  parcelamentos     Parcelamento[]
+  ciclos            Ciclo[]
+  snapshots         SnapshotPatrimonio[]
+  memorias          Memoria[]
+  conversas         Conversa[]
+  mensagensConversa MensagemConversa[]
 }
 
 model Sessao {
@@ -348,4 +348,59 @@ model Memoria {
 
   @@index([donoId, tipo, ativo])
   @@index([donoId, ativo, createdAt])
+}
+
+/// Conversa persistida do copiloto (Fase 1 da persistência de conversas).
+///
+/// Antes desta tabela, o histórico vivia só no `useState` do componente de
+/// chat: recarregar a página apagava tudo. Agora ele é gravado aqui — mas o
+/// LOOP do agente (application/ia/copiloto.ts) e o schema de ferramentas não
+/// mudam nada: esta é só a camada de persistência, escrita depois que o turno
+/// já terminou.
+///
+/// Sem unicidade composta de propósito: uma conversa não tem chave natural
+/// (não é "uma por dia" nem "uma por dono", como `Config` ou `SnapshotPatrimonio`
+/// são) — o dono pode ter quantas quiser. Inventar uma unicidade aqui seria
+/// forçar uma regra de produto que não existe.
+model Conversa {
+  id           String             @id @default(cuid())
+  donoId       String
+  dono         Usuario            @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  titulo       String
+  criadaEm     DateTime           @default(now())
+  atualizadaEm DateTime           @updatedAt
+  mensagens    MensagemConversa[]
+
+  @@index([donoId, atualizadaEm])
+}
+
+/// Uma mensagem (pergunta OU resposta) dentro de uma `Conversa`.
+///
+/// `donoId` aparece aqui DUPLICADO em relação a `Conversa.donoId` — não é
+/// desnormalização por descuido, é a regra de ouro do multi-tenant: permite
+/// filtrar e apagar mensagem direto por `(id, donoId)`, sem precisar de um
+/// join até `Conversa` para confirmar o dono, e é exatamente essa coluna que
+/// `verificar-isolamento.ts` confere linha a linha nesta tabela.
+///
+/// `proveniencia` é JSON só para a UI RE-RENDERIZAR o cartão de ferramentas
+/// usadas / propostas / alerta de valor não rastreado depois de recarregar a
+/// página. Ela NUNCA volta ao modelo de IA — o histórico reenviado ao provedor
+/// usa só `conteudo` (ver `ConversaPort.ultimasMensagens` e o loop do agente).
+/// Guardar proveniência no texto que volta ao modelo inflaria o custo por
+/// turno e daria ao modelo um JSON estruturado que ele não precisa ler.
+///
+/// `criadaEm` é timestamp de INFRAESTRUTURA (ordem de exibição das mensagens),
+/// não data civil de domínio — uso permitido pela regra de datas (CLAUDE.md).
+model MensagemConversa {
+  id           String   @id @default(cuid())
+  donoId       String
+  dono         Usuario  @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  conversaId   String
+  conversa     Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  papel        String // 'usuario' | 'assistente'
+  conteudo     String
+  proveniencia Json?
+  criadaEm     DateTime @default(now())
+
+  @@index([donoId, conversaId, criadaEm])
 }

@@ -161,3 +161,83 @@ export interface SnapshotPatrimonio {
   totalCents: number;
   itens: ItemPatrimonio[];
 }
+
+// ── Conversas do copiloto (Fase 1 da persistência) ─────────────────────────
+// `Proveniencia` espelha, na FORMA, o que `RespostaCopiloto` (application/ia/
+// copiloto.ts) e `PropostaExibivel` (application/ia/propostas.ts) já expõem —
+// o domínio nunca importa a camada de aplicação, então os campos são
+// reescritos aqui como estrutura pura. Ela existe SÓ para a UI re-renderizar o
+// cartão de ferramentas/propostas/alerta depois de um reload: nunca volta ao
+// modelo de IA, que só recebe `MensagemConversa.conteudo` como histórico.
+
+export type PapelMensagemConversa = 'usuario' | 'assistente';
+
+/** Uma ferramenta consultada no turno que gerou esta mensagem. */
+export interface ProvenienciaFerramenta {
+  nome: string;
+  argumentos: unknown;
+  /** Função pura de origem, para a UI exibir proveniência. `null` quando a
+   * ferramenta não expôs isso. */
+  comoFoiCalculado: string | null;
+  falhou: boolean;
+}
+
+/** Um valor em R$ do texto final que veio comprovadamente de uma ferramenta. */
+export interface ProvenienciaValorCitado {
+  valorFormatado: string;
+  ferramenta: string;
+  campo: string;
+}
+
+/**
+ * Espelha `PropostaExibivel` só na forma exibível — o dado bruto não é
+ * revalidado aqui porque nada aqui grava: `confirmarProposta` sempre refaz o
+ * schema (`propostaSchema.parse`) do zero a partir do que a UI mandar de
+ * volta, exatamente como faria com uma proposta recém-chegada do modelo.
+ */
+export interface ProvenienciaProposta {
+  proposta: Record<string, unknown>;
+  resumo: string;
+  detalhes: { rotulo: string; valor: string }[];
+}
+
+export interface Proveniencia {
+  ferramentasUsadas: ProvenienciaFerramenta[];
+  valoresCitados: ProvenienciaValorCitado[];
+  /**
+   * Valor em R$ que nenhuma ferramenta devolveu, mas que o PRÓPRIO DONO já
+   * tinha informado nesta conversa (pergunta atual ou turno anterior). Origem
+   * conhecida — nunca aciona o alerta de alucinação (caso real 11/08/2026, ver
+   * `application/ia/copiloto.ts: centsInformadosPeloDono`).
+   */
+  valoresInformados: string[];
+  /** Valor em R$ que nenhuma ferramenta devolveu E que o dono não informou —
+   * o alerta de alucinação. */
+  valoresNaoRastreados: string[];
+  propostas: ProvenienciaProposta[];
+  /** Resposta sem nenhuma ferramenta é opinião, não dado. */
+  semFerramenta: boolean;
+  /** `true` quando o loop do agente foi cortado pelo limite de turnos. */
+  incompleta: boolean;
+}
+
+export interface Conversa {
+  id: string;
+  titulo: string;
+  criadaEm: Date;
+  atualizadaEm: Date;
+}
+
+export interface MensagemConversa {
+  id: string;
+  conversaId: string;
+  papel: PapelMensagemConversa;
+  conteudo: string;
+  /**
+   * `null` para mensagens de `usuario` (que nunca têm proveniência) e para
+   * respostas de `assistente` sem nenhuma ferramenta, proposta ou alerta a
+   * guardar.
+   */
+  proveniencia: Proveniencia | null;
+  criadaEm: Date;
+}

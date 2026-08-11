@@ -3,7 +3,7 @@
  * camada está desligada — nem a sidebar a mostra nesse caso (app/layout.tsx).
  */
 import Link from 'next/link';
-import { CopilotoChat } from '@/components/ia/copiloto-chat';
+import { CopilotoPainel } from '@/components/ia/copiloto-painel';
 import { EmptyState } from '@/components/ui';
 import { iaHabilitada } from '@/infrastructure/ia/config-ia';
 import { SomenteDono } from '@/components/auth/somente-dono';
@@ -34,7 +34,7 @@ export default function CopilotoPage() {
         // (DA-3). A trava de verdade é `exigirOwner` dentro de `responder`;
         // isto evita mostrar a um VIEWER um chat que o servidor recusaria.
         <SomenteDono>
-          <CopilotoChat />
+          <CopilotoPainel />
         </SomenteDono>
       ) : (
         <EmptyState

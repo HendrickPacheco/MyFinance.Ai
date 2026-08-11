@@ -20,7 +20,12 @@ import { erroFerramenta, type SaidaFerramenta } from './saida';
 import { estadoCiclo, gastosPorCategoria, pagamentosPendentes, situacaoHoje } from './situacao';
 import { analiseCorte, assinaturasDetectadas } from './analise';
 import { patrimonioResumo } from './patrimonio';
-import { projetarCiclosFerramenta, simularCompraParcelada } from './projecao';
+import {
+  projetarCiclosFerramenta,
+  simularCompraParcelada,
+  simularMetaPrazoFerramenta,
+  simularRendaFerramenta,
+} from './projecao';
 import {
   buscarMemoriaFerramenta,
   opcoesDeLancamento,
@@ -47,6 +52,8 @@ const EXECUTORES: Record<string, Executor> = {
   patrimonio_resumo: patrimonioResumo as Executor,
   projetar_ciclos: projetarCiclosFerramenta as Executor,
   simular_compra_parcelada: simularCompraParcelada as Executor,
+  simular_meta_prazo: simularMetaPrazoFerramenta as Executor,
+  simular_renda: simularRendaFerramenta as Executor,
   // Propostas (D-8) e memória (Fase E). Nenhuma delas grava — ver escrita.ts.
   opcoes_de_lancamento: opcoesDeLancamento as Executor,
   propor_lancamento: proporLancamento as Executor,

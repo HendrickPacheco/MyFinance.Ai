@@ -19,6 +19,7 @@
 import type { Deps } from '@/application/deps';
 import { exigirOwner } from '@/domain/auth/permissoes';
 import { avaliarLimiteIA } from '@/application/limite-ia';
+import { parseBRL } from '@/shared/dinheiro';
 import type { ChamadaFerramenta, ConsumoTokens, MensagemIA } from '@/domain/ports/ia';
 import { FERRAMENTAS_DE_PROPOSTA, definicoesParaProvedor } from './ferramentas/catalogo';
 import { executarFerramenta } from './ferramentas';
@@ -43,6 +44,37 @@ export const MAX_MEMORIAS_NO_PROMPT = 30;
 
 /** Encontra "R$ 1.234,56" no texto — o formato que `formatBRL` produz. */
 const VALOR_BRL = /R\$\s?\d{1,3}(?:\.\d{3})*,\d{2}/g;
+
+/**
+ * Encontra abreviações comuns em português para valor monetário: "70k",
+ * "1,5k", "70 mil". Cobre só ISSO — formas mais elaboradas ("70 mil e
+ * quinhentos", "setenta mil") ficam de fora de propósito: capturar errado
+ * mascararia uma alucinação de verdade (falso negativo), o que é PIOR que não
+ * capturar (falso positivo já coberto por outro caminho). Ver `responder()`.
+ */
+const VALOR_ABREVIADO = /(\d+(?:[.,]\d+)?)\s*(k|mil)\b/gi;
+
+/**
+ * Valor SEM os centavos, na forma que uma pessoa escreve mas `formatBRL` nunca
+ * emite: "R$ 70.000", "R$ 70000", "70.000".
+ *
+ * Só vale para o texto do DONO (`centsInformadosPeloDono`) — nunca para
+ * detectar valor na resposta do modelo, onde a exigência de `,dd` do
+ * `VALOR_BRL` é justamente o que evita confundir número solto com dinheiro.
+ *
+ * Duas formas aceitas, ambas escolhidas por serem inequivocamente monetárias:
+ *  - qualquer número prefixado por `R$`;
+ *  - número com separador de milhar em ponto ("70.000"), que em pt-BR não
+ *    aparece por acaso — um ano ("2026") ou uma contagem ("3 parcelas") não
+ *    tem ponto.
+ *
+ * Inteiro solto sem `R$` nem separador ("70000") fica DE FORA de propósito:
+ * aceitá-lo transformaria qualquer número da pergunta em anistia para uma
+ * alucinação que coincidisse com ele. Falso negativo aqui (deixar de reconhecer
+ * um valor do dono) custa um alerta indevido; falso positivo custa uma
+ * alucinação silenciada, que é muito pior.
+ */
+const VALOR_SEM_CENTAVOS = /R\$\s?(\d{1,3}(?:\.\d{3})*|\d+)(?![\d.,])|(\d{1,3}(?:\.\d{3})+)(?![\d,])/g;
 
 export class CopilotoIndisponivelError extends Error {
   constructor() {
@@ -88,8 +120,19 @@ export interface RespostaCopiloto {
   /** Valores do texto final que vieram comprovadamente de uma ferramenta. */
   valoresCitados: ValorCitado[];
   /**
-   * Valores em R$ no texto final que NENHUMA ferramenta devolveu. Não vazio =
-   * o modelo inventou ou recompôs um número. A UI trata isso como alerta.
+   * Valores em R$ no texto final que NENHUMA ferramenta devolveu, mas que o
+   * PRÓPRIO DONO informou — na pergunta atual ou em algum turno anterior da
+   * mesma conversa. Origem conhecida: repetir o número que o usuário digitou
+   * não é alucinação, e por isso este balde NUNCA aciona o alerta vermelho
+   * (caso real 11/08/2026: perguntou "juntar 70k", a resposta citou
+   * "R$ 70.000,00" e foi acusada de valor sem origem — o próprio usuário era a
+   * origem).
+   */
+  valoresInformados: string[];
+  /**
+   * Valores em R$ no texto final que NENHUMA ferramenta devolveu E que o dono
+   * também não informou. Não vazio = o modelo inventou ou recompôs um número
+   * do nada. A UI trata isso como alerta.
    */
   valoresNaoRastreados: string[];
   /** Resposta sem nenhuma ferramenta é opinião, não dado (a UI sinaliza). */
@@ -209,6 +252,8 @@ async function executarLoop(
         incompleta: false,
         turnosUsados: turno,
         consumo,
+        pergunta: entrada.pergunta,
+        historico: entrada.historico ?? [],
       });
     }
 
@@ -236,6 +281,8 @@ async function executarLoop(
     incompleta: true,
     turnosUsados: MAX_TURNOS,
     consumo,
+    pergunta: entrada.pergunta,
+    historico: entrada.historico ?? [],
   });
 }
 
@@ -307,6 +354,51 @@ function valoresDisponiveis(
   return encontrados;
 }
 
+/**
+ * Todo valor em centavos que o DONO já colocou em jogo nesta conversa — na
+ * pergunta atual ou em qualquer mensagem anterior dele no histórico. Cobre a
+ * forma monetária completa ("R$ 70.000,00", via `parseBRL`) e a abreviação
+ * comum ("70k", "70 mil", via `VALOR_ABREVIADO`).
+ *
+ * Só mensagens de papel 'usuario' entram — nunca 'assistente'. Se o modelo já
+ * tiver citado um valor por conta própria num turno anterior, repeti-lo aqui
+ * SEM ferramenta de novo não vira "informado": seria a mesma alucinação
+ * escapando pela porta de trás, só porque já tinha escapado uma vez antes.
+ */
+function centsInformadosPeloDono(historico: readonly MensagemIA[], pergunta: string): Set<number> {
+  const textosDoDono = [
+    ...historico.filter((m) => m.papel === 'usuario').map((m) => m.conteudo),
+    pergunta,
+  ];
+
+  const cents = new Set<number>();
+  for (const texto of textosDoDono) {
+    for (const bruto of texto.match(VALOR_BRL) ?? []) {
+      try {
+        cents.add(parseBRL(bruto));
+      } catch {
+        // Bateu o formato mas não parseou (caso extremo) — não é motivo pra
+        // quebrar a resposta inteira; só não entra no conjunto conhecido.
+      }
+    }
+    for (const match of texto.matchAll(VALOR_ABREVIADO)) {
+      const numero = Number(match[1]?.replace(',', '.'));
+      if (Number.isFinite(numero)) cents.add(Math.round(numero * 1000 * 100));
+    }
+    // "R$ 70.000" / "70.000" — sem centavos, forma que `formatBRL` nunca emite
+    // mas que o dono escreve o tempo todo. Sem isto, perguntar "juntar 70.000"
+    // e receber "R$ 70.000,00" de volta ainda acendia o alerta: mesmo defeito
+    // do caso de 11/08, só com outra grafia.
+    for (const match of texto.matchAll(VALOR_SEM_CENTAVOS)) {
+      const bruto = match[1] ?? match[2];
+      if (bruto === undefined) continue;
+      const numero = Number(bruto.replace(/\./g, ''));
+      if (Number.isFinite(numero)) cents.add(numero * 100);
+    }
+  }
+  return cents;
+}
+
 function montarResposta(params: {
   texto: string;
   usadas: FerramentaUsada[];
@@ -314,22 +406,50 @@ function montarResposta(params: {
   incompleta: boolean;
   turnosUsados: number;
   consumo: ConsumoTokens;
+  pergunta: string;
+  historico: readonly MensagemIA[];
 }): RespostaCopiloto {
   const disponiveis = valoresDisponiveis(params.saidas);
-
-  const citados = disponiveis.filter((v) => params.texto.includes(v.valorFormatado));
 
   // Normaliza o espaço para não acusar falso positivo entre "R$ 83,00" e
   // "R$&nbsp;83,00": a comparação é sobre o valor, não sobre o byte.
   const normalizar = (s: string): string => s.replace(/\s/g, ' ');
+
+  // A MESMA normalização vale aqui. Antes esta linha comparava byte a byte
+  // enquanto o caminho do alerta normalizava: um valor de ferramenta citado
+  // com espaço comum, em vez do NBSP que `formatBRL` emite, escapava do alerta
+  // (certo) mas NÃO entrava em `citados` (errado) — a UI perdia a proveniência
+  // de um número que veio do motor, em vez de exibi-la.
+  const textoNormalizado = normalizar(params.texto);
+  const citados = disponiveis.filter((v) =>
+    textoNormalizado.includes(normalizar(v.valorFormatado)),
+  );
+
   const conhecidos = new Set(disponiveis.map((v) => normalizar(v.valorFormatado)));
-  const naoRastreados = [
+  const naoConfirmadosPorFerramenta = [
     ...new Set(
       (params.texto.match(VALOR_BRL) ?? [])
         .map(normalizar)
         .filter((valor) => !conhecidos.has(valor)),
     ),
   ];
+
+  // Dos que sobraram sem ferramenta, separa quem o PRÓPRIO DONO já disse
+  // (balde sem alerta) de quem ninguém disse (balde com alerta) — ver
+  // `centsInformadosPeloDono` para o porquê de só o histórico do usuário contar.
+  const centsDoDono = centsInformadosPeloDono(params.historico, params.pergunta);
+  const informados: string[] = [];
+  const naoRastreados: string[] = [];
+  for (const valor of naoConfirmadosPorFerramenta) {
+    let cents: number | null = null;
+    try {
+      cents = parseBRL(valor);
+    } catch {
+      cents = null;
+    }
+    if (cents !== null && centsDoDono.has(cents)) informados.push(valor);
+    else naoRastreados.push(valor);
+  }
 
   return {
     texto: params.texto,
@@ -339,6 +459,7 @@ function montarResposta(params: {
     // frase pediria confirmação de algo que o modelo não terminou de pensar.
     propostas: params.incompleta ? [] : recolherPropostas(params.saidas),
     valoresCitados: citados,
+    valoresInformados: informados,
     valoresNaoRastreados: naoRastreados,
     semFerramenta: params.usadas.length === 0,
     incompleta: params.incompleta,
