@@ -21,6 +21,7 @@ import { embeddingHabilitado, iaHabilitada } from '@/infrastructure/ia/config-ia
 import { criarProvedorIA } from '@/infrastructure/ia/provedor-ia';
 import { criarEmbeddingIA } from '@/infrastructure/ia/embeddings';
 import { PrismaMemoriaRepository } from '@/infrastructure/repositories/prisma-memoria';
+import { PrismaConversaRepository } from '@/infrastructure/repositories/prisma-conversa';
 import {
   PrismaUsuarioRepository,
   PrismaSessaoRepository,
@@ -113,6 +114,8 @@ export async function criarDeps(): Promise<Deps> {
     usoIA: new PrismaUsoIARepository(prisma),
     // Memória do copiloto (Fase E) — escopada por dono como todo o resto.
     memorias: new PrismaMemoriaRepository(prisma, donoId),
+    // Histórico persistido do copiloto (Fase 1 da persistência de conversas).
+    conversas: new PrismaConversaRepository(prisma, donoId),
     // Independente de `ia`: sem OPENAI_MODEL_EMBEDDING a memória continua
     // gravando e listando, só a busca semântica degrada.
     embeddings: embeddingHabilitado() ? criarEmbeddingIA() : undefined,

@@ -26,6 +26,7 @@ import {
   PrismaParcelamentoRepository,
 } from '../src/infrastructure/repositories/prisma-repositories';
 import { PrismaMemoriaRepository } from '../src/infrastructure/repositories/prisma-memoria';
+import { PrismaConversaRepository } from '../src/infrastructure/repositories/prisma-conversa';
 import { semearWorkspace } from '../src/infrastructure/onboarding';
 import { exportarTudo } from '../src/infrastructure/backup';
 
@@ -233,6 +234,62 @@ async function main(): Promise<void> {
   checar(
     'a busca do A ainda encontra a memória dele (embedding intacto)',
     (await memA.buscarPorEmbedding(VETOR_A))[0]?.id === memoriaA.id,
+  );
+
+  // Conversas do copiloto (Fase 1 da persistência). `obterComMensagens` com um
+  // id de outro dono é o vetor de vazamento nº 1 desta feature — devolver a
+  // transcrição alheia por engano —, então é o primeiro caso conferido aqui.
+  console.log('\nCONVERSAS DO COPILOTO — B não lê nem altera as do A:');
+  const convA = new PrismaConversaRepository(prisma, a.id);
+  const convB = new PrismaConversaRepository(prisma, b.id);
+
+  const conversaA = await convA.criar('plano secreto do dono A');
+  await convA.anexarTurno(conversaA.id, {
+    pergunta: 'quanto posso gastar hoje?',
+    resposta: 'segredo do dono A: R$ 47,00',
+    proveniencia: {
+      ferramentasUsadas: [],
+      valoresCitados: [],
+      valoresNaoRastreados: [],
+      propostas: [],
+      semFerramenta: false,
+      incompleta: false,
+    },
+  });
+
+  checar('B não lista a conversa do A', (await convB.listar()).length === 0);
+  checar(
+    'obterComMensagens(conversa do A) devolve null para o B',
+    (await convB.obterComMensagens(conversaA.id)) === null,
+  );
+  checar(
+    'ultimasMensagens(conversa do A) vem vazio para o B',
+    (await convB.ultimasMensagens(conversaA.id, 10)).length === 0,
+  );
+
+  await esperaErro('anexarTurno(conversa do A) pelo B é recusado', () =>
+    convB.anexarTurno(conversaA.id, {
+      pergunta: 'invasão',
+      resposta: 'invasão',
+      proveniencia: null,
+    }),
+  );
+  await convB.renomear(conversaA.id, 'invadida');
+  await convB.excluir(conversaA.id);
+
+  const conversaAposTentativas = await convA.obterComMensagens(conversaA.id);
+  checar('a conversa do A sobrevive às tentativas do B', conversaAposTentativas !== null);
+  checar(
+    'o título do A não foi alterado pelo B',
+    conversaAposTentativas?.conversa.titulo === 'plano secreto do dono A',
+  );
+  checar(
+    'as duas mensagens do turno do A seguem intactas',
+    conversaAposTentativas?.mensagens.length === 2,
+  );
+  checar(
+    'a resposta do A segue com o texto original',
+    conversaAposTentativas?.mensagens[1]?.conteudo === 'segredo do dono A: R$ 47,00',
   );
 
   // Repositórios de gestão de custos (TASKS-CUSTOS.md, fase de portas). São os

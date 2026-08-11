@@ -541,6 +541,228 @@ describe('propostas no loop (D-8)', () => {
   });
 });
 
+/**
+ * OS TRÊS BALDES DE VALOR (correção de 11/08/2026).
+ *
+ * Caso real que gerou isto: o dono perguntou "quero juntar 70k até janeiro", a
+ * resposta citou "R$ 70.000,00" e a UI acusou "Valor sem origem — não veio de
+ * nenhuma consulta ao motor de cálculo". Ou seja: acusou o dono de alucinação
+ * por repetirem o número dele mesmo.
+ *
+ * O estrago não é o alerta errado em si — é o dono aprender a ignorar o alerta.
+ * Ele é a ÚNICA defesa contra número realmente inventado, e um detector que
+ * grita à toa vira ruído de fundo.
+ *
+ * A classificação passou a ser em três baldes:
+ *   · `valoresCitados`        — veio de saída de ferramenta;
+ *   · `valoresInformados`     — o próprio dono disse (pergunta ou histórico dele);
+ *   · `valoresNaoRastreados`  — sobrou. SÓ ESTE mantém o alerta.
+ *
+ * O teste que mais importa aqui é o do valor inventado continuar no terceiro
+ * balde: sem ele, a correção vira anistia geral e o detector morre calado.
+ */
+describe('três baldes de valor — informado pelo dono não é alucinação', () => {
+  it('🔴 o caso exato que falhou: perguntou "70k", a resposta cita R$ 70.000,00', async () => {
+    const ia = new FakeProvedorIA([
+      { tipo: 'FERRAMENTAS', chamadas: [{ nome: 'situacao_hoje', argumentos: {} }] },
+      { tipo: 'TEXTO', texto: 'Para juntar R$ 70.000,00 até janeiro, o ritmo é apertado.' },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'quero juntar 70k até janeiro' });
+
+    expect(resposta.valoresInformados).toEqual(['R$ 70.000,00']);
+    // O que a UI olha para acender o alerta vermelho tem que estar VAZIO.
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+  });
+
+  it.each([
+    ['abreviação com k', 'consigo juntar 70k até janeiro?'],
+    ['abreviação por extenso', 'consigo juntar 70 mil até janeiro?'],
+    ['forma monetária completa', 'consigo juntar R$ 70.000,00 até janeiro?'],
+  ])('%s na pergunta reconhece R$ 70.000,00 na resposta', async (_forma, pergunta) => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'R$ 70.000,00 até janeiro dá.' }]);
+
+    const resposta = await responder(depsCom(ia), { pergunta });
+
+    expect(resposta.valoresInformados).toEqual(['R$ 70.000,00']);
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+  });
+
+  it('a abreviação com decimal também conta: "1,5k" cobre R$ 1.500,00', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'R$ 1.500,00 por mês, então.' }]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'e se eu separar 1,5k por mês?' });
+
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+    expect(resposta.valoresInformados).toEqual(['R$ 1.500,00']);
+  });
+
+  it('valor vindo de ferramenta fica em valoresCitados e NÃO migra para informados', async () => {
+    // Se um valor do motor escorregasse para o balde "o dono disse", a UI
+    // deixaria de exibir a proveniência — que é o oposto do objetivo.
+    const saida = await executarFerramenta(depsCom(new FakeProvedorIA()), 'estado_ciclo', {});
+    const verbaLivre = saida.verbaLivreFormatado as string;
+
+    const ia = new FakeProvedorIA([
+      { tipo: 'FERRAMENTAS', chamadas: [{ nome: 'estado_ciclo', argumentos: {} }] },
+      { tipo: 'TEXTO', texto: `Sua verba livre é ${verbaLivre}.` },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'quanto sobra?' });
+
+    expect(resposta.valoresCitados.map((v) => v.valorFormatado)).toContain(verbaLivre);
+    expect(resposta.valoresInformados).toEqual([]);
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+  });
+
+  it('🔴 valor que o modelo inventou CONTINUA sendo alertado', async () => {
+    // O teste que impede a correção de virar anistia geral. Nenhuma ferramenta
+    // devolveu esse número e o dono nunca o digitou: é invenção, e o alerta
+    // tem que sobreviver a toda a lógica dos outros dois baldes.
+    const ia = new FakeProvedorIA([
+      { tipo: 'FERRAMENTAS', chamadas: [{ nome: 'situacao_hoje', argumentos: {} }] },
+      { tipo: 'TEXTO', texto: 'Você ainda pode gastar R$ 999.999,99 hoje.' },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'quanto posso gastar hoje?' });
+
+    expect(resposta.valoresNaoRastreados).toEqual(['R$ 999.999,99']);
+    expect(resposta.valoresInformados).toEqual([]);
+  });
+
+  it('🔴 um valor só citado pelo ASSISTENTE no histórico não vira "informado"', async () => {
+    // Se contasse, bastaria a alucinação sobreviver a um turno para se
+    // legitimar: o modelo repetiria o próprio número inventado e o alerta
+    // sumiria — a porta dos fundos exata que `centsInformadosPeloDono` fecha.
+    const historico: MensagemIA[] = [
+      { papel: 'usuario', conteudo: 'como estou?' },
+      { papel: 'assistente', conteudo: 'Você tem R$ 456.789,01 de reserva.' },
+    ];
+    const ia = new FakeProvedorIA([
+      { tipo: 'TEXTO', texto: 'Como eu disse, R$ 456.789,01 de reserva.' },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'confirma?', historico });
+
+    expect(resposta.valoresNaoRastreados).toEqual(['R$ 456.789,01']);
+    expect(resposta.valoresInformados).toEqual([]);
+  });
+
+  it('o MESMO valor, dito pelo dono num turno anterior, é informado', async () => {
+    // O contraste do teste acima: o que muda é só o papel da mensagem.
+    const historico: MensagemIA[] = [
+      { papel: 'usuario', conteudo: 'tenho R$ 456.789,01 guardados' },
+      { papel: 'assistente', conteudo: 'Anotado.' },
+    ];
+    const ia = new FakeProvedorIA([
+      { tipo: 'TEXTO', texto: 'Com os R$ 456.789,01 que você já tem, dá.' },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'e agora?', historico });
+
+    expect(resposta.valoresInformados).toEqual(['R$ 456.789,01']);
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+  });
+
+  it('abreviação num turno anterior do dono também vale', async () => {
+    const historico: MensagemIA[] = [
+      { papel: 'usuario', conteudo: 'minha meta é juntar 70 mil' },
+      { papel: 'assistente', conteudo: 'Entendi.' },
+    ];
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'Os R$ 70.000,00 saem em janeiro.' }]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'quando eu chego lá?', historico });
+
+    expect(resposta.valoresInformados).toEqual(['R$ 70.000,00']);
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+  });
+
+  it('espaço não-quebrável não vira falso alerta: R$ 83,00 é R$ 83,00', async () => {
+    // `formatBRL` emite U+00A0 entre "R$" e o número; o modelo escreve espaço
+    // comum. Comparar byte a byte acusaria o mesmo valor de ser inventado.
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'Separe R$ 83,00 por dia.' }]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'e se eu separar R$ 83,00 por dia?' });
+
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+    expect(resposta.valoresInformados).toEqual(['R$ 83,00']);
+  });
+
+  it('o mesmo valor citado duas vezes na resposta aparece uma vez só no balde', async () => {
+    const ia = new FakeProvedorIA([
+      { tipo: 'TEXTO', texto: 'R$ 70.000,00 até janeiro. Sim, R$ 70.000,00 dá.' },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'juntar 70k dá?' });
+
+    expect(resposta.valoresInformados).toEqual(['R$ 70.000,00']);
+  });
+
+  it('informado e inventado convivem: só o inventado é alertado', async () => {
+    const ia = new FakeProvedorIA([
+      {
+        tipo: 'TEXTO',
+        texto: 'Para os R$ 70.000,00 que você quer, sobram R$ 12.345,67 por ciclo.',
+      },
+    ]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'juntar 70k até janeiro?' });
+
+    expect(resposta.valoresInformados).toEqual(['R$ 70.000,00']);
+    expect(resposta.valoresNaoRastreados).toEqual(['R$ 12.345,67']);
+  });
+
+  /**
+   * Esta grafia era um limite conhecido e virou correção: "70.000" sem centavos
+   * não casa com `VALOR_BRL` (que exige ",dd") nem com a abreviação, e antes do
+   * `VALOR_SEM_CENTAVOS` repetir esse número na resposta acendia o alerta — o
+   * mesmo defeito do caso de 11/08, só com outra grafia do dono.
+   */
+  it('"70.000" sem centavos na pergunta conta como informado', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'R$ 70.000,00 até janeiro.' }]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'quero juntar 70.000 até janeiro' });
+
+    expect(resposta.valoresInformados).toEqual(['R$ 70.000,00']);
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+  });
+
+  it('"R$ 70.000" sem centavos também conta como informado', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'R$ 70.000,00 até janeiro.' }]);
+
+    const resposta = await responder(depsCom(ia), {
+      pergunta: 'quero juntar R$ 70.000 até janeiro',
+    });
+
+    expect(resposta.valoresInformados).toEqual(['R$ 70.000,00']);
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+  });
+
+  /**
+   * A guarda que impede a correção acima de virar anistia geral: inteiro solto,
+   * sem `R$` e sem separador de milhar, NÃO é tratado como valor informado.
+   * Aceitá-lo faria qualquer número da pergunta (um ano, uma contagem de
+   * parcelas) silenciar uma alucinação que coincidisse com ele.
+   */
+  it('inteiro solto na pergunta NÃO silencia o alerta', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'Vai custar R$ 2.026,00.' }]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'o que acontece em 2026?' });
+
+    expect(resposta.valoresInformados).toEqual([]);
+    expect(resposta.valoresNaoRastreados).toEqual(['R$ 2.026,00']);
+  });
+
+  it('resposta sem nenhum valor em R$ não enche nenhum dos dois baldes', async () => {
+    const ia = new FakeProvedorIA([{ tipo: 'TEXTO', texto: 'Depende do seu objetivo.' }]);
+
+    const resposta = await responder(depsCom(ia), { pergunta: 'juntar 70k é muito?' });
+
+    expect(resposta.valoresInformados).toEqual([]);
+    expect(resposta.valoresNaoRastreados).toEqual([]);
+  });
+});
+
 /** Memória injetada no prompt de sistema (Fase E, tarefa E6). */
 describe('memória no prompt de sistema', () => {
   it('injeta planos, preferências e contexto — e não conversas', async () => {

@@ -15,6 +15,8 @@ import type {
   Ciclo as PCiclo,
   SnapshotPatrimonio as PSnapshot,
   ItemPatrimonio as PItem,
+  Conversa as PConversa,
+  MensagemConversa as PMensagemConversa,
 } from '@prisma/client';
 import type {
   Config,
@@ -28,6 +30,10 @@ import type {
   Ciclo,
   SnapshotPatrimonio,
   ItemPatrimonio,
+  Conversa,
+  MensagemConversa,
+  PapelMensagemConversa,
+  Proveniencia,
 } from '@/domain/model/entidades';
 import type {
   TipoConta,
@@ -178,5 +184,69 @@ export function toSnapshot(r: PSnapshot & { itens: PItem[] }): SnapshotPatrimoni
     data: r.data,
     totalCents: r.totalCents,
     itens: r.itens.map(toItemPatrimonio),
+  };
+}
+
+export function toConversa(r: PConversa): Conversa {
+  return {
+    id: r.id,
+    titulo: r.titulo,
+    criadaEm: r.criadaEm,
+    atualizadaEm: r.atualizadaEm,
+  };
+}
+
+/**
+ * O banco guarda `papel` como `String` (não há enum no schema). Um valor
+ * corrompido degrada para `'assistente'` em vez de lançar — a mesma escolha
+ * de `paraTipo` em `prisma-memoria.ts`: uma mensagem com papel estranho
+ * continua visível na conversa, em vez de derrubar a tela inteira.
+ */
+function paraPapel(bruto: string): PapelMensagemConversa {
+  return bruto === 'usuario' ? 'usuario' : 'assistente';
+}
+
+/**
+ * `proveniencia` é `Json?` no schema — o Prisma devolve `Prisma.JsonValue`,
+ * não `Proveniencia`. A validação aqui é estrutural e rasa de propósito: quem
+ * grava é sempre `PrismaConversaRepository.anexarTurno`, a partir do mesmo
+ * tipo do domínio, então o único jeito de chegar aqui malformado é uma
+ * gravação manual no banco — e nesse caso `null` (perde a proveniência, não a
+ * mensagem) é a degradação certa, não uma exceção que derruba a conversa.
+ */
+function paraProveniencia(bruto: unknown): Proveniencia | null {
+  if (typeof bruto !== 'object' || bruto === null) return null;
+  const candidata = bruto as Partial<Proveniencia>;
+  if (
+    !Array.isArray(candidata.ferramentasUsadas) ||
+    !Array.isArray(candidata.valoresCitados) ||
+    !Array.isArray(candidata.valoresNaoRastreados) ||
+    !Array.isArray(candidata.propostas)
+  ) {
+    return null;
+  }
+  return {
+    ferramentasUsadas: candidata.ferramentasUsadas,
+    valoresCitados: candidata.valoresCitados,
+    // Campo novo (11/08/2026): conversa gravada ANTES desta mudança não tem
+    // esta chave no JSON persistido. Degrada para vazio em vez de rejeitar a
+    // proveniência inteira — perder só o balde novo é melhor que perder
+    // ferramentas e valores citados de uma conversa antiga.
+    valoresInformados: Array.isArray(candidata.valoresInformados) ? candidata.valoresInformados : [],
+    valoresNaoRastreados: candidata.valoresNaoRastreados,
+    propostas: candidata.propostas,
+    semFerramenta: candidata.semFerramenta === true,
+    incompleta: candidata.incompleta === true,
+  };
+}
+
+export function toMensagemConversa(r: PMensagemConversa): MensagemConversa {
+  return {
+    id: r.id,
+    conversaId: r.conversaId,
+    papel: paraPapel(r.papel),
+    conteudo: r.conteudo,
+    proveniencia: paraProveniencia(r.proveniencia),
+    criadaEm: r.criadaEm,
   };
 }
