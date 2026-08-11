@@ -224,6 +224,47 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
     comoFoiCalculado: 'domain/finance/projecao.ts: projetarComCenario',
     bloqueio: null,
   },
+  {
+    nome: 'simular_meta_prazo',
+    descricao:
+      'Quanto dá para juntar até uma data-limite e se isso bate uma meta em R$: quantos ciclos cabem até lá, o aporte disponível por ciclo (a poupança-alvo), o total acumulável, se alcança o alvo (com folga ou falta) e o aporte por ciclo necessário para bater exatamente. Use para "quanto preciso guardar por mês para juntar X até Y" ou "dá para juntar X até Y". NÃO usa isso para saber quanto sobra HOJE (use situacao_hoje ou estado_ciclo).',
+    argumentos: z.object({
+      alvoCents: z
+        .number()
+        .int()
+        .positive()
+        .describe('Valor-alvo em centavos inteiros (R$ 70.000,00 = 7000000).'),
+      dataLimite: DATA_CIVIL.describe('Data-limite para atingir o alvo, em YYYY-MM-DD.'),
+    }),
+    origem:
+      'application/meta-prazo.ts: obterSimulacaoMetaPrazo → domain/finance/meta-prazo.ts: simularMetaPrazo',
+    comoFoiCalculado: 'domain/finance/meta-prazo.ts: simularMetaPrazo',
+    bloqueio: null,
+  },
+  {
+    nome: 'simular_renda',
+    descricao:
+      'E se a renda mudasse: com uma renda hipotética, mostra ciclo a ciclo se os custos fixos e as parcelas cabem (comprometidoMensal e sobraAposComprometidos), se a meta de poupança configurada ainda cabe na renda (metaPoupancaCabeNaRenda) e o máximo que daria para poupar nessa renda. Use para "se minha renda cair/subir para X, dou conta das despesas?" ou "com renda de X, ainda consigo poupar?". NÃO grava nada e NÃO altera a Config — o ciclo em curso continua exatamente como está gravado (congelado), e a hipótese só vale a partir do próximo ciclo.',
+    argumentos: z.object({
+      rendaHipoteticaCents: z
+        .number()
+        .int()
+        .positive()
+        .describe('Renda mensal hipotética, em centavos inteiros (R$ 15.000,00 = 1500000).'),
+      numCiclos: z
+        .number()
+        .int()
+        .min(1)
+        .max(60)
+        .nullable()
+        .describe('Horizonte da simulação, em ciclos. null = 6 (o atual e os próximos 5).'),
+    }),
+    origem:
+      'application/renda-hipotetica.ts: obterSimulacaoRenda (via projecao.ts: obterProjecao → domain/finance/projecao.ts: projetarComCenario)',
+    comoFoiCalculado:
+      'application/renda-hipotetica.ts: obterSimulacaoRenda → domain/finance/renda-hipotetica.ts: avaliarRendaHipotetica',
+    bloqueio: null,
+  },
 
   // ─── Escrita por proposta (D-8) ──────────────────────────────────────────
 

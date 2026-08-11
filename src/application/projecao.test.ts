@@ -277,6 +277,7 @@ describe('obterProjecao — cenário hipotético', () => {
     const resultado = await obterProjecao(deps, {
       numCiclos: 12,
       cenario: {
+        tipo: 'compraParcelada',
         descricao: 'Notebook',
         valorTotalCents: 300_000,
         numParcelas: 10,
@@ -339,7 +340,13 @@ describe('obterProjecao — contratos', () => {
     const antes = fotografar(deps);
     await obterProjecao(deps, {
       numCiclos: 6,
-      cenario: { descricao: 'X', valorTotalCents: 100_000, numParcelas: 4, dataCompra: '2026-09-01' },
+      cenario: {
+        tipo: 'compraParcelada',
+        descricao: 'X',
+        valorTotalCents: 100_000,
+        numParcelas: 4,
+        dataCompra: '2026-09-01',
+      },
     });
 
     expect(fotografar(deps)).toBe(antes);

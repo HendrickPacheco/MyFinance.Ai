@@ -43,6 +43,13 @@ export interface ResultadoProjecao {
   cenario: { ciclos: readonly CicloProjetado[]; delta: readonly DeltaCiclo[] } | null;
   /** Premissas em linguagem natural — o copiloto precisa poder declará-las. */
   premissas: readonly string[];
+  /**
+   * `true` quando `ciclos[0]` é o ciclo em curso, congelado no banco (SPEC
+   * 5.2) — nenhuma hipótese, inclusive `rendaHipotetica`, o reescreve. `false`
+   * quando não há ciclo aberto e tudo, inclusive o primeiro ciclo da lista, já
+   * usa a Config vigente (ou a hipótese, se houver).
+   */
+  cicloAtualCongelado: boolean;
 }
 
 const PREMISSAS_BASE = [
@@ -195,9 +202,14 @@ export async function obterProjecao(
   );
 
   if (!opcoes.cenario) {
-    return { ciclos: projetarCiclos(entrada), cenario: null, premissas };
+    return { ciclos: projetarCiclos(entrada), cenario: null, premissas, cicloAtualCongelado: congelado != null };
   }
 
   const { base, comCenario, delta } = projetarComCenario(entrada, opcoes.cenario);
-  return { ciclos: base, cenario: { ciclos: comCenario, delta }, premissas };
+  return {
+    ciclos: base,
+    cenario: { ciclos: comCenario, delta },
+    premissas,
+    cicloAtualCongelado: congelado != null,
+  };
 }

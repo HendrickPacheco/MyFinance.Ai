@@ -62,6 +62,8 @@ const ARGUMENTOS: Record<string, unknown> = {
     dataCompra: null,
     numCiclos: null,
   },
+  simular_meta_prazo: { alvoCents: 7_000_000, dataLimite: '2027-01-31' },
+  simular_renda: { rendaHipoteticaCents: 1_500_000, numCiclos: null },
   // Propostas (D-8) e memória (Fase E). Entram na MESMA bateria genérica de
   // propósito: o teste "%s não grava nada" acima é a prova executável de que
   // uma ferramenta `propor_*` não escreve — o coração do contrato da D-8.
@@ -169,6 +171,7 @@ describe('toda ferramenta, com dados reais', () => {
     'pagamentos_pendentes',
     'projetar_ciclos',
     'simular_compra_parcelada',
+    'simular_renda',
   ];
 
   it.each(SEMPRE_COM_DINHEIRO)('%s expõe pelo menos um valor monetário', async (nome) => {
@@ -380,6 +383,181 @@ describe('simular_compra_parcelada', () => {
     });
 
     expect((saida.compra as { dataCompra: string }).dataCompra).toBe(HOJE);
+  });
+});
+
+/**
+ * Regressão de um caso real (11/08/2026): o dono pediu um plano para juntar
+ * R$ 70.000,00 até janeiro e o copiloto respondeu DUAS VEZES que não tinha
+ * ferramenta para isso — sendo que é aritmética sobre dados que o motor já
+ * tem. A ferramenta nasceu daí.
+ *
+ * As baterias genéricas acima já provam que ela não grava, que tem
+ * `comoFoiCalculado` e que todo `*Cents` tem `*Formatado`. O que falta, e é o
+ * que este bloco cobre, é a saída carregar os campos que RESPONDEM à pergunta:
+ * quanto por ciclo, quanto dá para acumular, se alcança, e quanto sobra ou
+ * falta. Uma ferramenta que roda sem erro mas não responde a pergunta é pior
+ * que ferramenta ausente — o modelo preenche o resto sozinho.
+ */
+describe('simular_meta_prazo — a saída responde a pergunta feita', () => {
+  const ATE_OUTUBRO = { alvoCents: 300_000, dataLimite: '2026-10-31' };
+
+  /**
+   * Ciclo atual ESTOURADO: verba de R$ 1.000,00 contra R$ 1.500,00 já gastos.
+   * O excedente de R$ 500,00 sai da poupança daquele ciclo, e só dele.
+   */
+  function depsCicloEstourado(): FakeDeps {
+    return criarDeps({
+      hoje: HOJE,
+      ciclos: [
+        cicloFake({
+          id: 'ciclo-atual',
+          dataInicio: '2026-07-05',
+          dataFim: '2026-08-04',
+          verbaVariavelCents: 100_000,
+          poupancaAlvoCents: 100_000,
+        }),
+      ],
+      transacoes: [
+        transacaoFake({ id: 't1', data: '2026-07-10', valorCents: 150_000, cicloId: 'ciclo-atual' }),
+      ],
+    });
+  }
+
+  function ciclosDa(saida: Record<string, unknown>): Record<string, unknown>[] {
+    return saida.ciclos as Record<string, unknown>[];
+  }
+
+  it('traz aporte por ciclo, total acumulável e o veredicto de alcance', async () => {
+    const saida = await executarFerramenta(depsCompletos(), 'simular_meta_prazo', ATE_OUTUBRO);
+
+    for (const campo of [
+      'aportePorCicloNecessarioCents',
+      'aporteDisponivelPadraoCents',
+      'sobraPorCicloCents',
+      'totalAcumulavelCents',
+      'alvoCents',
+    ]) {
+      expect(saida[campo], `simular_meta_prazo sem ${campo}`).toBeTypeOf('number');
+    }
+    expect(saida.alcanca).toBeTypeOf('boolean');
+    expect(saida.numCiclos).toBeTypeOf('number');
+    expect(saida.dataLimite).toBe('2026-10-31');
+  });
+
+  it('alcançando, devolve folga e NÃO devolve falta', async () => {
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', ATE_OUTUBRO);
+
+    // R$ 500,00 (ciclo estourado) + 3 × R$ 1.000,00 = R$ 3.500,00 contra alvo
+    // de R$ 3.000,00.
+    expect(saida.alcanca).toBe(true);
+    expect(saida.totalAcumulavelCents).toBe(350_000);
+    expect(saida.folgaCents).toBe(50_000);
+    // Emitir os dois deixaria o modelo escolher qual narrar.
+    expect(saida.faltaCents).toBeUndefined();
+  });
+
+  it('não alcançando, devolve falta e NÃO devolve folga', async () => {
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', {
+      alvoCents: 1_000_000,
+      dataLimite: '2026-10-31',
+    });
+
+    expect(saida.alcanca).toBe(false);
+    expect(saida.faltaCents).toBe(1_000_000 - 350_000);
+    expect(saida.folgaCents).toBeUndefined();
+  });
+
+  it('a lista de ciclos recompõe o total (D-15): soma dos aportes = totalAcumulavel', async () => {
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', ATE_OUTUBRO);
+
+    const soma = ciclosDa(saida).reduce((acc, c) => acc + (c.aportePrevistoCents as number), 0);
+
+    expect(soma).toBe(saida.totalAcumulavelCents);
+    expect(ciclosDa(saida)).toHaveLength(saida.numCiclos as number);
+  });
+
+  it('o ciclo atual estourado sai marcado, e só ele', async () => {
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', ATE_OUTUBRO);
+    const ciclos = ciclosDa(saida);
+
+    expect(ciclos[0]?.reduzidoPorGastoExcedente).toBe(true);
+    expect(ciclos[0]?.aportePrevistoCents).toBe(50_000);
+    expect(ciclos.slice(1).every((c) => c.reduzidoPorGastoExcedente === false)).toBe(true);
+  });
+
+  it('sem estouro, nenhum ciclo vem marcado', async () => {
+    const saida = await executarFerramenta(depsCompletos(), 'simular_meta_prazo', ATE_OUTUBRO);
+
+    expect(ciclosDa(saida).every((c) => c.reduzidoPorGastoExcedente === false)).toBe(true);
+  });
+
+  it('a redução é EXPLICADA em texto, não deixada só como booleano (D-14)', async () => {
+    // O rótulo é o que impede o modelo de inventar a causa da redução. Sem
+    // ele, `reduzidoPorGastoExcedente: true` é um booleano mudo — foi
+    // exatamente esse o defeito de `mesesDeReservaDesconhecido`.
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', ATE_OUTUBRO);
+    const rotulos = saida.rotulos as Record<string, string>;
+
+    expect(rotulos.aportePrevisto).toEqual(expect.stringContaining('reduzidoPorGastoExcedente'));
+    expect(rotulos.aportePrevisto).toEqual(expect.stringContaining('estourou a verba variável'));
+    expect(rotulos.aportePorCicloNecessario).toBeTypeOf('string');
+    expect(rotulos.sobraPorCiclo).toBeTypeOf('string');
+  });
+
+  /**
+   * D-15: número derivado viaja com suas partes. `aportePrevistoCents` do ciclo
+   * reduzido é derivado (`poupancaAlvo − excedente`) e chegava SOZINHO — o
+   * modelo conseguia dizer QUE reduziu, não DE QUANTO nem A PARTIR DE QUÊ, que
+   * é justamente a pergunta seguinte do dono. Mesma falha da D-14, com o número
+   * presente em vez de nulo.
+   */
+  it('o ciclo reduzido traz as partes: poupança-alvo original e a redução', async () => {
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', ATE_OUTUBRO);
+    const atual = ciclosDa(saida)[0] ?? {};
+
+    // R$ 1.000,00 de poupança-alvo, reduzidos em R$ 500,00 de excedente.
+    expect(atual.poupancaAlvoOriginalCents).toBe(100_000);
+    expect(atual.reducaoPorExcedenteCents).toBe(50_000);
+    // As partes recompõem o derivado — é isso que a D-15 exige.
+    expect(atual.aportePrevistoCents).toBe(100_000 - 50_000);
+  });
+
+  /**
+   * O motivo tem que estar em TEXTO e só no ciclo que de fato foi reduzido. Um
+   * rótulo estático, idêntico nos dois casos, não informa nada — foi
+   * exatamente assim que o `mesesDeReservaDesconhecido` levou o copiloto a
+   * inventar a causa (D-14).
+   */
+  it('o motivo da redução vem em texto, e só no ciclo reduzido', async () => {
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', ATE_OUTUBRO);
+    const ciclos = ciclosDa(saida);
+
+    // `formatBRL` emite NBSP entre "R$" e o número — comparar com literal de
+    // espaço comum falharia por byte, não por conteúdo.
+    expect(ciclos[0]?.motivoReducao).toEqual(expect.stringContaining(formatBRL(50_000)));
+    expect(ciclos[1]?.motivoReducao).toBeUndefined();
+    expect(ciclos[1]?.reducaoPorExcedenteCents).toBe(0);
+  });
+
+  it('prazo já vencido vira erro legível, nunca exceção que mata o loop', async () => {
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', {
+      alvoCents: 300_000,
+      dataLimite: '2026-06-01',
+    });
+
+    expect(saida.erro).toMatch(/anterior ao início do ciclo atual/i);
+    expect(saida.ciclos).toBeUndefined();
+  });
+
+  it('alvo em reais (não centavos) é recusado como erro de argumento', async () => {
+    const saida = await executarFerramenta(depsCompletos(), 'simular_meta_prazo', {
+      alvoCents: 70_000.5,
+      dataLimite: '2027-01-31',
+    });
+
+    expect(saida.erro).toBeDefined();
+    expect(saida.ciclos).toBeUndefined();
   });
 });
 
