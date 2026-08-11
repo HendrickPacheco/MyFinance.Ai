@@ -104,6 +104,29 @@ Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
 - **Sem piso diário hardcoded**: o teto é 100% derivado da verba, e a verba é
   `renda − poupança − fixos − provisão (+ rollover)` — ver `verbaVariavelCents`
   em `src/domain/finance/verba.ts`.
+- **Razão e realidade são fontes distintas, conciliadas — nunca sincronizadas em
+  silêncio** (decisão D-13, 11/08/2026). `Conta.saldoCents` é o *razão*: o que o app
+  calculou a partir de transações e fechamentos. `ItemPatrimonio.valorCents` é a
+  *realidade*: o que o dono observou no banco e digitou no snapshot. A diferença entre
+  os dois **é informação** (gasto não lançado, rendimento, transferência que o app não
+  viu) — sincronizar automaticamente destruiria esse sinal. `ItemPatrimonio.contaId`
+  liga os dois; `divergenciasConciliacao` (`domain/finance/patrimonio.ts`) reporta; e
+  só `aceitarRealidade` escreve, por ação explícita do dono. O ajuste move o saldo
+  direto, **sem criar `Transacao`** — correção de registro não é gasto de hoje e não
+  pode consumir teto diário nem aparecer na análise por categoria.
+- **Indicador que não dá para calcular explica POR QUE** (decisão D-14, 11/08/2026).
+  Booleano mudo (`mesesDeReservaDesconhecido: true`) faz o copiloto inventar a causa —
+  aconteceu em produção: ele culpou os custos fixos com 12 cadastrados. Toda saída de
+  ferramenta que devolve `null` carrega o motivo em texto. Ver `MOTIVOS` em
+  `application/ia/ferramentas/patrimonio.ts`.
+- **Número derivado viaja com suas partes** (decisão D-15, 11/08/2026). Corolário
+  da D-14 para o caso em que o número EXISTE. `verbaVariavel` saía como átomo, e o
+  copiloto negou ao dono que a meta de poupança já estivesse descontada — negou um
+  fato do próprio motor. `composicaoDaVerba` (`ferramentas/saida.ts`) manda renda,
+  poupança, fixos, provisão e rollover junto da verba, com a fórmula em texto.
+  Cuidado com rótulo ambíguo: "antes de descontar parcela" foi lido como "nada foi
+  descontado ainda". O erro que isso causa é **dupla contagem** — separar a meta
+  outra vez a partir da verba livre.
 - **Parcela NÃO é deduzida da verba** (decisão D-11, 04/08/2026). Cada parcela é uma
   `Transacao` DESPESA de grupo `VARIAVEL` e **consome** o teto diário como qualquer
   outro gasto. Quem subtrair parcela dentro de `verbaVariavelCents` a conta duas vezes.
