@@ -28,6 +28,13 @@
  * `garantirCicloAtual` usa, sem nenhum parâmetro de parcela.
  * `parcelasComprometidasCents` é somado depois e à parte. Parcela aparece uma
  * vez só, e nunca dentro de `verbaVariavelCents`.
+ *
+ * SOBRE `entrada.cenario` — duas hipóteses, dois efeitos (caso real
+ * 11/08/2026): `compraParcelada` acrescenta obrigações; `rendaHipotetica`
+ * troca a renda usada nos ciclos que ainda não nasceram. As duas passam pelo
+ * MESMO `projetarCiclos` — nunca uma segunda função que recalcula tudo de
+ * novo — e o ciclo congelado nunca vê a hipótese, seja ela qual for (regra 3,
+ * `Ciclo` é imutável: ver `CicloCongelado`).
  */
 import { estaNoIntervalo } from '@/shared/data';
 import { somaCents } from '@/shared/dinheiro';
@@ -41,6 +48,7 @@ import {
   verbaVariavelCents,
 } from './verba';
 import type {
+  CenarioCompraParcelada,
   CenarioHipotetico,
   CicloProjetado,
   DeltaCiclo,
@@ -56,7 +64,7 @@ const MIN_CICLOS = 1;
 const MAX_CICLOS = 60;
 
 /** Materializa as parcelas de uma compra hipotética como obrigações futuras. */
-function obrigacoesDoCenario(cenario: CenarioHipotetico): ObrigacaoFutura[] {
+function obrigacoesDoCenario(cenario: CenarioCompraParcelada): ObrigacaoFutura[] {
   return gerarParcelas({
     valorTotalCents: cenario.valorTotalCents,
     numParcelas: cenario.numParcelas,
@@ -194,13 +202,23 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
     );
   }
 
-  const obrigacoes: readonly ObrigacaoFutura[] = entrada.cenario
-    ? [...entrada.obrigacoesFuturas, ...obrigacoesDoCenario(entrada.cenario)]
-    : entrada.obrigacoesFuturas;
+  const obrigacoes: readonly ObrigacaoFutura[] =
+    entrada.cenario?.tipo === 'compraParcelada'
+      ? [...entrada.obrigacoesFuturas, ...obrigacoesDoCenario(entrada.cenario)]
+      : entrada.obrigacoesFuturas;
+
+  // Renda dos ciclos que ainda não nasceram. `rendaHipotetica` troca só este
+  // número — nunca o do ciclo congelado (montado à parte, abaixo, sempre a
+  // partir de `congelado.rendaPrevistaCents`). Premissa 3 (renda constante no
+  // horizonte) passa a valer para a renda hipotética, não para a vigente.
+  const rendaDosCiclosFuturos =
+    entrada.cenario?.tipo === 'rendaHipotetica'
+      ? entrada.cenario.rendaHipoteticaCents
+      : entrada.rendaPrevistaCents;
 
   // Parâmetros dos ciclos que ainda não nasceram (premissas 2 e 3).
   const poupanca = poupancaAlvoCents({
-    rendaPrevistaCents: entrada.rendaPrevistaCents,
+    rendaPrevistaCents: rendaDosCiclosFuturos,
     metaPoupancaCents: entrada.metaPoupancaCents,
     metaPoupancaPercent: entrada.metaPoupancaPercent,
   });
@@ -248,7 +266,7 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
 
     // Chamada idêntica à de `garantirCicloAtual` — SEM parâmetro de parcela.
     const verbaVariavel = verbaVariavelCents({
-      rendaPrevistaCents: entrada.rendaPrevistaCents,
+      rendaPrevistaCents: rendaDosCiclosFuturos,
       poupancaAlvoCents: poupanca,
       fixosCents: fixosDoCiclo,
       provisaoMensalCents: provisao,
@@ -258,7 +276,7 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
     ciclos.push(
       montarCiclo({
         limites,
-        rendaPrevistaCents: entrada.rendaPrevistaCents,
+        rendaPrevistaCents: rendaDosCiclosFuturos,
         poupancaAlvoCents: poupanca,
         fixosCents: fixosDoCiclo,
         provisaoMensalCents: provisao,
@@ -274,8 +292,11 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
 }
 
 /**
- * Pré-mortem de compra: projeta a linha de base e a mesma projeção com a
- * compra parcelada sobreposta, mais o delta ciclo a ciclo.
+ * Compara a linha de base com a mesma projeção sob uma hipótese — compra
+ * parcelada nova ou renda trocada, ver `CenarioHipotetico` — e devolve o
+ * delta ciclo a ciclo. Genérico no tipo da hipótese de propósito: quem decide
+ * o que ela muda é `projetarCiclos`, e esta função só roda duas vezes e
+ * subtrai.
  *
  * O `delta` é sempre `comCenario − base`: negativo em `verbaLivreCents`
  * significa menos dinheiro livre.

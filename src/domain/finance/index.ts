@@ -7,6 +7,8 @@ export * from './tipos';
 export * from './projecao-tipos';
 export * from './projecao';
 export * from './projecao-resumo';
+export * from './meta-prazo';
+export * from './renda-hipotetica';
 export * from './ciclo';
 export * from './verba';
 export * from './teto';
