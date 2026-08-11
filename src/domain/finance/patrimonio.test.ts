@@ -5,6 +5,8 @@ import {
   taxaAcumulacaoMediaCents,
   mesesDeReserva,
   totalPorClasseCents,
+  divergenciasConciliacao,
+  type ItemConciliavel,
 } from './patrimonio';
 
 describe('patrimônio (SPEC 5.6)', () => {
@@ -60,5 +62,79 @@ describe('patrimônio (SPEC 5.6)', () => {
 
   it('total por classe de lista vazia devolve lista vazia', () => {
     expect(totalPorClasseCents([])).toEqual([]);
+  });
+});
+
+/**
+ * Conciliação razão × realidade. O razão (`Conta.saldoCents`) é o que o app
+ * calculou; a realidade (`ItemPatrimonio.valorCents`) é o que o dono viu no
+ * banco. A diferença é sinal — gasto não lançado, rendimento — e por isso a
+ * função só REPORTA: nada aqui escreve.
+ */
+describe('divergenciasConciliacao', () => {
+  function item(patch: Partial<ItemConciliavel> = {}): ItemConciliavel {
+    return { id: 'i1', nome: 'Reserva', contaId: 'conta-reserva', valorCents: 6_000_000, ...patch };
+  }
+
+  it('reporta a diferença entre o observado e o razão', () => {
+    const r = divergenciasConciliacao([item()], new Map([['conta-reserva', 5_500_000]]));
+
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({
+      itemId: 'i1',
+      contaId: 'conta-reserva',
+      razaoCents: 5_500_000,
+      observadoCents: 6_000_000,
+      deltaCents: 500_000, // sobrou: o app achava que você tinha menos
+    });
+  });
+
+  it('delta negativo quando o app achava que você tinha mais', () => {
+    const r = divergenciasConciliacao(
+      [item({ valorCents: 5_000_000 })],
+      new Map([['conta-reserva', 5_500_000]]),
+    );
+
+    expect(r[0]?.deltaCents).toBe(-500_000);
+  });
+
+  it('item que bate não vira divergência — zero não é informação', () => {
+    const r = divergenciasConciliacao([item()], new Map([['conta-reserva', 6_000_000]]));
+
+    expect(r).toEqual([]);
+  });
+
+  it('item sem conta vinculada é ignorado (imóvel, cripto: não há razão para comparar)', () => {
+    const r = divergenciasConciliacao(
+      [item({ contaId: null })],
+      new Map([['conta-reserva', 1]]),
+    );
+
+    expect(r).toEqual([]);
+  });
+
+  it('conta ausente do mapa não vira divergência contra zero', () => {
+    // Conta arquivada ou apagada: ausência de razão, não razão igual a zero.
+    // Tratar como zero acusaria uma divergência de 60k que não existe.
+    const r = divergenciasConciliacao([item()], new Map());
+
+    expect(r).toEqual([]);
+  });
+
+  it('reporta só os itens divergentes de uma lista mista', () => {
+    const r = divergenciasConciliacao(
+      [
+        item({ id: 'ok', contaId: 'a', valorCents: 100 }),
+        item({ id: 'diverge', contaId: 'b', valorCents: 300 }),
+        item({ id: 'solto', contaId: null, valorCents: 999 }),
+      ],
+      new Map([
+        ['a', 100],
+        ['b', 250],
+      ]),
+    );
+
+    expect(r.map((d) => d.itemId)).toEqual(['diverge']);
+    expect(r[0]?.deltaCents).toBe(50);
   });
 });

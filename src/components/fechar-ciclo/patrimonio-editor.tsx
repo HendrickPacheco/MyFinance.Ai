@@ -11,6 +11,12 @@ export interface LinhaPatrimonio {
   nome: string;
   classe: ClassePatrimonio;
   valorCents: number;
+  /**
+   * Conta do razão que este item fotografa. O editor não deixa escolher — ele
+   * só PRESERVA o vínculo que veio da sugestão, para que fechar o ciclo não
+   * desfaça a conciliação configurada na tela de Patrimônio.
+   */
+  contaId?: string | null;
 }
 
 const CLASSE_LABEL: Record<ClassePatrimonio, string> = {

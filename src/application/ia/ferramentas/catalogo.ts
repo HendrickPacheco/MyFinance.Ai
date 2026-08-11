@@ -175,7 +175,7 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
   {
     nome: 'patrimonio_resumo',
     descricao:
-      'Patrimônio total no último snapshot, variação no mês, taxa média de acumulação e quantos meses de reserva isso representa. Use para perguntas sobre patrimônio ou reserva de emergência.',
+      'Patrimônio total no último snapshot, variação no mês, taxa média de acumulação e quantos meses de reserva isso representa. Use para perguntas sobre patrimônio ou reserva de emergência. Traz também o custo mensal comprometido (fixos + provisão) e mesesDeReservaComprometidos — a cobertura que já dá para afirmar mesmo sem nenhum ciclo fechado. Quando mesesDeReserva vier null, cite motivoDesconhecido literalmente; nunca invente a razão nem diga que faltam custos fixos cadastrados.',
     argumentos: z.object({}),
     origem:
       'application/patrimonio.ts: obterPatrimonio → domain/finance/patrimonio.ts: totalPatrimonioCents, mesesDeReserva',

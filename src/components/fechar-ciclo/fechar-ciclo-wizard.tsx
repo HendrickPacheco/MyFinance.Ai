@@ -42,6 +42,7 @@ export function FecharCicloWizard({
       nome: item.nome,
       classe: item.classe,
       valorCents: item.valorCents,
+      contaId: item.contaId ?? null,
     })),
   );
   const [aceitarNovaMeta, setAceitarNovaMeta] = useState(resumo.metaSugeridaCents != null);
@@ -57,7 +58,15 @@ export function FecharCicloWizard({
     setErro(null);
     const snapshotItens = linhas
       .filter((linha) => linha.nome.trim().length > 0)
-      .map((linha) => ({ nome: linha.nome.trim(), classe: linha.classe, valorCents: linha.valorCents }));
+      .map((linha) => ({
+        nome: linha.nome.trim(),
+        classe: linha.classe,
+        valorCents: linha.valorCents,
+        // Carrega adiante o vínculo com a conta. Reconstruir o item sem ele
+        // faria o snapshot do fechamento nascer solto e a conciliação sumir
+        // sem erro nenhum.
+        contaId: linha.contaId ?? null,
+      }));
 
     startTransition(async () => {
       const r = await fecharCiclo(ciclo.id, {

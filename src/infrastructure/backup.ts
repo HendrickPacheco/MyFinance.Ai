@@ -319,6 +319,9 @@ const itemPatrimonioSchema = z
     nome: z.string(),
     classe: z.string(),
     valorCents: z.number().int(),
+    // Backup anterior a 11/08/2026 não tem o campo: `.default(null)` faz esse
+    // arquivo importar com o item solto, em vez de falhar a validação inteira.
+    contaId: z.string().nullable().default(null),
   })
   .strict();
 
@@ -441,7 +444,8 @@ export async function importarTudo(
     // Ordem de criação respeita as FKs: entidades sem dependência primeiro,
     // depois as que referenciam (config -> conta; custoFixo -> conta;
     // parcelamento -> categoria; ciclo -> nenhuma FK própria; pagamentoFixo
-    // -> custoFixo + ciclo; transacao -> tudo).
+    // -> custoFixo + ciclo; transacao -> tudo; itemPatrimonio -> conta, por
+    // isso os snapshots são criados DEPOIS de `d.contas` lá embaixo).
     // Todo registro é carimbado com o donoId de QUEM ESTÁ IMPORTANDO, não com
     // nada vindo do arquivo — o arquivo nem carrega donoId (ver `exportarTudo`).
     const comDono = <T,>(registros: readonly T[]) => registros.map((r) => ({ ...r, donoId }));

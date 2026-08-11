@@ -467,7 +467,9 @@ describe('resumo do fechamento — transações sem categoria e sugestões de pa
     const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
 
     expect(resumo.itensPatrimonioSugeridos).toEqual([
-      { nome: 'Reserva', classe: 'CONTA', valorCents: 300_000 },
+      // `contaId` vem preenchido de propósito: sem histórico, a sugestão nasce
+      // das contas e já leva o vínculo que torna a conciliação possível.
+      { nome: 'Reserva', classe: 'CONTA', valorCents: 300_000, contaId: 'reserva' },
     ]);
   });
 
@@ -506,7 +508,7 @@ describe('snapshot de patrimônio no fechamento (critério de aceite 7)', () => 
           data: '2026-07-05',
           totalCents: 1_000_000,
           itens: [
-            { id: 'i1', snapshotId: 'snap-antigo', nome: 'Reserva', classe: 'CONTA', valorCents: 1_000_000 },
+            { id: 'i1', snapshotId: 'snap-antigo', nome: 'Reserva', classe: 'CONTA', valorCents: 1_000_000, contaId: null },
           ],
         },
       ],

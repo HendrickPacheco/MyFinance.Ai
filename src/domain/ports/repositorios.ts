@@ -223,5 +223,13 @@ export interface CicloRepository {
 export interface PatrimonioRepository {
   ultimoSnapshot(): Promise<SnapshotPatrimonio | null>;
   ultimosSnapshots(n: number): Promise<SnapshotPatrimonio[]>;
-  criar(snapshot: SnapshotPatrimonio): Promise<SnapshotPatrimonio>;
+  /**
+   * Cria o snapshot da data, SUBSTITUINDO o que já existir nela.
+   *
+   * Há no máximo um snapshot por data (`@@unique([donoId, data])`), e refazer
+   * a fotografia do mesmo dia é correção — foi digitada à mão, erra-se. Antes
+   * disso a segunda gravação estourava a constraint e o erro cru do Prisma
+   * vazava para a tela, sem caminho nenhum para corrigir.
+   */
+  salvar(snapshot: SnapshotPatrimonio): Promise<SnapshotPatrimonio>;
 }

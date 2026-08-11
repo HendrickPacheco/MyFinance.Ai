@@ -48,6 +48,8 @@ const fechamentoSchema = z.object({
         nome: z.string().min(1),
         classe: CLASSE,
         valorCents: z.number().int(),
+        // Quem valida se este id é do dono é `criarSnapshot`, no caso de uso.
+        contaId: z.string().nullable().default(null),
       }),
     )
     .optional(),
@@ -65,7 +67,9 @@ export async function fecharCiclo(
       rendaRealizadaCents: dados.rendaRealizadaCents,
       novaMetaPoupancaCents: dados.novaMetaPoupancaCents ?? null,
       snapshotData: dados.snapshotData,
-      snapshotItens: dados.snapshotItens as { nome: string; classe: ClassePatrimonio; valorCents: number }[] | undefined,
+      snapshotItens: dados.snapshotItens as
+        | { nome: string; classe: ClassePatrimonio; valorCents: number; contaId: string | null }[]
+        | undefined,
       observacao: dados.observacao ?? null,
     });
     for (const p of ['/', '/ciclo', '/analise', '/patrimonio', '/fechar-ciclo']) revalidatePath(p);

@@ -592,7 +592,9 @@ export class FakePatrimonioRepo implements PatrimonioRepository {
     return this.cronologicoDesc().slice(0, n).map(clone);
   }
 
-  async criar(snapshot: SnapshotPatrimonio): Promise<SnapshotPatrimonio> {
+  async salvar(snapshot: SnapshotPatrimonio): Promise<SnapshotPatrimonio> {
+    // Espelha o adapter: um snapshot por data, o novo substitui o da mesma data.
+    this.itens = this.itens.filter((s) => s.data !== snapshot.data);
     this.seq += 1;
     const novo: SnapshotPatrimonio = { ...clone(snapshot), id: `snap-${this.seq}` };
     this.itens.push(novo);

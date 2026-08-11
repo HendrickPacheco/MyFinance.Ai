@@ -147,6 +147,12 @@ export interface ItemPatrimonio {
   nome: string;
   classe: ClassePatrimonio;
   valorCents: number;
+  /**
+   * Conta do razão que este item fotografa, quando existe uma. `null` para
+   * patrimônio que o app não movimenta (imóvel, cripto em custódia própria).
+   * Só item ligado entra na conciliação.
+   */
+  contaId: string | null;
 }
 
 export interface SnapshotPatrimonio {

@@ -352,8 +352,18 @@ function semear(tabelas: Tabelas): void {
   );
   tabelas.snapshotPatrimonio.push({ id: 'snap-1', data: '2026-08-05', totalCents: 1_234_568 });
   tabelas.itemPatrimonio.push(
-    { id: 'item-1', snapshotId: 'snap-1', nome: 'Reserva', classe: 'CONTA', valorCents: 1_234_567 },
-    { id: 'item-2', snapshotId: 'snap-1', nome: 'Bitcoin', classe: 'CRIPTO', valorCents: 1 },
+    // `contaId` preenchido de propósito num item e null no outro: o round-trip
+    // tem que preservar o vínculo de conciliação, e perdê-lo em silêncio faria
+    // a tela de patrimônio parar de acusar divergência sem erro nenhum.
+    {
+      id: 'item-1',
+      snapshotId: 'snap-1',
+      nome: 'Reserva',
+      classe: 'CONTA',
+      valorCents: 1_234_567,
+      contaId: 'conta-reserva',
+    },
+    { id: 'item-2', snapshotId: 'snap-1', nome: 'Bitcoin', classe: 'CRIPTO', valorCents: 1, contaId: null },
   );
 
   // Memória do copiloto (Fase E). Sem `embedding` de propósito: o vetor não é

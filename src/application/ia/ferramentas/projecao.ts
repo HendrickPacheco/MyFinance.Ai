@@ -11,7 +11,7 @@
 import type { Deps } from '@/application/deps';
 import { obterProjecao, type ResultadoProjecao } from '@/application/projecao';
 import type { CicloProjetado } from '@/domain/finance';
-import { dinheiros, type SaidaFerramenta } from './saida';
+import { dinheiros, composicaoDaVerba, type SaidaFerramenta } from './saida';
 
 const ORIGEM_PROJECAO = 'domain/finance/projecao.ts: projetarCiclos';
 const ORIGEM_CENARIO = 'domain/finance/projecao.ts: projetarComCenario';
@@ -22,7 +22,9 @@ const MAX_HORIZONTE = 60;
 const FOLGA_HORIZONTE = 2;
 
 const ROTULOS = {
-  verbaVariavel: 'verba do ciclo, antes de descontar parcela',
+  verbaVariavel:
+    'verba do ciclo, com renda − poupança − fixos − provisão JÁ descontados; ' +
+    'só as parcelas ainda não foram',
   parcelasComprometidas: 'já preso em parcelas que caem no ciclo',
   verbaLivre: 'o que sobra de verdade: verba variável menos parcelas',
 } as const;
@@ -33,6 +35,7 @@ function cicloParaSaida(ciclo: CicloProjetado): SaidaFerramenta {
     fim: ciclo.fim,
     diasTotais: ciclo.diasTotais,
     abaixoDoPiso: ciclo.abaixoDoPiso,
+    ...composicaoDaVerba(ciclo),
     ...dinheiros({
       verbaVariavel: ciclo.verbaVariavelCents,
       parcelasComprometidas: ciclo.parcelasComprometidasCents,
