@@ -13,6 +13,7 @@ import type { UsuarioRepository } from '@/domain/ports/usuarios';
 import type { UsoIARepository } from '@/domain/ports/uso-ia';
 import type { MemoriaPort } from '@/domain/ports/memoria';
 import type { EmbeddingPort } from '@/domain/ports/embeddings';
+import type { ConversaPort } from '@/domain/ports/conversa';
 import type {
   ConfigRepository,
   ContaRepository,
@@ -73,4 +74,10 @@ export interface Deps {
    * semântica degrada para "mais recentes primeiro".
    */
   embeddings?: EmbeddingPort;
+  /**
+   * Persistência do histórico do copiloto (Fase 1 do plano de persistência).
+   * Não é opcional como `memorias`/`embeddings`: não depende de nenhuma
+   * extensão externa (é tabela comum), então toda instalação a tem.
+   */
+  conversas: ConversaPort;
 }

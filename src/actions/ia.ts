@@ -25,54 +25,164 @@ import { z } from 'zod';
 import { criarDeps } from '@/composition';
 import { executar, type Resultado } from './resultado';
 import { responder, type RespostaCopiloto } from '@/application/ia/copiloto';
+import {
+  abrirConversa,
+  criarConversa,
+  excluirConversa,
+  historicoDaConversa,
+  listarConversas,
+  obterConversaDoDono,
+  registrarTurno,
+  renomearConversa,
+} from '@/application/ia/conversas';
+import type { Deps } from '@/application/deps';
 import { propostaSchema, type Proposta } from '@/application/ia/propostas';
 import { criarParcelamento, criarTransacao } from '@/application/transacoes';
 import { salvarMemoria } from '@/application/memoria';
-import type { MensagemIA } from '@/domain/ports/ia';
+import type { Conversa, MensagemConversa, Proveniencia } from '@/domain/model/entidades';
 
 /** Uma pergunta longa demais é quase sempre texto colado por engano. */
 const MAX_CARACTERES_PERGUNTA = 1000;
-/** Teto por mensagem do histórico, para uma resposta antiga não inchar a entrada. */
-const MAX_CARACTERES_MENSAGEM = 4000;
-/** Turnos de histórico mantidos, os mais recentes. */
+/**
+ * Turnos de histórico reenviados ao provedor. Agora que o histórico vem do
+ * banco (Fase 2), este teto ainda é a defesa de custo — a entrada cresce com
+ * o histórico, e sem corte uma conversa longa reenviaria tudo a cada turno.
+ */
 const MAX_MENSAGENS_HISTORICO = 20;
 
-const mensagemSchema = z.discriminatedUnion('papel', [
-  z.object({ papel: z.literal('usuario'), conteudo: z.string().max(MAX_CARACTERES_MENSAGEM) }),
-  z.object({ papel: z.literal('assistente'), conteudo: z.string().max(MAX_CARACTERES_MENSAGEM) }),
-]);
-
 const entradaSchema = z.object({
+  /** `null` = criar conversa nova a partir desta pergunta. */
+  conversaId: z.string().min(1).nullable(),
   pergunta: z
     .string()
     .trim()
     .min(1, 'Escreva uma pergunta.')
     .max(MAX_CARACTERES_PERGUNTA, `Pergunta longa demais (máximo ${MAX_CARACTERES_PERGUNTA} caracteres).`),
-  historico: z.array(mensagemSchema).default([]),
 });
 
+export interface RespostaCopilotoComConversa {
+  /** Id da conversa usada — a mesma que veio na entrada, ou a recém-criada. */
+  conversaId: string;
+  resposta: RespostaCopiloto;
+}
+
 /**
- * Só `usuario` e `assistente` entram pelo histórico da UI. Turnos de
- * ferramenta são reconstruídos pelo loop a cada pergunta — aceitar `ferramenta`
- * daqui deixaria o cliente forjar o resultado de uma ferramenta e, com ele,
- * o número que o modelo vai narrar.
+ * Traduz `RespostaCopiloto` (forma da aplicação) para `Proveniencia` (forma
+ * do domínio, persistida). `null` quando não há nada para a UI reconstruir
+ * depois de um reload — resposta de opinião pura, sem ferramenta, proposta
+ * ou alerta.
+ *
+ * ─── FRONTEIRA DE SEGURANÇA ───
+ * O objeto devolvido aqui SÓ viaja para `anexarTurno` (persistência, lido
+ * de volta pela UI). Ele nunca entra em `historicoDaConversa`, que manda ao
+ * provedor apenas `conteudo` das mensagens. Se algum dia este objeto for
+ * serializado de volta para dentro de uma `MensagemIA`, o modelo passaria a
+ * "ver" ferramentas já resolvidas como texto plano, sem precisar chamá-las —
+ * exatamente o que a proveniência existe para não fazer.
  */
-export type MensagemHistorico = z.infer<typeof mensagemSchema>;
+function montarProveniencia(resposta: RespostaCopiloto): Proveniencia | null {
+  const semNadaAGuardar =
+    resposta.ferramentasUsadas.length === 0 &&
+    resposta.valoresCitados.length === 0 &&
+    resposta.valoresInformados.length === 0 &&
+    resposta.valoresNaoRastreados.length === 0 &&
+    resposta.propostas.length === 0 &&
+    !resposta.incompleta;
+  if (semNadaAGuardar) return null;
+
+  return {
+    ferramentasUsadas: resposta.ferramentasUsadas.map((f) => ({
+      nome: f.nome,
+      argumentos: f.argumentos,
+      comoFoiCalculado: f.comoFoiCalculado,
+      falhou: f.falhou,
+    })),
+    valoresCitados: resposta.valoresCitados.map((v) => ({ ...v })),
+    valoresInformados: [...resposta.valoresInformados],
+    valoresNaoRastreados: [...resposta.valoresNaoRastreados],
+    propostas: resposta.propostas.map((p) => ({
+      // `Proposta` é um union discriminado, não um tipo com index signature —
+      // o cast é seguro porque este campo nunca é revalidado a partir daqui;
+      // quem grava (`confirmarProposta`) sempre refaz `propostaSchema.parse`
+      // a partir do que a UI mandar de volta, nunca deste objeto persistido.
+      proposta: p.proposta as unknown as Record<string, unknown>,
+      resumo: p.resumo,
+      detalhes: p.detalhes.map((d) => ({ ...d })),
+    })),
+    semFerramenta: resposta.semFerramenta,
+    incompleta: resposta.incompleta,
+  };
+}
+
+/**
+ * Grava o turno só depois do sucesso do modelo — uma pergunta que o loop
+ * derrubou (teto de IA, provedor fora, limite de turnos) fica órfã de
+ * propósito, nunca meio-turno gravado no histórico.
+ */
+async function persistirTurno(
+  deps: Deps,
+  conversaId: string,
+  pergunta: string,
+  resposta: RespostaCopiloto,
+): Promise<void> {
+  await registrarTurno(deps, conversaId, {
+    pergunta,
+    resposta: resposta.texto,
+    proveniencia: montarProveniencia(resposta),
+  });
+}
 
 export async function perguntarCopiloto(entrada: {
+  conversaId: string | null;
   pergunta: string;
-  historico?: readonly MensagemHistorico[];
-}): Promise<Resultado<RespostaCopiloto>> {
+}): Promise<Resultado<RespostaCopilotoComConversa>> {
   return executar(async () => {
-    const validado = entradaSchema.parse({
-      pergunta: entrada.pergunta,
-      historico: entrada.historico ?? [],
-    });
+    const validado = entradaSchema.parse(entrada);
+    const deps = await criarDeps();
 
-    // Corta pelos mais recentes: são os que dão contexto útil.
-    const historico: MensagemIA[] = validado.historico.slice(-MAX_MENSAGENS_HISTORICO);
+    if (validado.conversaId !== null) {
+      // Validado ANTES de chamar o provedor: um id de outro dono (ou
+      // inexistente) falha aqui, sem gastar nenhum turno de IA.
+      const conversa = await obterConversaDoDono(deps, validado.conversaId);
+      const historico = await historicoDaConversa(deps, conversa.id, MAX_MENSAGENS_HISTORICO);
 
-    return responder(await criarDeps(), { pergunta: validado.pergunta, historico });
+      const resposta = await responder(deps, { pergunta: validado.pergunta, historico });
+      await persistirTurno(deps, conversa.id, validado.pergunta, resposta);
+
+      return { conversaId: conversa.id, resposta };
+    }
+
+    // Conversa nova: não há histórico para carregar, e ela só nasce no banco
+    // DEPOIS do modelo responder — ver o comentário de `persistirTurno`.
+    const resposta = await responder(deps, { pergunta: validado.pergunta, historico: [] });
+    const conversa = await criarConversa(deps, validado.pergunta);
+    await persistirTurno(deps, conversa.id, validado.pergunta, resposta);
+
+    return { conversaId: conversa.id, resposta };
+  });
+}
+
+export async function listarConversasIA(): Promise<Resultado<Conversa[]>> {
+  return executar(async () => listarConversas(await criarDeps()));
+}
+
+export async function abrirConversaIA(
+  id: string,
+): Promise<Resultado<{ conversa: Conversa; mensagens: MensagemConversa[] } | null>> {
+  return executar(async () => abrirConversa(await criarDeps(), id));
+}
+
+export async function renomearConversaIA(id: string, titulo: string): Promise<Resultado<void>> {
+  return executar(async () => {
+    await renomearConversa(await criarDeps(), id, titulo);
+    revalidatePath('/copiloto');
+  });
+}
+
+export async function excluirConversaIA(id: string): Promise<Resultado<void>> {
+  return executar(async () => {
+    await excluirConversa(await criarDeps(), id);
+    revalidatePath('/copiloto');
   });
 }
 
