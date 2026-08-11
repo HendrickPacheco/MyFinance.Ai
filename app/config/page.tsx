@@ -1,16 +1,12 @@
 import Link from 'next/link';
-import { Database, RefreshCw } from 'lucide-react';
+import { Database, Receipt, RefreshCw } from 'lucide-react';
 import { criarDeps } from '@/composition';
 import { obterEstadoConfig } from '@/application/config';
+import { previaRecalculoCicloAtual } from '@/application/ciclos';
 import { formatBRL } from '@/shared/dinheiro';
 import { verbaVariavelCents, poupancaAlvoCents } from '@/domain/finance';
 import { ConfigGeral } from '@/components/config/config-geral';
-import {
-  ListaContas,
-  ListaCustos,
-  ListaProvisoes,
-  ListaCategorias,
-} from '@/components/config/gerenciadores';
+import { ListaContas, ListaCategorias } from '@/components/config/gerenciadores';
 import { RecalcularCiclo } from '@/components/config/recalcular-ciclo';
 
 import { SomenteDono } from '@/components/auth/somente-dono';
@@ -19,7 +15,10 @@ export const dynamic = 'force-dynamic';
 
 async function ConfigPageConteudo() {
   const deps = await criarDeps();
-  const estado = await obterEstadoConfig(deps);
+  const [estado, previaRecalculo] = await Promise.all([
+    obterEstadoConfig(deps),
+    previaRecalculoCicloAtual(deps),
+  ]);
   const { config, fixosTotalCents, provisaoMensalCents } = estado;
 
   const poupanca = poupancaAlvoCents({
@@ -68,11 +67,33 @@ async function ConfigPageConteudo() {
         sugestaoMetaPoupancaCents={estado.sugestaoMetaPoupancaCents}
       />
       <ListaContas contas={estado.contas} />
-      <ListaCustos custos={estado.custosFixos} />
-      <ListaProvisoes provisoes={estado.provisoes} />
+
+      {/* O CRUD de custos fixos e provisões vive em /custos/fixos. Deixar uma
+          segunda cópia dele aqui seria dois caminhos de escrita para o mesmo
+          dado — fábrica de bug. Esta linha é a ponte, no padrão do card de
+          Backup logo abaixo. */}
+      <Link
+        href="/custos/fixos"
+        className="flex items-center justify-between rounded-[var(--radius-card)] border border-border bg-surface p-5 hover:border-border-strong"
+      >
+        <div className="flex items-center gap-3">
+          <Receipt size={18} className="text-accent" aria-hidden />
+          <div>
+            <p className="text-fg">Custos fixos e provisões</p>
+            <p className="tnum text-sm text-muted">
+              Cadastrar, editar e desativar · {formatBRL(fixosTotalCents)} +{' '}
+              {formatBRL(provisaoMensalCents)} por mês
+            </p>
+          </div>
+        </div>
+        <span className="text-faint" aria-hidden>
+          →
+        </span>
+      </Link>
+
       <ListaCategorias categorias={estado.categorias} />
 
-      <RecalcularCiclo />
+      <RecalcularCiclo previa={previaRecalculo} />
 
       <Link
         href="/config/backup"

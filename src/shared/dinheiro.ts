@@ -24,6 +24,24 @@ export function formatBRL(cents: number): string {
 }
 
 /**
+ * Formata centavos como decimal pt-BR SEM símbolo e SEM separador de milhar:
+ * 123456 -> "1234,56"; -50 -> "-0,50".
+ *
+ * É o formato de célula de planilha (CSV): a vírgula decimal é o que o Excel
+ * pt-BR entende como número, e o ponto de milhar de `formatBRL` faria a coluna
+ * chegar como texto. Aritmética de inteiros, nunca `toFixed` sobre float —
+ * dinheiro não passa por `Number` decimal em ponto nenhum (regra 1).
+ */
+export function formatarDecimalBR(cents: number): string {
+  assertCentavos(cents, 'cents');
+  const sinal = cents < 0 ? '-' : '';
+  const absoluto = Math.abs(cents);
+  const inteiros = Math.floor(absoluto / CENTAVOS_POR_UNIDADE);
+  const centavos = absoluto % CENTAVOS_POR_UNIDADE;
+  return `${sinal}${inteiros},${String(centavos).padStart(2, '0')}`;
+}
+
+/**
  * Converte uma entrada digitada pelo usuário em centavos inteiros.
  * Aceita "R$ 1.234,56", "1.234,56", "1234,56", "1234", "50".
  * Regra BR: ponto é separador de milhar, vírgula é decimal.

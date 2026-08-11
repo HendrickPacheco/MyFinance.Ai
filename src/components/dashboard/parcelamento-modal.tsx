@@ -31,6 +31,7 @@ import { X } from 'lucide-react';
 import { formatBRL } from '@/shared/dinheiro';
 import { cn } from '@/lib/cn';
 import { criarParcelamento } from '@/actions/transacoes';
+import { editarParcelamento } from '@/actions/parcelamentos';
 import { Button, Input, Label, Modal, Select } from '@/components/ui';
 import { METODO_PAGAMENTO, type MetodoPagamento } from '@/domain/model/enums';
 import type { OpcaoCategoria } from '@/application/dashboard-tipos';
@@ -52,14 +53,61 @@ const ROTULO_METODO: Record<MetodoPagamento, string> = {
   BOLETO: 'Boleto',
 };
 
+/**
+ * O que a Fase 8 precisa para EDITAR uma compra existente neste mesmo modal.
+ * `travadoPor` é a razão pela qual os campos financeiros ficam desabilitados —
+ * quando é `null`, tudo é editável.
+ */
+export interface ParcelamentoEmEdicao {
+  id: string;
+  descricao: string;
+  valorTotalCents: number;
+  numParcelas: number;
+  dataCompra: DataCivil;
+  categoriaId: string | null;
+  metodo: MetodoPagamento | null;
+  travadoPor: {
+    parcelasPagas: number;
+    parcelasEmCicloFechado: number;
+    encerrado: boolean;
+  } | null;
+}
+
 export interface ParcelamentoModalProps {
   /** Data civil de hoje, vinda do read-model — nunca de `new Date()` local. */
   hoje: DataCivil;
   /** VARIAVEL primeiro, já ordenadas por frequência de uso — não reordenar. */
   categorias: OpcaoCategoria[];
+  /**
+   * Presente => modal CONTROLADO em modo edição (TASKS-CUSTOS Fase 8).
+   * Ausente => o modal de criação de sempre, aberto por evento de `window`.
+   * A separação é por presença da prop, e não por um enum de modo, para o
+   * caminho de criação continuar byte a byte o que era.
+   */
+  edicao?: {
+    /** `null` mantém o modal fechado. */
+    alvo: ParcelamentoEmEdicao | null;
+    onFechar: () => void;
+    onSalvo: (mensagem: string) => void;
+  };
 }
 
-export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) {
+/**
+ * Explicação do campo travado (§4.3, último parágrafo). Campo desabilitado
+ * COM explicação é melhor que campo habilitado que falha no submit — e a
+ * explicação precisa dizer o que fazer, não só que não dá.
+ */
+function textoDaTrava(travadoPor: NonNullable<ParcelamentoEmEdicao['travadoPor']>): string {
+  if (travadoPor.encerrado) {
+    return 'Esta compra já foi encerrada — as futuras foram canceladas. Para um novo valor, crie outra compra.';
+  }
+  if (travadoPor.parcelasPagas > 0) {
+    return `Já há ${travadoPor.parcelasPagas} ${travadoPor.parcelasPagas === 1 ? 'parcela paga' : 'parcelas pagas'} — trocar o valor reescreveria ciclos fechados. Para mudar, cancele as futuras e crie outra compra.`;
+  }
+  return `Há ${travadoPor.parcelasEmCicloFechado} ${travadoPor.parcelasEmCicloFechado === 1 ? 'parcela' : 'parcelas'} em ciclo fechado — trocar o valor reescreveria o que já foi apurado. Para mudar, cancele as futuras e crie outra compra.`;
+}
+
+export function ParcelamentoModal({ hoje, categorias, edicao }: ParcelamentoModalProps) {
   // Mesma trava de UX do LancamentoPainel: esconder o botão não protege nada
   // (a trava real é `exigirEscrita` no caso de uso), isto só evita oferecer a
   // um VIEWER um formulário que o servidor vai recusar.
@@ -79,17 +127,46 @@ export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) 
 
   const [pending, startTransition] = React.useTransition();
   const [erro, setErro] = React.useState<string | null>(null);
+  /**
+   * Segundo passo da guarda de retroatividade (R2): o servidor recusou porque
+   * a edição alcança ciclo fechado. Guardamos os ciclos para o aviso e
+   * reenviamos com `confirmarRetroativo`.
+   */
+  const [ciclosRetroativos, setCiclosRetroativos] = React.useState<string[] | null>(null);
 
   const semCategorias = categorias.length === 0;
+  const alvo = edicao?.alvo ?? null;
+  const editando = alvo != null;
+  const travadoPor = alvo?.travadoPor ?? null;
+  const idHintTrava = 'parcelamento-trava-hint';
 
   React.useEffect(() => {
+    // Em modo edição o modal é controlado por props — escutar o evento global
+    // aqui faria o botão "Nova compra parcelada" do painel abrir também este.
+    if (edicao) return;
     function handleAbrirEvento() {
       setErro(null);
       setOpen(true);
     }
     window.addEventListener(EVENTO_ABRIR_PARCELAMENTO, handleAbrirEvento);
     return () => window.removeEventListener(EVENTO_ABRIR_PARCELAMENTO, handleAbrirEvento);
-  }, []);
+  }, [edicao]);
+
+  // Prefill: cada alvo novo repovoa o formulário. Depende do `id` (e não do
+  // objeto) para uma revalidação do servidor não descartar o que o dono está
+  // digitando enquanto o modal está aberto.
+  React.useEffect(() => {
+    if (!alvo) return;
+    setCentavos(alvo.valorTotalCents);
+    setDescricao(alvo.descricao);
+    setNumParcelas(String(alvo.numParcelas));
+    setDataCompra(alvo.dataCompra);
+    setCategoriaId(alvo.categoriaId ?? '');
+    setMetodo(alvo.metodo ?? '');
+    setErro(null);
+    setCiclosRetroativos(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alvo?.id]);
 
   const resetarFormulario = React.useCallback(() => {
     setCentavos(0);
@@ -153,8 +230,72 @@ export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) 
   );
 
   const fechar = React.useCallback(() => {
+    if (edicao) {
+      setCiclosRetroativos(null);
+      edicao.onFechar();
+      return;
+    }
     setOpen(false);
-  }, []);
+  }, [edicao]);
+
+  /**
+   * Salva a edição. `confirmarRetroativo` só é `true` no SEGUNDO envio, depois
+   * de o dono ler quantos ciclos fechados a mudança alcança — nunca embutido
+   * no primeiro, que é o jeito de a guarda deixar de guardar.
+   */
+  const salvarEdicao = React.useCallback(
+    (id: string, confirmarRetroativo: boolean) => {
+      startTransition(async () => {
+        const r = await editarParcelamento(
+          id,
+          {
+            descricao: descricao.trim(),
+            categoriaId: categoriaId === '' ? null : categoriaId,
+            metodo: metodo === '' ? null : metodo,
+            // Campos financeiros só viajam quando estão realmente liberados:
+            // mandá-los travados faria o servidor recusar com
+            // `ParcelamentoImutavelError` uma edição só de descrição.
+            ...(travadoPor
+              ? {}
+              : {
+                  valorTotalCents: centavos,
+                  numParcelas: Number(numParcelas),
+                  dataCompra,
+                }),
+          },
+          confirmarRetroativo,
+        );
+        if (r.ok) {
+          setCiclosRetroativos(null);
+          edicao?.onSalvo('Compra parcelada salva.');
+          router.refresh();
+          return;
+        }
+        if (r.requerConfirmacao) {
+          setCiclosRetroativos(r.ciclosAfetados ?? []);
+          setErro(null);
+          return;
+        }
+        // `ParcelamentoImutavelError`, `ParcelamentoEncerradoError` e
+        // `CategoriaInvalidaParaParcelaError` já chegam aqui com mensagem
+        // acionável, montada no caso de uso. Nenhum erro cru do Prisma passa:
+        // `executarComConfirmacao` só deixa `Error.message` sair.
+        setErro(r.erro);
+        setCiclosRetroativos(null);
+      });
+    },
+    [
+      descricao,
+      categoriaId,
+      metodo,
+      travadoPor,
+      centavos,
+      numParcelas,
+      dataCompra,
+      edicao,
+      router,
+    ],
+  );
 
   const handleSubmit = React.useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
@@ -164,18 +305,25 @@ export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) 
         descricaoRef.current?.focus();
         return;
       }
-      if (centavos <= 0) {
-        setErro('Digite um valor total maior que zero.');
-        valorRef.current?.focus();
-        return;
-      }
-      const n = Number(numParcelas);
-      if (!Number.isInteger(n) || n < MIN_PARCELAS || n > MAX_PARCELAS) {
-        setErro(`Número de parcelas deve ser entre ${MIN_PARCELAS} e ${MAX_PARCELAS}.`);
-        return;
+      if (!editando || !travadoPor) {
+        if (centavos <= 0) {
+          setErro('Digite um valor total maior que zero.');
+          valorRef.current?.focus();
+          return;
+        }
+        const n = Number(numParcelas);
+        if (!Number.isInteger(n) || n < MIN_PARCELAS || n > MAX_PARCELAS) {
+          setErro(`Número de parcelas deve ser entre ${MIN_PARCELAS} e ${MAX_PARCELAS}.`);
+          return;
+        }
       }
       if (!categoriaId) {
         setErro('Escolha uma categoria antes de salvar.');
+        return;
+      }
+
+      if (alvo) {
+        salvarEdicao(alvo.id, false);
         return;
       }
 
@@ -183,7 +331,7 @@ export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) 
         const r = await criarParcelamento({
           descricao: descricao.trim(),
           valorTotalCents: centavos,
-          numParcelas: n,
+          numParcelas: Number(numParcelas),
           dataCompra,
           categoriaId,
           metodo: metodo === '' ? null : metodo,
@@ -197,13 +345,28 @@ export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) 
         }
       });
     },
-    [descricao, centavos, numParcelas, categoriaId, metodo, dataCompra, resetarFormulario, router],
+    [
+      descricao,
+      centavos,
+      numParcelas,
+      categoriaId,
+      metodo,
+      dataCompra,
+      resetarFormulario,
+      router,
+      editando,
+      travadoPor,
+      alvo,
+      salvarEdicao,
+    ],
   );
 
+  const titulo = editando ? `Editar “${alvo?.descricao ?? ''}”` : 'Nova compra parcelada';
+
   return (
-    <Modal open={open} onClose={fechar} ariaLabel="Nova compra parcelada">
+    <Modal open={editando ? true : open} onClose={fechar} ariaLabel={titulo}>
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-fg">Nova compra parcelada</h2>
+        <h2 className="text-lg font-semibold text-fg">{titulo}</h2>
         <button
           type="button"
           onClick={fechar}
@@ -237,11 +400,13 @@ export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) 
             id="parcelamento-valor"
             inputMode="numeric"
             autoComplete="off"
+            disabled={travadoPor != null}
             value={formatBRL(centavos)}
             onKeyDown={handleValorKeyDown}
             onChange={() => {
               /* controlado só por onKeyDown — evita digitação livre sobre dinheiro */
             }}
+            aria-describedby={travadoPor ? idHintTrava : undefined}
             className={cn('tnum text-right', centavos > 0 ? 'text-fg' : 'text-faint')}
           />
         </div>
@@ -255,11 +420,22 @@ export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) 
             max={MAX_PARCELAS}
             step={1}
             inputMode="numeric"
+            disabled={travadoPor != null}
             value={numParcelas}
             onChange={(e) => setNumParcelas(e.target.value)}
+            aria-describedby={travadoPor ? idHintTrava : undefined}
             className="tnum"
           />
         </div>
+
+        {travadoPor ? (
+          // O hint fica ENTRE os campos travados e a data, descrevendo os três
+          // por `aria-describedby`. Campo desabilitado sem explicação é a
+          // versão silenciosa do mesmo defeito que ele evita (§4.3).
+          <p id={idHintTrava} className="col-span-2 -mt-1 text-xs text-muted">
+            {textoDaTrava(travadoPor)}
+          </p>
+        ) : null}
 
         <div>
           <Label htmlFor="parcelamento-categoria">Categoria</Label>
@@ -299,14 +475,40 @@ export function ParcelamentoModal({ hoje, categorias }: ParcelamentoModalProps) 
           <Input
             id="parcelamento-data"
             type="date"
+            disabled={travadoPor != null}
             value={dataCompra}
             onChange={(e) => setDataCompra(e.target.value)}
+            aria-describedby={travadoPor ? idHintTrava : undefined}
           />
         </div>
 
+        {ciclosRetroativos ? (
+          <div className="col-span-2 rounded-xl border border-border-strong bg-surface-2 p-3">
+            <p className="text-sm text-fg">Esta transação pertence a um ciclo já fechado.</p>
+            <p className="mt-1 text-xs text-muted">
+              {ciclosRetroativos.length} {ciclosRetroativos.length === 1 ? 'ciclo' : 'ciclos'} já
+              apurados serão recalculados. Os gastos já lançados não mudam.
+            </p>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="ghost" type="button" onClick={() => setCiclosRetroativos(null)}>
+                Voltar
+              </Button>
+              <Button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  if (alvo) salvarEdicao(alvo.id, true);
+                }}
+              >
+                Salvar e recalcular
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="col-span-2 mt-1 flex justify-end">
-          <Button type="submit" disabled={pending || semCategorias}>
-            Salvar parcelamento
+          <Button type="submit" disabled={pending || semCategorias || ciclosRetroativos !== null}>
+            {editando ? 'Salvar alterações' : 'Salvar parcelamento'}
           </Button>
         </div>
       </form>

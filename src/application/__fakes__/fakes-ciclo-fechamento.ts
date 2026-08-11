@@ -6,17 +6,18 @@
  * centavos; data civil é sempre string "YYYY-MM-DD".
  */
 import type { RelogioPort } from '@/domain/ports/relogio';
-import type {
-  ConfigRepository,
-  ContaRepository,
-  CategoriaRepository,
-  CustoFixoRepository,
-  PagamentoFixoRepository,
-  ProvisaoRepository,
-  TransacaoRepository,
-  ParcelamentoRepository,
-  CicloRepository,
-  PatrimonioRepository,
+import {
+  RestricaoDeIntegridadeError,
+  type ConfigRepository,
+  type ContaRepository,
+  type CategoriaRepository,
+  type CustoFixoRepository,
+  type PagamentoFixoRepository,
+  type ProvisaoRepository,
+  type TransacaoRepository,
+  type ParcelamentoRepository,
+  type CicloRepository,
+  type PatrimonioRepository,
 } from '@/domain/ports/repositorios';
 import type {
   Categoria,
@@ -164,6 +165,7 @@ export class FakeCicloRepo implements CicloRepository {
 
 export class FakeContaRepo implements ContaRepository {
   public ajustes: Array<{ id: string; deltaCents: number }> = [];
+  private seq = 0;
   constructor(public itens: Conta[] = []) {}
 
   async listar(opcoes?: { incluirArquivadas?: boolean }): Promise<Conta[]> {
@@ -176,10 +178,23 @@ export class FakeContaRepo implements ContaRepository {
     return c ? clone(c) : null;
   }
 
+  /**
+   * Espelha `PrismaContaRepository.salvar`: `id` vazio é criação (o adapter
+   * deixa o Postgres gerar o cuid; aqui geramos um id sequencial), `id`
+   * preenchido é update por id existente. Sem isto, dois `criar` seguidos com
+   * `id: ''` (como `contaSchema` em `actions/config.ts` monta) colidiam no
+   * mesmo item — o segundo `findIndex` casava com o primeiro e o sobrescrevia.
+   */
   async salvar(conta: Conta): Promise<Conta> {
+    if (!conta.id) {
+      this.seq += 1;
+      const criada: Conta = { ...clone(conta), id: `conta-${this.seq}` };
+      this.itens.push(criada);
+      return clone(criada);
+    }
     const i = this.itens.findIndex((c) => c.id === conta.id);
-    if (i < 0) this.itens.push(clone(conta));
-    else this.itens[i] = clone(conta);
+    if (i < 0) throw new Error(`conta inexistente: ${conta.id}`);
+    this.itens[i] = clone(conta);
     return clone(conta);
   }
 
@@ -199,6 +214,7 @@ export class FakeContaRepo implements ContaRepository {
 }
 
 export class FakeCategoriaRepo implements CategoriaRepository {
+  private seq = 0;
   constructor(public itens: Categoria[] = []) {}
 
   async listar(): Promise<Categoria[]> {
@@ -210,22 +226,75 @@ export class FakeCategoriaRepo implements CategoriaRepository {
     return c ? clone(c) : null;
   }
 
+  /** Espelha `PrismaCategoriaRepository.salvar` — ver comentário em `FakeContaRepo.salvar`. */
   async salvar(categoria: Categoria): Promise<Categoria> {
-    this.itens.push(clone(categoria));
+    if (!categoria.id) {
+      this.seq += 1;
+      const criada: Categoria = { ...clone(categoria), id: `cat-${this.seq}` };
+      this.itens.push(criada);
+      return clone(criada);
+    }
+    const i = this.itens.findIndex((c) => c.id === categoria.id);
+    if (i < 0) throw new Error(`categoria inexistente: ${categoria.id}`);
+    this.itens[i] = clone(categoria);
     return clone(categoria);
   }
 }
 
 export class FakeCustoFixoRepo implements CustoFixoRepository {
+  private seq = 0;
   constructor(public itens: CustoFixo[] = []) {}
 
   async listarAtivos(): Promise<CustoFixo[]> {
     return this.itens.filter((c) => c.ativo).map(clone);
   }
 
+  async listarTodos(): Promise<CustoFixo[]> {
+    return this.itens.map(clone);
+  }
+
+  async obter(id: string): Promise<CustoFixo | null> {
+    const c = this.itens.find((x) => x.id === id);
+    return c ? clone(c) : null;
+  }
+
+  /**
+   * Espelha `PrismaCustoFixoRepository.salvar` — ver comentário em
+   * `FakeContaRepo.salvar`. Sem isto, criar DOIS custos fixos novos (ambos
+   * chegando com `id: ''`, como `custoSchema` em `actions/config.ts` monta)
+   * fazia o segundo `findIndex` casar com o primeiro (id === '' === '') e
+   * sobrescrevê-lo: dois custos criados viravam 1 item no fake e 2 linhas
+   * reais no Postgres — teste verde, produção divergente.
+   */
   async salvar(custo: CustoFixo): Promise<CustoFixo> {
-    this.itens.push(clone(custo));
+    if (!custo.id) {
+      this.seq += 1;
+      const criado: CustoFixo = { ...clone(custo), id: `cf-${this.seq}` };
+      this.itens.push(criado);
+      return clone(criado);
+    }
+    const i = this.itens.findIndex((c) => c.id === custo.id);
+    if (i < 0) throw new Error(`custo fixo inexistente: ${custo.id}`);
+    this.itens[i] = clone(custo);
     return clone(custo);
+  }
+
+  /**
+   * Reproduz a FK Restrict do schema: quem tem pagamento registrado não é
+   * apagável. O fake não conhece `PagamentoFixo`, então o teste injeta os ids
+   * bloqueados aqui — senão o caso de uso passaria no fake e quebraria no banco.
+   * Lança a MESMA classe que o adapter Prisma real traduz do P2003, para o
+   * caso de uso exercitar o mesmo caminho de backstop nos dois ambientes.
+   */
+  public bloqueadosPorPagamento = new Set<string>();
+
+  async excluir(id: string): Promise<void> {
+    if (this.bloqueadosPorPagamento.has(id)) {
+      throw new RestricaoDeIntegridadeError('Custo fixo');
+    }
+    const i = this.itens.findIndex((c) => c.id === id);
+    if (i < 0) throw new Error(`custo fixo inexistente: ${id}`);
+    this.itens.splice(i, 1);
   }
 }
 
@@ -260,19 +329,67 @@ export class FakePagamentoFixoRepo implements PagamentoFixoRepository {
       (p) => !(p.custoFixoId === custoFixoId && p.cicloId === cicloId),
     );
   }
+
+  async contarPorCustoFixo(custoFixoId: string): Promise<number> {
+    return this.itens.filter((p) => p.custoFixoId === custoFixoId).length;
+  }
+
+  async contarPorCustoFixoAgrupado(): Promise<Record<string, number>> {
+    const contagem: Record<string, number> = {};
+    for (const p of this.itens) {
+      contagem[p.custoFixoId] = (contagem[p.custoFixoId] ?? 0) + 1;
+    }
+    return contagem;
+  }
 }
 
 export class FakeProvisaoRepo implements ProvisaoRepository {
   public ajustes: Array<{ id: string; deltaCents: number }> = [];
+  private seq = 0;
   constructor(public itens: ProvisaoAnual[] = []) {}
 
   async listarAtivas(): Promise<ProvisaoAnual[]> {
     return this.itens.filter((p) => p.ativo).map(clone);
   }
 
+  async listarTodas(): Promise<ProvisaoAnual[]> {
+    return this.itens.map(clone);
+  }
+
+  async obter(id: string): Promise<ProvisaoAnual | null> {
+    const p = this.itens.find((x) => x.id === id);
+    return p ? clone(p) : null;
+  }
+
+  /** Espelha `PrismaProvisaoRepository.salvar` — ver comentário em `FakeCustoFixoRepo.salvar`. */
   async salvar(provisao: ProvisaoAnual): Promise<ProvisaoAnual> {
-    this.itens.push(clone(provisao));
+    if (!provisao.id) {
+      this.seq += 1;
+      const criada: ProvisaoAnual = { ...clone(provisao), id: `prov-${this.seq}` };
+      this.itens.push(criada);
+      return clone(criada);
+    }
+    const i = this.itens.findIndex((p) => p.id === provisao.id);
+    if (i < 0) throw new Error(`provisão inexistente: ${provisao.id}`);
+    this.itens[i] = clone(provisao);
     return clone(provisao);
+  }
+
+  /**
+   * Reproduz a FK Restrict de `Transacao.provisaoId`: provisão com gasto
+   * lançado não é apagável. Espelha `bloqueadosPorPagamento` de
+   * `FakeCustoFixoRepo`, lançando a mesma classe que o adapter Prisma real
+   * traduz do P2003.
+   */
+  public bloqueadosPorGasto = new Set<string>();
+
+  async excluir(id: string): Promise<void> {
+    if (this.bloqueadosPorGasto.has(id)) {
+      throw new RestricaoDeIntegridadeError('Provisão');
+    }
+    const i = this.itens.findIndex((p) => p.id === id);
+    if (i < 0) throw new Error(`provisão inexistente: ${id}`);
+    this.itens.splice(i, 1);
   }
 
   async ajustarAcumulado(id: string, deltaCents: number): Promise<void> {
@@ -292,7 +409,66 @@ export class FakeProvisaoRepo implements ProvisaoRepository {
 
 export class FakeTransacaoRepo implements TransacaoRepository {
   private seq = 0;
-  constructor(public itens: Transacao[] = []) {}
+  constructor(
+    public itens: Transacao[] = [],
+    /**
+     * Repositórios auxiliares que `aplicarLote` precisa tocar dentro da mesma
+     * "transação". Opcionais para não quebrar quem instancia o fake sozinho;
+     * `criarDeps` sempre os liga.
+     */
+    private contas?: FakeContaRepo,
+    private provisoes?: FakeProvisaoRepo,
+  ) {}
+
+  /**
+   * Injeção de falha para testar ATOMICIDADE (§5.1 ticket 1). Quando definido,
+   * `aplicarLote` lança depois de validar a entrada e ANTES de mutar qualquer
+   * array — reproduzindo o rollback de um `$transaction` que aborta.
+   */
+  public falharNoLote: string | null = null;
+  /** Quantas vezes `aplicarLote` foi chamado — prova que o caminho é um só. */
+  public lotesAplicados = 0;
+
+  ligarBuckets(contas: FakeContaRepo, provisoes: FakeProvisaoRepo): void {
+    this.contas = contas;
+    this.provisoes = provisoes;
+  }
+
+  /**
+   * Espelha o `$transaction` do adapter Prisma: ou tudo acontece, ou nada.
+   * Como o fake é síncrono depois do guard, uma falha injetada não deixa
+   * estado pela metade — que é exatamente a garantia que o teste precisa
+   * provar (saldo creditado de parcela que continuaria viva).
+   */
+  async aplicarLote(lote: {
+    excluir?: readonly string[];
+    criar?: readonly Transacao[];
+    ajustesConta?: readonly { contaId: string; deltaCents: number }[];
+    ajustesProvisao?: readonly { provisaoId: string; deltaCents: number }[];
+  }): Promise<Transacao[]> {
+    this.lotesAplicados += 1;
+    if (this.falharNoLote) throw new Error(this.falharNoLote);
+
+    const aExcluir = new Set(lote.excluir ?? []);
+    this.itens = this.itens.filter((t) => !aExcluir.has(t.id));
+
+    const criadas: Transacao[] = [];
+    for (const t of lote.criar ?? []) {
+      this.seq += 1;
+      const nova: Transacao = { ...clone(t), id: `tx-${this.seq}` };
+      this.itens.push(nova);
+      criadas.push(clone(nova));
+    }
+
+    for (const a of lote.ajustesConta ?? []) {
+      if (a.deltaCents !== 0) await this.contas?.ajustarSaldo(a.contaId, a.deltaCents);
+    }
+    for (const a of lote.ajustesProvisao ?? []) {
+      if (a.deltaCents !== 0) await this.provisoes?.ajustarAcumulado(a.provisaoId, a.deltaCents);
+    }
+
+    return criadas;
+  }
 
   async obter(id: string): Promise<Transacao | null> {
     const t = this.itens.find((x) => x.id === id);
@@ -305,6 +481,13 @@ export class FakeTransacaoRepo implements TransacaoRepository {
 
   async listarPorIntervalo(inicio: DataCivil, fim: DataCivil): Promise<Transacao[]> {
     return this.itens.filter((t) => t.data >= inicio && t.data <= fim).map(clone);
+  }
+
+  async listarPorParcelamento(parcelamentoId: string): Promise<Transacao[]> {
+    return this.itens
+      .filter((t) => t.parcelamentoId === parcelamentoId)
+      .sort((a, b) => a.data.localeCompare(b.data) || (a.parcelaNum ?? 0) - (b.parcelaNum ?? 0))
+      .map(clone);
   }
 
   async criar(transacao: Transacao): Promise<Transacao> {
@@ -369,6 +552,26 @@ export class FakeParcelamentoRepo implements ParcelamentoRepository {
   async listarPorIds(ids: readonly string[]): Promise<Parcelamento[]> {
     const conjunto = new Set(ids);
     return this.itens.filter((p) => conjunto.has(p.id)).map(clone);
+  }
+
+  async listar(): Promise<Parcelamento[]> {
+    return [...this.itens].sort((a, b) => b.dataCompra.localeCompare(a.dataCompra)).map(clone);
+  }
+
+  async obter(id: string): Promise<Parcelamento | null> {
+    const p = this.itens.find((x) => x.id === id);
+    return p ? clone(p) : null;
+  }
+
+  async atualizar(id: string, patch: Partial<Parcelamento>): Promise<Parcelamento> {
+    const i = this.itens.findIndex((p) => p.id === id);
+    const alvo = this.itens[i];
+    if (!alvo) throw new Error(`parcelamento inexistente: ${id}`);
+    // Espelha o adapter Prisma: `id` nunca é paciente de patch.
+    const { id: _id, ...dados } = clone(patch);
+    const atualizado: Parcelamento = { ...alvo, ...dados };
+    this.itens[i] = atualizado;
+    return clone(atualizado);
   }
 }
 
@@ -570,6 +773,12 @@ export interface OpcoesFakeDeps {
   ator?: Ator;
   usuarios?: Usuario[];
   sessaoAtual?: Ator | null;
+  /**
+   * Cadastros de parcelamento já existentes. Antes era o único repositório
+   * sem semente em `OpcoesFakeDeps` (§5.1 ticket 0) e os testes contornavam
+   * com `deps.parcelamentos.itens.push(...)`.
+   */
+  parcelamentos?: Parcelamento[];
   /** Uso de IA já acumulado no dia, para testar o teto de custo. */
   usoIA?: UsoIADia;
   /** Memórias já existentes (Fase E). */
@@ -721,6 +930,12 @@ export class FakeEmbedding implements EmbeddingPort {
 
 export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
   const config = opcoes.config === undefined ? clone(CONFIG_PADRAO) : opcoes.config;
+  // `aplicarLote` mexe em saldo de conta e acumulado de provisão dentro da
+  // mesma "transação", então o fake de transações precisa enxergar os outros
+  // dois — do mesmo jeito que o adapter Prisma enxerga as três tabelas.
+  const contas = new FakeContaRepo(opcoes.contas ?? []);
+  const provisoes = new FakeProvisaoRepo(opcoes.provisoes ?? []);
+  const transacoes = new FakeTransacaoRepo(opcoes.transacoes ?? [], contas, provisoes);
   return {
     ator: opcoes.ator ?? ATOR_OWNER,
     usuarios: new FakeUsuarioRepo(opcoes.usuarios ?? []),
@@ -729,13 +944,13 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     rateLimiter: new FakeRateLimiter(),
     relogio: opcoes.relogio ?? new RelogioFixo(opcoes.hoje ?? '2026-07-20'),
     config: new FakeConfigRepo(config),
-    contas: new FakeContaRepo(opcoes.contas ?? []),
+    contas,
     categorias: new FakeCategoriaRepo(opcoes.categorias ?? [CATEGORIA_VARIAVEL, CATEGORIA_FIXA]),
     custosFixos: new FakeCustoFixoRepo(opcoes.custosFixos ?? []),
     pagamentosFixos: new FakePagamentoFixoRepo(opcoes.pagamentosFixos ?? []),
-    provisoes: new FakeProvisaoRepo(opcoes.provisoes ?? []),
-    transacoes: new FakeTransacaoRepo(opcoes.transacoes ?? []),
-    parcelamentos: new FakeParcelamentoRepo(),
+    provisoes,
+    transacoes,
+    parcelamentos: new FakeParcelamentoRepo(opcoes.parcelamentos ?? []),
     ciclos: new FakeCicloRepo(opcoes.ciclos ?? []),
     patrimonio: new FakePatrimonioRepo(opcoes.snapshots ?? []),
     usoIA: new FakeUsoIARepo(

@@ -1,6 +1,7 @@
 'use client';
 
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
+import { formatarDataCurta } from '@/shared/data';
 import { formatBRL } from '@/shared/dinheiro';
 import type { Transacao } from '@/domain/model/entidades';
 
@@ -40,7 +41,3 @@ export function TransacoesSemCategoria({ transacoes }: { transacoes: readonly Tr
   );
 }
 
-function formatarDataCurta(data: string): string {
-  const [, mes, dia] = data.split('-');
-  return `${dia}/${mes}`;
-}

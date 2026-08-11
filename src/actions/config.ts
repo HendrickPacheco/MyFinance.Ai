@@ -11,8 +11,24 @@ import {
   upsertProvisao as ucProvisao,
   upsertCategoria as ucCategoria,
 } from '@/application/config';
+import {
+  desativarCustoFixo as ucDesativarCusto,
+  reativarCustoFixo as ucReativarCusto,
+  excluirCustoFixo as ucExcluirCusto,
+  desativarProvisao as ucDesativarProvisao,
+  reativarProvisao as ucReativarProvisao,
+  excluirProvisao as ucExcluirProvisao,
+} from '@/application/custos';
 import { criarSnapshot as ucSnapshot } from '@/application/patrimonio';
-import type { Categoria, Conta, CustoFixo, ProvisaoAnual } from '@/domain/model/entidades';
+import type {
+  ResultadoUpsertCustoFixo,
+  ResultadoUpsertProvisao,
+} from '@/application/config';
+import type { EfeitoNoCicloAtual } from '@/application/ciclos';
+import type { Categoria, Conta } from '@/domain/model/entidades';
+
+/** Data civil "YYYY-MM-DD" (regra 2 do CLAUDE.md — nunca DateTime). */
+const dataCivil = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve estar em YYYY-MM-DD');
 
 const configSchema = z.object({
   rendaBaseCents: z.number().int().nonnegative(),
@@ -69,24 +85,135 @@ export async function upsertConta(input: z.input<typeof contaSchema>): Promise<R
   });
 }
 
-const custoSchema = z.object({
-  id: z.string().default(''),
-  nome: z.string().min(1),
-  valorCents: z.number().int().nonnegative(),
-  diaVencimento: z.number().int().min(1).max(31),
-  ativo: z.boolean().default(true),
-  contaId: z.string().nullish(),
-});
+const custoSchema = z
+  .object({
+    id: z.string().default(''),
+    nome: z.string().min(1),
+    valorCents: z.number().int().nonnegative(),
+    diaVencimento: z.number().int().min(1).max(31),
+    ativo: z.boolean().default(true),
+    contaId: z.string().nullish(),
+    // Vigência: hints de projeção futura. Ausente = custo constante, que é como
+    // todos os custos existentes se comportam — o campo não muda nada até ser
+    // preenchido de propósito.
+    vigenteDe: dataCivil.nullish(),
+    vigenteAte: dataCivil.nullish(),
+  })
+  // Data civil "YYYY-MM-DD" compara lexicograficamente (regra 2 do
+  // CLAUDE.md) — nunca `new Date(...)` para isto. Sem esta validação,
+  // `vigenteAte` anterior a `vigenteDe` some da projeção pra sempre, em
+  // silêncio: nenhum ciclo futuro nasceria dentro de uma janela vazia.
+  .refine((c) => !c.vigenteDe || !c.vigenteAte || c.vigenteDe <= c.vigenteAte, {
+    message: 'A data de término da vigência não pode ser anterior ao início.',
+    path: ['vigenteAte'],
+  });
 
+/**
+ * Devolve o cadastro salvo E `efeito`: o que aconteceu com o ciclo em curso.
+ * A UI escolhe a frase a partir dele — "vale a partir de 01/09" ou "a verba de
+ * agosto passou de X para Y" (TASKS-CUSTOS §4.3 item 0). Sem esse campo, a
+ * única frase possível seria a que às vezes é mentira.
+ */
 export async function upsertCustoFixo(
   input: z.input<typeof custoSchema>,
-): Promise<Resultado<CustoFixo>> {
+): Promise<Resultado<ResultadoUpsertCustoFixo>> {
   return executar(async () => {
     const d = custoSchema.parse(input);
     const deps = await criarDeps();
-    const c = await ucCusto(deps, { ...d, contaId: d.contaId ?? null });
-    revalidatePath('/config');
-    return c;
+    const r = await ucCusto(deps, {
+      ...d,
+      contaId: d.contaId ?? null,
+      vigenteDe: d.vigenteDe ?? null,
+      vigenteAte: d.vigenteAte ?? null,
+    });
+    revalidarRotasDeCustos();
+    return r;
+  });
+}
+
+const idSchema = z.object({ id: z.string().min(1) });
+
+/**
+ * Revalida as rotas que exibem custos fixos/provisões. `'layout'` em `/custos`
+ * é obrigatório e não é detalhe: as três abas são sub-rotas reais e a barra de
+ * totais vive no layout compartilhado — revalidar só o path exato deixaria a
+ * barra (fixos, provisão, verba livre) exibindo o número de antes da edição.
+ */
+function revalidarRotasDeCustos(): void {
+  revalidatePath('/config');
+  revalidatePath('/');
+  revalidatePath('/custos', 'layout');
+}
+
+export async function desativarCustoFixo(
+  input: z.input<typeof idSchema>,
+): Promise<Resultado<EfeitoNoCicloAtual>> {
+  return executar(async () => {
+    const d = idSchema.parse(input);
+    const deps = await criarDeps();
+    const efeito = await ucDesativarCusto(deps, d.id);
+    revalidarRotasDeCustos();
+    return efeito;
+  });
+}
+
+export async function reativarCustoFixo(
+  input: z.input<typeof idSchema>,
+): Promise<Resultado<EfeitoNoCicloAtual>> {
+  return executar(async () => {
+    const d = idSchema.parse(input);
+    const deps = await criarDeps();
+    const efeito = await ucReativarCusto(deps, d.id);
+    revalidarRotasDeCustos();
+    return efeito;
+  });
+}
+
+export async function excluirCustoFixo(
+  input: z.input<typeof idSchema>,
+): Promise<Resultado<EfeitoNoCicloAtual>> {
+  return executar(async () => {
+    const d = idSchema.parse(input);
+    const deps = await criarDeps();
+    const efeito = await ucExcluirCusto(deps, d.id);
+    revalidarRotasDeCustos();
+    return efeito;
+  });
+}
+
+export async function desativarProvisao(
+  input: z.input<typeof idSchema>,
+): Promise<Resultado<EfeitoNoCicloAtual>> {
+  return executar(async () => {
+    const d = idSchema.parse(input);
+    const deps = await criarDeps();
+    const efeito = await ucDesativarProvisao(deps, d.id);
+    revalidarRotasDeCustos();
+    return efeito;
+  });
+}
+
+export async function reativarProvisao(
+  input: z.input<typeof idSchema>,
+): Promise<Resultado<EfeitoNoCicloAtual>> {
+  return executar(async () => {
+    const d = idSchema.parse(input);
+    const deps = await criarDeps();
+    const efeito = await ucReativarProvisao(deps, d.id);
+    revalidarRotasDeCustos();
+    return efeito;
+  });
+}
+
+export async function excluirProvisao(
+  input: z.input<typeof idSchema>,
+): Promise<Resultado<EfeitoNoCicloAtual>> {
+  return executar(async () => {
+    const d = idSchema.parse(input);
+    const deps = await criarDeps();
+    const efeito = await ucExcluirProvisao(deps, d.id);
+    revalidarRotasDeCustos();
+    return efeito;
   });
 }
 
@@ -101,13 +228,13 @@ const provisaoSchema = z.object({
 
 export async function upsertProvisao(
   input: z.input<typeof provisaoSchema>,
-): Promise<Resultado<ProvisaoAnual>> {
+): Promise<Resultado<ResultadoUpsertProvisao>> {
   return executar(async () => {
     const d = provisaoSchema.parse(input);
     const deps = await criarDeps();
-    const p = await ucProvisao(deps, { ...d, mesEsperado: d.mesEsperado ?? null });
-    revalidatePath('/config');
-    return p;
+    const r = await ucProvisao(deps, { ...d, mesEsperado: d.mesEsperado ?? null });
+    revalidarRotasDeCustos();
+    return r;
   });
 }
 

@@ -123,7 +123,16 @@ describe('garantirCicloAtual — regra 10 (ciclo anterior não fechado nunca blo
       hoje: '2026-07-20',
       ciclos: [cicloFake({ id: 'c-junho', dataInicio: '2026-06-05', dataFim: '2026-07-04' })],
       custosFixos: [
-        { id: 'f1', nome: 'Aluguel', valorCents: 200_000, diaVencimento: 10, ativo: true, contaId: null },
+        {
+          id: 'f1',
+          nome: 'Aluguel',
+          valorCents: 200_000,
+          diaVencimento: 10,
+          ativo: true,
+          contaId: null,
+          vigenteDe: null,
+          vigenteAte: null,
+        },
       ],
       provisoes: [provisaoFake({ id: 'p1', valorAnualCents: 120_000 })],
     });
@@ -284,6 +293,8 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
       diaVencimento: 5,
       ativo: true,
       contaId: null,
+      vigenteDe: null,
+      vigenteAte: null,
     });
     const { ciclo: depois } = await garantirCicloAtual(deps);
 
@@ -343,11 +354,20 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
   });
 
   it('recalcularCicloAtualSeVazio é no-op sem Config e sem ciclo', async () => {
+    // Sem Config e sem ciclo não há período nem verba a informar: o efeito
+    // devolvido tem `ciclo: null`, e é ele que impede a UI de inventar uma
+    // frase com uma data que não existe.
     const semConfig = criarDeps({ config: null });
-    await expect(recalcularCicloAtualSeVazio(semConfig)).resolves.toBeUndefined();
+    await expect(recalcularCicloAtualSeVazio(semConfig)).resolves.toEqual({
+      recalculou: false,
+      ciclo: null,
+    });
 
     const semCiclo = criarDeps({ hoje: '2026-07-20' });
-    await expect(recalcularCicloAtualSeVazio(semCiclo)).resolves.toBeUndefined();
+    await expect(recalcularCicloAtualSeVazio(semCiclo)).resolves.toEqual({
+      recalculou: false,
+      ciclo: null,
+    });
     expect(semCiclo.ciclos.itens).toHaveLength(0);
   });
 });

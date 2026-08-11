@@ -6,8 +6,10 @@ import { usePathname } from 'next/navigation';
 import {
   Home,
   CalendarRange,
+  Receipt,
   Scissors,
   TrendingUp,
+  BarChart3,
   Settings,
   CheckCircle2,
   Plus,
@@ -32,13 +34,20 @@ interface ItemSidebar {
 const ITENS: readonly ItemSidebar[] = [
   { href: '/', label: 'Visão geral', icon: Home },
   { href: '/ciclo', label: 'Ciclo', icon: CalendarRange },
+  { href: '/custos', label: 'Custos', icon: Receipt },
+  // Projeção vem colada em Custos: é a resposta da pergunta que a tela de
+  // custos levanta ("assumi tudo isso — quanto sobra nos próximos meses?").
+  // A MESMA posição vale na `<Nav />` do mobile: uma seção que existe só num
+  // dos dois menus fica inalcançável na metade do tempo (foi o que aconteceu
+  // com Custos na Fase 7).
+  { href: '/projecao', label: 'Projeção', icon: BarChart3 },
   { href: '/patrimonio', label: 'Patrimônio', icon: TrendingUp },
   { href: '/analise', label: 'Análise', icon: Scissors },
   { href: '/fechar-ciclo', label: 'Fechar ciclo', icon: CheckCircle2 },
   { href: '/config', label: 'Ajustes', icon: Settings },
 ];
 
-/** Entra depois de "Ciclo" quando a camada de IA está ligada. */
+/** Entra depois de "Custos" quando a camada de IA está ligada. */
 const ITEM_COPILOTO: ItemSidebar = { href: '/copiloto', label: 'Copiloto', icon: Sparkles };
 
 const CHAVE_PREFERENCIA = 'financial:sidebar-collapsed';
@@ -210,7 +219,7 @@ export function Sidebar({
   const itens = React.useMemo(
     () =>
       mostrarCopiloto && podeEscrever
-        ? [...ITENS.slice(0, 2), ITEM_COPILOTO, ...ITENS.slice(2)]
+        ? [...ITENS.slice(0, 3), ITEM_COPILOTO, ...ITENS.slice(3)]
         : ITENS,
     [mostrarCopiloto, podeEscrever],
   );

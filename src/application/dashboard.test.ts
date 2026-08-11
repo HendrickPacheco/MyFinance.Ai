@@ -39,6 +39,8 @@ const CUSTO_ALUGUEL: CustoFixo = {
   diaVencimento: 10,
   ativo: true,
   contaId: null,
+  vigenteDe: null,
+  vigenteAte: null,
 };
 
 const CUSTO_INTERNET: CustoFixo = {
@@ -48,6 +50,8 @@ const CUSTO_INTERNET: CustoFixo = {
   diaVencimento: 15,
   ativo: true,
   contaId: null,
+  vigenteDe: null,
+  vigenteAte: null,
 };
 
 /** Snapshot dos campos que NUNCA podem mudar por causa de "Pago?". */
@@ -108,6 +112,7 @@ describe('obterEstadoPainel — "Pago?" é rastreamento, nunca recálculo (regra
       numParcelas: 3,
       dataCompra: '2026-07-10',
       categoriaId: null,
+      encerradoEm: null,
     });
     deps.transacoes.itens.push(
       transacaoFake({
@@ -231,6 +236,7 @@ describe('obterEstadoPainel — categoriasLancamento e transacoesVariaveis (form
       numParcelas: 3,
       dataCompra: '2026-07-10',
       categoriaId: null,
+      encerradoEm: null,
     });
     deps.transacoes.itens.push(
       transacaoFake({
@@ -356,6 +362,7 @@ describe('obterEstadoPainel — parcelados com transacaoId e pago', () => {
       numParcelas: 3,
       dataCompra: '2026-07-10',
       categoriaId: null,
+      encerradoEm: null,
     });
     deps.transacoes.itens.push(
       transacaoFake({

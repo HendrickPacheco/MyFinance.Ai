@@ -91,6 +91,50 @@ export function estaNoIntervalo(data: DataCivil, inicio: DataCivil, fim: DataCiv
   return data >= inicio && data <= fim; // comparação lexicográfica (SPEC 5.1)
 }
 
+/**
+ * Meses abreviados em pt-BR, indexados de 0 (jan) a 11 (dez). Mora aqui, e não
+ * no domínio, porque `shared` é dependência de `domain` — nunca o contrário.
+ */
+export const MESES_ABREVIADOS_PT_BR = [
+  'jan',
+  'fev',
+  'mar',
+  'abr',
+  'mai',
+  'jun',
+  'jul',
+  'ago',
+  'set',
+  'out',
+  'nov',
+  'dez',
+] as const;
+
+/**
+ * Rótulo curto "DD/MM" (ex.: "2026-08-04" -> "04/08"). Fatiamento de string,
+ * nunca `new Date(string)`: essa construção é lida como UTC e retrocede um dia
+ * no fuso do Brasil (SPEC 5.1).
+ */
+export function formatarDataCurta(data: DataCivil): string {
+  assertData(data);
+  return `${data.slice(8, 10)}/${data.slice(5, 7)}`;
+}
+
+/**
+ * Rótulo de competência "mmm/AA" (ex.: "2026-08-04" -> "ago/26") — o
+ * `periodoLabel` do eixo X da projeção. Mesmo fatiamento de string, mesma
+ * razão.
+ */
+export function formatarMesAno(data: DataCivil): string {
+  assertData(data);
+  const mesIndice = Number(data.slice(5, 7)) - 1;
+  const mes = MESES_ABREVIADOS_PT_BR[mesIndice];
+  if (!mes) {
+    throw new RangeError(`mês inválido em "${data}"`);
+  }
+  return `${mes}/${data.slice(2, 4)}`;
+}
+
 /** Último dia (número) de um mês 1-based. Ex.: ultimoDiaDoMes(2026, 2) === 28. */
 export function ultimoDiaDoMes(ano: number, mes1a12: number): number {
   // Dia 0 do mês seguinte (índice = mes1a12 em base 0-11) = último dia do mês corrente.

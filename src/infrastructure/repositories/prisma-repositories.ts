@@ -18,17 +18,19 @@ import type {
   Ciclo,
   SnapshotPatrimonio,
 } from '@/domain/model/entidades';
-import type {
-  ConfigRepository,
-  ContaRepository,
-  CategoriaRepository,
-  CustoFixoRepository,
-  PagamentoFixoRepository,
-  ProvisaoRepository,
-  TransacaoRepository,
-  ParcelamentoRepository,
-  CicloRepository,
-  PatrimonioRepository,
+import {
+  RestricaoDeIntegridadeError,
+  type ConfigRepository,
+  type ContaRepository,
+  type CategoriaRepository,
+  type CustoFixoRepository,
+  type PagamentoFixoRepository,
+  type ProvisaoRepository,
+  type TransacaoRepository,
+  type LoteTransacional,
+  type ParcelamentoRepository,
+  type CicloRepository,
+  type PatrimonioRepository,
 } from '@/domain/ports/repositorios';
 import {
   toConfig,
@@ -69,6 +71,11 @@ export class RecursoNaoEncontradoError extends Error {
     super(`${recurso} não encontrado.`);
     this.name = 'RecursoNaoEncontradoError';
   }
+}
+
+/** Prisma P2003 = violação de FK Restrict (registro dependente impede a exclusão). */
+function ehViolacaoDeChaveEstrangeira(erro: unknown): boolean {
+  return erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2003';
 }
 
 /** Remove undefined/id vazio para deixar o Prisma gerar defaults (cuid). */
@@ -224,6 +231,19 @@ export class PrismaCustoFixoRepository implements CustoFixoRepository {
     return rows.map(toCustoFixo);
   }
 
+  async listarTodos(): Promise<CustoFixo[]> {
+    const rows = await this.db.custoFixo.findMany({
+      where: { donoId: this.donoId },
+      orderBy: [{ ativo: 'desc' }, { diaVencimento: 'asc' }],
+    });
+    return rows.map(toCustoFixo);
+  }
+
+  async obter(id: string): Promise<CustoFixo | null> {
+    const r = await this.db.custoFixo.findFirst({ where: { id, donoId: this.donoId } });
+    return r ? toCustoFixo(r) : null;
+  }
+
   async salvar(custo: CustoFixo): Promise<CustoFixo> {
     const dados = {
       nome: custo.nome,
@@ -231,6 +251,8 @@ export class PrismaCustoFixoRepository implements CustoFixoRepository {
       diaVencimento: custo.diaVencimento,
       ativo: custo.ativo,
       contaId: custo.contaId,
+      vigenteDe: custo.vigenteDe,
+      vigenteAte: custo.vigenteAte,
     };
     if (!custo.id) {
       const criado = await this.db.custoFixo.create({ data: { ...dados, donoId: this.donoId } });
@@ -245,6 +267,25 @@ export class PrismaCustoFixoRepository implements CustoFixoRepository {
       where: { id: custo.id, donoId: this.donoId },
     });
     return toCustoFixo(r);
+  }
+
+  /**
+   * `deleteMany` com o dono no filtro: id alheio afeta zero linhas em vez de
+   * apagar a linha de outro usuário. Se houver `PagamentoFixo` apontando para
+   * o custo, a FK Restrict faz o Postgres recusar (P2003), traduzido aqui
+   * para `RestricaoDeIntegridadeError` — o caso de uso a converte no erro
+   * nomeado e acionável ("desative em vez de excluir").
+   */
+  async excluir(id: string): Promise<void> {
+    try {
+      const { count } = await this.db.custoFixo.deleteMany({
+        where: { id, donoId: this.donoId },
+      });
+      if (count === 0) throw new RecursoNaoEncontradoError('Custo fixo');
+    } catch (erro) {
+      if (ehViolacaoDeChaveEstrangeira(erro)) throw new RestricaoDeIntegridadeError('Custo fixo');
+      throw erro;
+    }
   }
 }
 
@@ -284,6 +325,22 @@ export class PrismaPagamentoFixoRepository implements PagamentoFixoRepository {
       where: { custoFixoId, cicloId, donoId: this.donoId },
     });
   }
+
+  async contarPorCustoFixo(custoFixoId: string): Promise<number> {
+    return this.db.pagamentoFixo.count({ where: { custoFixoId, donoId: this.donoId } });
+  }
+
+  async contarPorCustoFixoAgrupado(): Promise<Record<string, number>> {
+    // `groupBy` também é uma query do Prisma Client e NÃO herda escopo
+    // automático (regra de ouro do multi-tenant): o `donoId` no `where` é
+    // obrigatório, senão a contagem misturaria pagamentos de outro usuário.
+    const linhas = await this.db.pagamentoFixo.groupBy({
+      by: ['custoFixoId'],
+      where: { donoId: this.donoId },
+      _count: { _all: true },
+    });
+    return Object.fromEntries(linhas.map((l) => [l.custoFixoId, l._count._all]));
+  }
 }
 
 export class PrismaProvisaoRepository implements ProvisaoRepository {
@@ -298,6 +355,19 @@ export class PrismaProvisaoRepository implements ProvisaoRepository {
       orderBy: { nome: 'asc' },
     });
     return rows.map(toProvisao);
+  }
+
+  async listarTodas(): Promise<ProvisaoAnual[]> {
+    const rows = await this.db.provisaoAnual.findMany({
+      where: { donoId: this.donoId },
+      orderBy: [{ ativo: 'desc' }, { nome: 'asc' }],
+    });
+    return rows.map(toProvisao);
+  }
+
+  async obter(id: string): Promise<ProvisaoAnual | null> {
+    const r = await this.db.provisaoAnual.findFirst({ where: { id, donoId: this.donoId } });
+    return r ? toProvisao(r) : null;
   }
 
   async salvar(provisao: ProvisaoAnual): Promise<ProvisaoAnual> {
@@ -332,6 +402,24 @@ export class PrismaProvisaoRepository implements ProvisaoRepository {
     });
     if (count === 0) throw new RecursoNaoEncontradoError('Provisão');
   }
+
+  /**
+   * Recusar quando `acumuladoCents != 0` é decisão do caso de uso — aqui só o
+   * escopo por dono. A FK `Transacao.provisaoId` é Restrict: provisão com
+   * gasto lançado não é apagável, e a violação (P2003) é traduzida para
+   * `RestricaoDeIntegridadeError` — o caso de uso a converte no erro nomeado.
+   */
+  async excluir(id: string): Promise<void> {
+    try {
+      const { count } = await this.db.provisaoAnual.deleteMany({
+        where: { id, donoId: this.donoId },
+      });
+      if (count === 0) throw new RecursoNaoEncontradoError('Provisão');
+    } catch (erro) {
+      if (ehViolacaoDeChaveEstrangeira(erro)) throw new RestricaoDeIntegridadeError('Provisão');
+      throw erro;
+    }
+  }
 }
 
 export class PrismaTransacaoRepository implements TransacaoRepository {
@@ -357,6 +445,14 @@ export class PrismaTransacaoRepository implements TransacaoRepository {
     const rows = await this.db.transacao.findMany({
       where: { donoId: this.donoId, data: { gte: inicio, lte: fim } },
       orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
+    });
+    return rows.map(toTransacao);
+  }
+
+  async listarPorParcelamento(parcelamentoId: string): Promise<Transacao[]> {
+    const rows = await this.db.transacao.findMany({
+      where: { donoId: this.donoId, parcelamentoId },
+      orderBy: [{ data: 'asc' }, { parcelaNum: 'asc' }],
     });
     return rows.map(toTransacao);
   }
@@ -392,6 +488,72 @@ export class PrismaTransacaoRepository implements TransacaoRepository {
     // vez de apagar a transação alheia.
     const { count } = await this.db.transacao.deleteMany({ where: { id, donoId: this.donoId } });
     if (count === 0) throw new RecursoNaoEncontradoError('Transação');
+  }
+
+  /**
+   * Tudo-ou-nada num único `$transaction` (ver a porta). Nenhuma operação aqui
+   * escapa do escopo por dono:
+   * - `deleteMany`/`updateMany` levam `donoId` no `where` — id alheio afeta
+   *   ZERO linhas, em vez de apagar/creditar a linha de outro usuário;
+   * - `create` carimba o `donoId` deste repositório, nunca um vindo do cliente.
+   *
+   * Consequência deliberada do `deleteMany` com `donoId`: um id que não é do
+   * dono não lança, só não apaga nada. O caso de uso já leu essas transações
+   * pelo mesmo repositório escopado, então isso não pode acontecer sem uma
+   * escrita concorrente — e nesse caso apagar zero linhas é o certo.
+   */
+  async aplicarLote(lote: LoteTransacional): Promise<Transacao[]> {
+    const excluir = lote.excluir ?? [];
+    const criar = lote.criar ?? [];
+    const ajustesConta = lote.ajustesConta ?? [];
+    const ajustesProvisao = lote.ajustesProvisao ?? [];
+
+    if (
+      excluir.length === 0 &&
+      criar.length === 0 &&
+      ajustesConta.length === 0 &&
+      ajustesProvisao.length === 0
+    ) {
+      return [];
+    }
+
+    const operacoes = [
+      ...(excluir.length > 0
+        ? [
+            this.db.transacao.deleteMany({
+              where: { id: { in: [...excluir] }, donoId: this.donoId },
+            }),
+          ]
+        : []),
+      ...criar.map((t) =>
+        this.db.transacao.create({ data: semIdVazio(dadosTransacao(t, this.donoId)) }),
+      ),
+      ...ajustesConta
+        .filter((a) => a.deltaCents !== 0)
+        .map((a) =>
+          this.db.conta.updateMany({
+            where: { id: a.contaId, donoId: this.donoId },
+            data: { saldoCents: { increment: a.deltaCents } },
+          }),
+        ),
+      ...ajustesProvisao
+        .filter((a) => a.deltaCents !== 0)
+        .map((a) =>
+          this.db.provisaoAnual.updateMany({
+            where: { id: a.provisaoId, donoId: this.donoId },
+            data: { acumuladoCents: { increment: a.deltaCents } },
+          }),
+        ),
+    ];
+
+    const resultados = await this.db.$transaction(operacoes);
+
+    // As criações ocupam posições conhecidas: vêm logo depois do (opcional)
+    // `deleteMany` e antes dos ajustes.
+    const deslocamento = excluir.length > 0 ? 1 : 0;
+    return resultados
+      .slice(deslocamento, deslocamento + criar.length)
+      .map((r) => toTransacao(r as Parameters<typeof toTransacao>[0]));
   }
 
   async vincularCicloPorData(cicloId: string, inicio: DataCivil, fim: DataCivil): Promise<number> {
@@ -452,6 +614,7 @@ export class PrismaParcelamentoRepository implements ParcelamentoRepository {
         numParcelas: p.numParcelas,
         dataCompra: p.dataCompra,
         categoriaId: p.categoriaId,
+        encerradoEm: p.encerradoEm,
       }),
     });
     return toParcelamento(r);
@@ -463,6 +626,34 @@ export class PrismaParcelamentoRepository implements ParcelamentoRepository {
       where: { id: { in: [...ids] }, donoId: this.donoId },
     });
     return rows.map(toParcelamento);
+  }
+
+  async listar(): Promise<Parcelamento[]> {
+    const rows = await this.db.parcelamento.findMany({
+      where: { donoId: this.donoId },
+      orderBy: { dataCompra: 'desc' },
+    });
+    return rows.map(toParcelamento);
+  }
+
+  async obter(id: string): Promise<Parcelamento | null> {
+    const r = await this.db.parcelamento.findFirst({ where: { id, donoId: this.donoId } });
+    return r ? toParcelamento(r) : null;
+  }
+
+  async atualizar(id: string, patch: Partial<Parcelamento>): Promise<Parcelamento> {
+    // `id` e `donoId` nunca são pacientes de patch: reescrevê-los moveria o
+    // parcelamento para outro dono ou quebraria o vínculo das parcelas.
+    const { id: _id, ...dados } = patch;
+    const { count } = await this.db.parcelamento.updateMany({
+      where: { id, donoId: this.donoId },
+      data: dados,
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Parcelamento');
+    const r = await this.db.parcelamento.findFirstOrThrow({
+      where: { id, donoId: this.donoId },
+    });
+    return toParcelamento(r);
   }
 }
 

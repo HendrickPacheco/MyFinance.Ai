@@ -9,6 +9,8 @@ import {
   estaNoIntervalo,
   ultimoDiaDoMes,
   dataCivilNoFuso,
+  formatarDataCurta,
+  formatarMesAno,
 } from './data';
 
 describe('parse/format round-trip (regressão do bug UTC)', () => {
@@ -75,5 +77,42 @@ describe('ultimoDiaDoMes', () => {
     expect(ultimoDiaDoMes(2024, 2)).toBe(29);
     expect(ultimoDiaDoMes(2026, 1)).toBe(31);
     expect(ultimoDiaDoMes(2026, 4)).toBe(30);
+  });
+});
+
+describe('formatarDataCurta (rótulo "DD/MM")', () => {
+  it('formata dia e mês na ordem brasileira, com zero à esquerda', () => {
+    expect(formatarDataCurta('2026-08-04')).toBe('04/08');
+    expect(formatarDataCurta('2026-12-31')).toBe('31/12');
+    expect(formatarDataCurta('2026-01-01')).toBe('01/01');
+  });
+
+  it('não retrocede um dia (regressão do bug UTC)', () => {
+    // `new Date("2026-07-29")` daria 28/07 no fuso do Brasil.
+    expect(formatarDataCurta('2026-07-29')).toBe('29/07');
+  });
+
+  it('recusa data malformada em vez de devolver "undefined/undefined"', () => {
+    expect(() => formatarDataCurta('29/07/2026')).toThrow(TypeError);
+    expect(() => formatarDataCurta('2026-7-9')).toThrow(TypeError);
+    expect(() => formatarDataCurta('')).toThrow(TypeError);
+  });
+});
+
+describe('formatarMesAno (rótulo "mmm/AA" do eixo da projeção)', () => {
+  it('abrevia o mês em pt-BR e usa o ano com dois dígitos', () => {
+    expect(formatarMesAno('2026-08-04')).toBe('ago/26');
+    expect(formatarMesAno('2027-01-31')).toBe('jan/27');
+    expect(formatarMesAno('2026-12-01')).toBe('dez/26');
+  });
+
+  it('recusa data malformada', () => {
+    expect(() => formatarMesAno('2026/08/04')).toThrow(TypeError);
+    expect(() => formatarMesAno('ago/26')).toThrow(TypeError);
+  });
+
+  it('recusa mês fora de 01–12 mesmo com formato válido', () => {
+    expect(() => formatarMesAno('2026-13-01')).toThrow(RangeError);
+    expect(() => formatarMesAno('2026-00-01')).toThrow(RangeError);
   });
 });

@@ -4,14 +4,25 @@
  * Uma linha do extrato do ciclo com menu de ações (Editar / Estornar /
  * Excluir) — SPEC 7. Cada ação chama a server action correspondente e, em
  * caso de sucesso, atualiza a tela via router.refresh().
+ *
+ * O formulário de edição e o fluxo de exclusão saíram daqui na Fase 9 do
+ * TASKS-CUSTOS (§5 débito 2): eram cópias literais das que viviam em
+ * `dashboard/extrato-variaveis.tsx`. Hoje moram em `components/transacoes/`.
+ * O que sobra neste arquivo é o que é MESMO só desta superfície: o menu ⋯, o
+ * estorno (que o extrato de variáveis não oferece) e o tom por tipo de
+ * transação — a tela do Ciclo lista RENDA e TRANSFERENCIA também.
  */
 import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { MoreVertical, Pencil, RotateCcw, Trash2 } from 'lucide-react';
-import { formatBRL, parseBRL } from '@/shared/dinheiro';
+import { formatarDataCurta } from '@/shared/data';
+import { formatBRL } from '@/shared/dinheiro';
 import { cn } from '@/lib/cn';
-import { Button, ConfirmInline, Input, Label, Select } from '@/components/ui';
-import { editarTransacao, excluirTransacao, estornarTransacao } from '@/actions/transacoes';
+import { ConfirmInline } from '@/components/ui';
+import { estornarTransacao } from '@/actions/transacoes';
+import { TITULO_RETROATIVO, descricaoRetroativo } from '@/components/transacoes/retroatividade';
+import { TransacaoEdicaoForm } from '@/components/transacoes/transacao-edicao-form';
+import { useExclusaoTransacao } from '@/components/transacoes/use-exclusao-transacao';
 import type { Categoria, Transacao } from '@/domain/model/entidades';
 import { usePodeEscrever } from '@/components/auth/ator-contexto';
 
@@ -21,34 +32,6 @@ const TOM_VALOR: Record<Transacao['tipo'], { sinal: '+' | '-' | ''; cor: string 
   TRANSFERENCIA: { sinal: '', cor: 'text-fg' },
   ESTORNO: { sinal: '', cor: 'text-fg' },
 };
-
-/**
- * Texto factual (SPEC seção 11 — nunca julgador) para a confirmação de
- * retroatividade (SPEC regra 9): a transação toca um ciclo já fechado, e
- * confirmar recalcula a sobra daquele ciclo.
- */
-const TITULO_RETROATIVO = 'Esta transação pertence a um ciclo já fechado.';
-
-function descricaoRetroativo(ciclosAfetados: string[] | undefined): string {
-  const base = 'Confirmar vai recalcular a sobra daquele ciclo.';
-  if (!ciclosAfetados || ciclosAfetados.length === 0) return base;
-  const lista = ciclosAfetados.join(', ');
-  return ciclosAfetados.length > 1
-    ? `Confirmar vai recalcular a sobra dos ciclos: ${lista}.`
-    : `Confirmar vai recalcular a sobra do ciclo ${lista}.`;
-}
-
-/** Estado de uma confirmação inline pendente (substitui `window.confirm`). */
-type Confirmacao =
-  | { acao: 'excluir-destrutivo' }
-  | { acao: 'excluir-retroativo'; ciclosAfetados?: string[] }
-  | { acao: 'estornar-retroativo'; ciclosAfetados?: string[] }
-  | { acao: 'editar-retroativo'; valorCents: number; ciclosAfetados?: string[] };
-
-function formatarDataCurta(data: string): string {
-  const [, mes, dia] = data.split('-');
-  return `${dia}/${mes}`;
-}
 
 export function TransacaoLinha({
   transacao,
@@ -65,64 +48,42 @@ export function TransacaoLinha({
   const podeEscrever = usePodeEscrever();
   const [menuAberto, setMenuAberto] = useState(false);
   const [editando, setEditando] = useState(false);
-  const [pendente, setPendente] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  const [confirmacao, setConfirmacao] = useState<Confirmacao | null>(null);
+  const [pendenteEstorno, setPendenteEstorno] = useState(false);
+  const [erroEstorno, setErroEstorno] = useState<string | null>(null);
+  const [estornoRetroativo, setEstornoRetroativo] = useState<string[] | undefined | null>(null);
 
-  const [valorTexto, setValorTexto] = useState(() => formatBRL(transacao.valorCents));
-  const [categoriaId, setCategoriaId] = useState(transacao.categoriaId ?? '');
-  const [descricao, setDescricao] = useState(transacao.descricao ?? '');
-  const [data, setData] = useState(transacao.data);
+  const exclusao = useExclusaoTransacao(transacao.id);
 
   const descricaoExibida = transacao.descricao ?? categoria?.nome ?? '—';
   const tom = TOM_VALOR[transacao.tipo];
+  const pendente = pendenteEstorno || exclusao.pendente;
+  const erro = erroEstorno ?? exclusao.erro;
 
-  const executarExclusao = useCallback(
+  const executarEstorno = useCallback(
     async (confirmarRetroativo: boolean) => {
-      setPendente(true);
-      setErro(null);
-      const r = await excluirTransacao(transacao.id, confirmarRetroativo);
-      setPendente(false);
+      setPendenteEstorno(true);
+      setErroEstorno(null);
+      const r = await estornarTransacao(transacao.id, undefined, undefined, confirmarRetroativo);
+      setPendenteEstorno(false);
       if (r.ok) {
-        setConfirmacao(null);
+        setEstornoRetroativo(null);
         router.refresh();
         return;
       }
       if (r.requerConfirmacao && !confirmarRetroativo) {
-        setConfirmacao({ acao: 'excluir-retroativo', ciclosAfetados: r.ciclosAfetados });
+        setEstornoRetroativo(r.ciclosAfetados);
         return;
       }
-      setConfirmacao(null);
-      setErro(r.erro);
+      setEstornoRetroativo(null);
+      setErroEstorno(r.erro);
     },
     [transacao.id, router],
   );
 
   const excluir = useCallback(() => {
     setMenuAberto(false);
-    setConfirmacao({ acao: 'excluir-destrutivo' });
-  }, []);
-
-  const executarEstorno = useCallback(
-    async (confirmarRetroativo: boolean) => {
-      setPendente(true);
-      setErro(null);
-      const r = await estornarTransacao(transacao.id, undefined, undefined, confirmarRetroativo);
-      setPendente(false);
-      if (r.ok) {
-        setConfirmacao(null);
-        router.refresh();
-        return;
-      }
-      if (r.requerConfirmacao && !confirmarRetroativo) {
-        setConfirmacao({ acao: 'estornar-retroativo', ciclosAfetados: r.ciclosAfetados });
-        return;
-      }
-      setConfirmacao(null);
-      setErro(r.erro);
-    },
-    [transacao.id, router],
-  );
+    exclusao.pedirExclusao();
+  }, [exclusao]);
 
   const estornar = useCallback(() => {
     setMenuAberto(false);
@@ -131,187 +92,39 @@ export function TransacaoLinha({
 
   const abrirEdicao = useCallback(() => {
     setMenuAberto(false);
-    setErro(null);
+    setErroEstorno(null);
     setEditando(true);
   }, []);
 
-  const executarEdicao = useCallback(
-    async (valorCents: number, confirmarRetroativo: boolean) => {
-      setPendente(true);
-      setErro(null);
-      const r = await editarTransacao(transacao.id, {
-        valorCents,
-        categoriaId: categoriaId || null,
-        descricao: descricao || null,
-        data,
-        confirmarRetroativo,
-      });
-      setPendente(false);
-      if (r.ok) {
-        setConfirmacao(null);
-        setEditando(false);
-        router.refresh();
-        return;
-      }
-      if (r.requerConfirmacao && !confirmarRetroativo) {
-        setConfirmacao({ acao: 'editar-retroativo', valorCents, ciclosAfetados: r.ciclosAfetados });
-        return;
-      }
-      setConfirmacao(null);
-      setErro(r.erro);
-    },
-    [transacao.id, categoriaId, descricao, data, router],
-  );
-
-  const salvarEdicao = useCallback(() => {
-    let valorCents: number;
-    try {
-      valorCents = parseBRL(valorTexto);
-    } catch {
-      setErro('Valor inválido.');
-      return;
-    }
-    if (valorCents <= 0) {
-      setErro('Informe um valor maior que zero.');
-      return;
-    }
-    void executarEdicao(valorCents, false);
-  }, [valorTexto, executarEdicao]);
-
-  const cancelarConfirmacao = useCallback(() => setConfirmacao(null), []);
-
-  const confirmarAcaoPendente = useCallback(() => {
-    if (!confirmacao) return;
-    switch (confirmacao.acao) {
-      case 'excluir-destrutivo':
-        void executarExclusao(false);
-        return;
-      case 'excluir-retroativo':
-        void executarExclusao(true);
-        return;
-      case 'estornar-retroativo':
-        void executarEstorno(true);
-        return;
-      case 'editar-retroativo':
-        void executarEdicao(confirmacao.valorCents, true);
-        return;
-    }
-  }, [confirmacao, executarExclusao, executarEstorno, executarEdicao]);
-
-  const confirmInlineEditar =
-    confirmacao?.acao === 'editar-retroativo' ? (
-      <ConfirmInline
-        className="mt-3"
-        titulo={TITULO_RETROATIVO}
-        descricao={descricaoRetroativo(confirmacao.ciclosAfetados)}
-        confirmLabel="Confirmar"
-        cancelLabel="Cancelar"
-        pendente={pendente}
-        onConfirm={confirmarAcaoPendente}
-        onCancel={cancelarConfirmacao}
-      />
-    ) : null;
-
   if (editando) {
     return (
-      <li className="rounded-xl border border-border-strong bg-surface-2 p-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor={`valor-${transacao.id}`}>Valor</Label>
-            <Input
-              id={`valor-${transacao.id}`}
-              inputMode="decimal"
-              value={valorTexto}
-              onChange={(e) => setValorTexto(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor={`data-${transacao.id}`}>Data</Label>
-            <Input
-              id={`data-${transacao.id}`}
-              type="date"
-              value={data}
-              onChange={(e) => setData(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="mt-3">
-          <Label htmlFor={`categoria-${transacao.id}`}>Categoria</Label>
-          <Select
-            id={`categoria-${transacao.id}`}
-            value={categoriaId}
-            onChange={(e) => setCategoriaId(e.target.value)}
-          >
-            <option value="">Sem categoria</option>
-            {categorias.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome}
-              </option>
-            ))}
-          </Select>
-        </div>
-
-        <div className="mt-3">
-          <Label htmlFor={`descricao-${transacao.id}`}>Descrição</Label>
-          <Input
-            id={`descricao-${transacao.id}`}
-            value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
-            placeholder="Opcional"
-          />
-        </div>
-
-        {erro ? <p className="mt-2 text-sm text-negativo">{erro}</p> : null}
-
-        {confirmInlineEditar ?? (
-          <div className="mt-4 flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={pendente}
-              onClick={() => setEditando(false)}
-            >
-              Cancelar
-            </Button>
-            <Button type="button" variant="primary" size="sm" disabled={pendente} onClick={salvarEdicao}>
-              Salvar
-            </Button>
-          </div>
-        )}
-      </li>
+      <TransacaoEdicaoForm
+        transacaoId={transacao.id}
+        valorCents={transacao.valorCents}
+        data={transacao.data}
+        categoriaId={transacao.categoriaId}
+        descricao={transacao.descricao}
+        categorias={categorias}
+        onCancelar={() => setEditando(false)}
+        onSalvo={() => setEditando(false)}
+      />
     );
   }
 
-  const confirmInlineLinha = (() => {
-    if (!confirmacao || confirmacao.acao === 'editar-retroativo') return null;
-    if (confirmacao.acao === 'excluir-destrutivo') {
-      return (
-        <ConfirmInline
-          titulo="Excluir esta transação?"
-          descricao="Esta ação não pode ser desfeita."
-          confirmLabel="Excluir"
-          cancelLabel="Cancelar"
-          tone="negativo"
-          pendente={pendente}
-          onConfirm={confirmarAcaoPendente}
-          onCancel={cancelarConfirmacao}
-        />
-      );
-    }
-    return (
+  const confirmInlineLinha =
+    estornoRetroativo !== null ? (
       <ConfirmInline
         titulo={TITULO_RETROATIVO}
-        descricao={descricaoRetroativo(confirmacao.ciclosAfetados)}
+        descricao={descricaoRetroativo(estornoRetroativo)}
         confirmLabel="Confirmar"
         cancelLabel="Cancelar"
-        pendente={pendente}
-        onConfirm={confirmarAcaoPendente}
-        onCancel={cancelarConfirmacao}
+        pendente={pendenteEstorno}
+        onConfirm={() => void executarEstorno(true)}
+        onCancel={() => setEstornoRetroativo(null)}
       />
+    ) : (
+      exclusao.confirmacao
     );
-  })();
 
   return (
     <>

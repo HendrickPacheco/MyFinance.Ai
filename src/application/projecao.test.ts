@@ -7,9 +7,10 @@
  *  2. a decisão D-11: parcela entra em `parcelasComprometidasCents` e NÃO é
  *     abatida de `verbaVariavelCents` — agora no nível onde o dado real entra.
  */
-import { describe, expect, it } from 'vitest';
-import type { CustoFixo } from '@/domain/model/entidades';
+import { describe, expect, it, vi } from 'vitest';
+import type { CustoFixo, Parcelamento } from '@/domain/model/entidades';
 import { verbaVariavelCents } from '@/domain/finance';
+import { somaCents } from '@/shared/dinheiro';
 import { criarDeps, cicloFake, provisaoFake, transacaoFake, type FakeDeps } from './__fakes__/fakes-ciclo-fechamento';
 import { obterProjecao } from './projecao';
 import { ConfigAusenteError } from './ciclos';
@@ -24,6 +25,8 @@ function custoFixoFake(patch: Partial<CustoFixo> = {}): CustoFixo {
     diaVencimento: 10,
     ativo: true,
     contaId: null,
+    vigenteDe: null,
+    vigenteAte: null,
     ...patch,
   };
 }
@@ -351,5 +354,195 @@ describe('obterProjecao — contratos', () => {
 
     expect(deps.ciclos.itens).toHaveLength(0);
     expect(deps.ciclos.criarChamadas).toBe(0);
+  });
+});
+
+describe('obterProjecao — vigência de custo fixo (Fase 6)', () => {
+  it('custo com vigenteAte deixa de contar a partir do ciclo seguinte ao término', async () => {
+    // Ciclo atual 05/07–04/08; os seguintes 05/08–04/09 e 05/09–04/10.
+    const deps = criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloAtualFake()],
+      custosFixos: [
+        custoFixoFake({ id: 'cf-1', valorCents: 300_000 }),
+        custoFixoFake({ id: 'cf-2', valorCents: 50_000, vigenteAte: '2026-08-31' }),
+      ],
+    });
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 3 });
+
+    expect(ciclos[0]?.fixosCents).toBe(200_000); // congelado no registro Ciclo
+    expect(ciclos[1]?.inicio).toBe('2026-08-05');
+    expect(ciclos[1]?.fixosCents).toBe(350_000); // cf-2 ainda vigente em 08/2026
+    expect(ciclos[2]?.inicio).toBe('2026-09-05');
+    expect(ciclos[2]?.fixosCents).toBe(300_000); // cf-2 saiu: a verba respira
+    expect((ciclos[2]?.verbaVariavelCents ?? 0) - (ciclos[1]?.verbaVariavelCents ?? 0)).toBe(50_000);
+  });
+
+  it('custo com vigenteDe futuro só entra a partir do ciclo em que começa', async () => {
+    const deps = criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloAtualFake()],
+      custosFixos: [custoFixoFake({ valorCents: 90_000, vigenteDe: '2026-09-10' })],
+    });
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 3 });
+
+    expect(ciclos[1]?.fixosCents).toBe(0); // 05/08–04/09
+    expect(ciclos[2]?.fixosCents).toBe(90_000); // 05/09–04/10 contém 10/09
+  });
+
+  it('declara a premissa de término só quando algum custo tem vigenteAte', async () => {
+    const semTermino = criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloAtualFake()],
+      custosFixos: [custoFixoFake()],
+    });
+    const comTermino = criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloAtualFake()],
+      custosFixos: [
+        custoFixoFake({ id: 'cf-1', vigenteAte: '2026-12-31' }),
+        custoFixoFake({ id: 'cf-2', vigenteAte: '2027-01-31' }),
+      ],
+    });
+
+    const a = await obterProjecao(semTermino, { numCiclos: 3 });
+    const b = await obterProjecao(comTermino, { numCiclos: 3 });
+
+    expect(a.premissas.some((p) => p.includes('término previsto'))).toBe(false);
+    expect(b.premissas.some((p) => p.includes('2 custos fixos têm término previsto'))).toBe(true);
+    // A premissa antiga ("o cadastro não tem data de término") não pode voltar.
+    expect(a.premissas.some((p) => p.includes('não tem data de término'))).toBe(false);
+  });
+});
+
+describe('obterProjecao — detalhe das obrigações (Fase 6)', () => {
+  /** Parcelamento seedado direto: `criarDeps` não recebe parcelamentos. */
+  function comParcelamento(deps: FakeDeps, parcelamento: Parcelamento): FakeDeps {
+    deps.parcelamentos.itens.push(parcelamento);
+    return deps;
+  }
+
+  const PC_1: Parcelamento = {
+    id: 'pc-1',
+    descricao: 'Notebook',
+    valorTotalCents: 100_000,
+    numParcelas: 2,
+    dataCompra: '2026-07-25',
+    categoriaId: null,
+    encerradoEm: null,
+  };
+
+  it('enriquece a obrigação com descrição, nº da parcela e total de parcelas', async () => {
+    const deps = comParcelamento(
+      criarDeps({
+        hoje: HOJE,
+        ciclos: [cicloAtualFake()],
+        transacoes: [
+          transacaoFake({ id: 'p1', data: '2026-07-25', valorCents: 50_000, descricao: 'Notebook 1/2', parcelamentoId: 'pc-1', parcelaNum: 1 }),
+          transacaoFake({ id: 'p2', data: '2026-08-25', valorCents: 50_000, descricao: 'Notebook 2/2', parcelamentoId: 'pc-1', parcelaNum: 2 }),
+        ],
+      }),
+      PC_1,
+    );
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 3 });
+
+    expect(ciclos[0]?.obrigacoesDoCiclo).toStrictEqual([
+      {
+        parcelamentoId: 'pc-1',
+        descricao: 'Notebook 1/2',
+        valorCents: 50_000,
+        parcelaNum: 1,
+        numParcelas: 2,
+      },
+    ]);
+    expect(ciclos[0]?.terminamNesteCiclo).toStrictEqual([]);
+  });
+
+  it('marca o ciclo da última parcela em terminamNesteCiclo e zera o seguinte', async () => {
+    const deps = comParcelamento(
+      criarDeps({
+        hoje: HOJE,
+        ciclos: [cicloAtualFake()],
+        transacoes: [
+          transacaoFake({ id: 'p1', data: '2026-07-25', valorCents: 50_000, descricao: 'Notebook 1/2', parcelamentoId: 'pc-1', parcelaNum: 1 }),
+          transacaoFake({ id: 'p2', data: '2026-08-25', valorCents: 50_000, descricao: 'Notebook 2/2', parcelamentoId: 'pc-1', parcelaNum: 2 }),
+        ],
+      }),
+      PC_1,
+    );
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 3 });
+
+    expect(ciclos[1]?.inicio).toBe('2026-08-05');
+    expect(ciclos[1]?.terminamNesteCiclo).toStrictEqual([
+      { parcelamentoId: 'pc-1', descricao: 'Notebook 2/2', valorMensalCents: 50_000 },
+    ]);
+    expect(ciclos[2]?.obrigacoesDoCiclo).toStrictEqual([]);
+    expect(ciclos[2]?.terminamNesteCiclo).toStrictEqual([]);
+    expect(ciclos[2]?.parcelasComprometidasCents).toBe(0);
+  });
+
+  it('sem cadastro de parcelamento, numParcelas fica null e nada é anunciado', async () => {
+    const deps = criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloAtualFake()],
+      transacoes: [
+        transacaoFake({ id: 'p1', data: '2026-07-25', valorCents: 50_000, parcelamentoId: 'orfa', parcelaNum: 1 }),
+      ],
+    });
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 2 });
+
+    expect(ciclos[0]?.obrigacoesDoCiclo[0]?.numParcelas).toBeNull();
+    expect(ciclos[0]?.terminamNesteCiclo).toStrictEqual([]);
+  });
+
+  it('lê o cadastro de parcelamentos UMA vez, sem N+1 por parcela', async () => {
+    const deps = comParcelamento(
+      criarDeps({
+        hoje: HOJE,
+        ciclos: [cicloAtualFake()],
+        transacoes: [
+          transacaoFake({ id: 'p1', data: '2026-07-25', valorCents: 50_000, parcelamentoId: 'pc-1', parcelaNum: 1 }),
+          transacaoFake({ id: 'p2', data: '2026-08-25', valorCents: 50_000, parcelamentoId: 'pc-1', parcelaNum: 2 }),
+        ],
+      }),
+      PC_1,
+    );
+
+    const listar = vi.spyOn(deps.parcelamentos, 'listar');
+    const porIds = vi.spyOn(deps.parcelamentos, 'listarPorIds');
+    const obter = vi.spyOn(deps.parcelamentos, 'obter');
+
+    await obterProjecao(deps, { numCiclos: 6 });
+
+    expect(listar).toHaveBeenCalledTimes(1);
+    expect(porIds).not.toHaveBeenCalled();
+    expect(obter).not.toHaveBeenCalled();
+  });
+
+  it('soma(obrigacoesDoCiclo) bate com parcelasComprometidasCents em todo ciclo', async () => {
+    const deps = comParcelamento(
+      criarDeps({
+        hoje: HOJE,
+        ciclos: [cicloAtualFake()],
+        transacoes: [
+          transacaoFake({ id: 'p1', data: '2026-07-25', valorCents: 33_333, parcelamentoId: 'pc-1', parcelaNum: 1 }),
+          transacaoFake({ id: 'p2', data: '2026-08-25', valorCents: 33_334, parcelamentoId: 'pc-1', parcelaNum: 2 }),
+        ],
+      }),
+      PC_1,
+    );
+
+    const { ciclos } = await obterProjecao(deps, { numCiclos: 4 });
+
+    for (const ciclo of ciclos) {
+      expect(somaCents(ciclo.obrigacoesDoCiclo.map((o) => o.valorCents))).toBe(
+        ciclo.parcelasComprometidasCents,
+      );
+    }
   });
 });

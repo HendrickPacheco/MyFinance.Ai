@@ -7,10 +7,20 @@
  */
 import type { Deps } from './deps';
 import { exigirEscrita } from '@/domain/auth/permissoes';
-import type { Ciclo, Transacao } from '@/domain/model/entidades';
+import type { Transacao } from '@/domain/model/entidades';
 import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
-import { gerarParcelas, sobraCiclo } from '@/domain/finance';
-import { indexarGrupoCategoria, paraCalculo } from './mapeamento';
+import type { AjusteConta, AjusteProvisao } from '@/domain/ports/repositorios';
+import { gerarParcelas } from '@/domain/finance';
+import {
+  exigirConfirmacaoSeRetroativo,
+  recalcularSobraDosCiclosFechados,
+} from './retroatividade';
+import { validarCategoriaVariavel } from './categoria-parcela';
+
+// Reexportada para não quebrar quem já importa `CicloFechadoError` daqui
+// (actions e testes existentes) — a classe agora mora em `retroatividade.ts`
+// junto com o resto da guarda de retroatividade (TASKS-CUSTOS Fase 5).
+export { CicloFechadoError } from './retroatividade';
 
 export interface TransacaoInput {
   valorCents: number;
@@ -42,35 +52,85 @@ export interface ParcelamentoInput {
 }
 
 /**
- * Erro tipado e discriminável (SPEC regra 9): sinaliza que a operação foi
- * recusada por tocar um ciclo fechado sem confirmação. A camada de server
- * action reconhece este erro por `instanceof` e traduz em pedido de
- * confirmação para a UI — nunca deixa vazar como exceção genérica.
+ * Efeitos de UMA transação sobre os buckets, como deltas — sem I/O.
+ *
+ * Função PURA de propósito (TASKS-CUSTOS §5.1 ticket 1): quem precisa aplicar
+ * um lote inteiro numa única transação de banco (`aplicarLote`) tem que
+ * SOMAR os efeitos antes de escrever, e para isso a regra de sinal por tipo
+ * de transação precisa ser calculável sem tocar em repositório.
+ * `aplicarEfeitoSaldo`/`aplicarEfeitoProvisao` passaram a ser só o aplicador
+ * um-a-um desta mesma regra, para as duas nunca divergirem.
+ *
+ * sinal +1 aplica (lançamento novo), -1 reverte (exclusão/estorno).
  */
-export class CicloFechadoError extends Error {
-  constructor(public readonly ciclosAfetados: readonly string[]) {
-    super(
-      'Esta transação pertence a um ciclo já fechado. Confirme para recalcular a sobra desse ciclo.',
-    );
-    this.name = 'CicloFechadoError';
-  }
-}
-
-/** Efeito de uma transação sobre o saldo dos buckets. sinal +1 aplica, -1 reverte. */
-async function aplicarEfeitoSaldo(deps: Deps, t: Transacao, sinal: 1 | -1): Promise<void> {
+export function efeitosDe(
+  t: Transacao,
+  sinal: 1 | -1,
+): { contas: AjusteConta[]; provisoes: AjusteProvisao[] } {
   const v = t.valorCents * sinal;
+  const contas: AjusteConta[] = [];
+
   switch (t.tipo) {
     case 'DESPESA':
-      if (t.contaId) await deps.contas.ajustarSaldo(t.contaId, -v);
+      if (t.contaId) contas.push({ contaId: t.contaId, deltaCents: -v });
       break;
     case 'RENDA':
     case 'ESTORNO':
-      if (t.contaId) await deps.contas.ajustarSaldo(t.contaId, +v);
+      if (t.contaId) contas.push({ contaId: t.contaId, deltaCents: +v });
       break;
     case 'TRANSFERENCIA':
-      if (t.contaId) await deps.contas.ajustarSaldo(t.contaId, -v);
-      if (t.contaDestinoId) await deps.contas.ajustarSaldo(t.contaDestinoId, +v);
+      if (t.contaId) contas.push({ contaId: t.contaId, deltaCents: -v });
+      if (t.contaDestinoId) contas.push({ contaId: t.contaDestinoId, deltaCents: +v });
       break;
+  }
+
+  const provisoes: AjusteProvisao[] =
+    t.provisaoId && t.tipo === 'DESPESA'
+      ? [{ provisaoId: t.provisaoId, deltaCents: -t.valorCents * sinal }]
+      : [];
+
+  return { contas, provisoes };
+}
+
+/**
+ * Soma os efeitos de VÁRIAS transações num único conjunto de deltas por conta
+ * e por provisão — a entrada de `TransacaoRepository.aplicarLote`. Agregar
+ * antes de escrever é o que permite a operação inteira caber em um
+ * `$transaction`, em vez de N round-trips que podem falhar pela metade.
+ */
+export function somarEfeitos(
+  entradas: readonly { transacao: Transacao; sinal: 1 | -1 }[],
+): { ajustesConta: AjusteConta[]; ajustesProvisao: AjusteProvisao[] } {
+  const porConta = new Map<string, number>();
+  const porProvisao = new Map<string, number>();
+
+  for (const { transacao, sinal } of entradas) {
+    const efeitos = efeitosDe(transacao, sinal);
+    for (const a of efeitos.contas) {
+      porConta.set(a.contaId, (porConta.get(a.contaId) ?? 0) + a.deltaCents);
+    }
+    for (const a of efeitos.provisoes) {
+      porProvisao.set(a.provisaoId, (porProvisao.get(a.provisaoId) ?? 0) + a.deltaCents);
+    }
+  }
+
+  return {
+    ajustesConta: [...porConta].map(([contaId, deltaCents]) => ({ contaId, deltaCents })),
+    ajustesProvisao: [...porProvisao].map(([provisaoId, deltaCents]) => ({
+      provisaoId,
+      deltaCents,
+    })),
+  };
+}
+
+/**
+ * Efeito de uma transação sobre o saldo dos buckets. sinal +1 aplica, -1
+ * reverte. Exportada para `parcelamentos.ts` (TASKS-CUSTOS Fase 5) reusar o
+ * mesmo caminho que `excluirTransacao` usa ao apagar parcelas.
+ */
+export async function aplicarEfeitoSaldo(deps: Deps, t: Transacao, sinal: 1 | -1): Promise<void> {
+  for (const a of efeitosDe(t, sinal).contas) {
+    await deps.contas.ajustarSaldo(a.contaId, a.deltaCents);
   }
 }
 
@@ -79,75 +139,20 @@ async function aplicarEfeitoSaldo(deps: Deps, t: Transacao, sinal: 1 | -1): Prom
  * abate (gasto novo), sinal -1 devolve (reversão). Só DESPESA marcada com
  * provisaoId mexe no acumulado — e nunca consome verba (item 3 / regra 8).
  */
-async function aplicarEfeitoProvisao(deps: Deps, t: Transacao, sinal: 1 | -1): Promise<void> {
-  if (t.provisaoId && t.tipo === 'DESPESA') {
-    await deps.provisoes.ajustarAcumulado(t.provisaoId, -t.valorCents * sinal);
+export async function aplicarEfeitoProvisao(deps: Deps, t: Transacao, sinal: 1 | -1): Promise<void> {
+  for (const a of efeitosDe(t, sinal).provisoes) {
+    await deps.provisoes.ajustarAcumulado(a.provisaoId, a.deltaCents);
   }
 }
 
-async function resolverCicloId(deps: Deps, data: string): Promise<string | null> {
+/**
+ * Ciclo cuja janela (`dataInicio`..`dataFim`) cobre `data`, ou `null` se
+ * nenhum ciclo nasceu ainda para essa competência. Exportada para
+ * `parcelamentos.ts` resolver o `cicloId` das parcelas regeradas.
+ */
+export async function resolverCicloId(deps: Deps, data: string): Promise<string | null> {
   const ciclo = await deps.ciclos.obterAtual(data);
   return ciclo?.id ?? null;
-}
-
-/** Ciclos únicos, já fechados, dentre os ids informados (ignora nulos e repetidos). */
-async function ciclosFechadosEntre(
-  deps: Deps,
-  cicloIds: readonly (string | null)[],
-): Promise<Ciclo[]> {
-  const idsUnicos = [...new Set(cicloIds.filter((id): id is string => id != null))];
-  const ciclos = await Promise.all(idsUnicos.map((id) => deps.ciclos.obter(id)));
-  return ciclos.filter((c): c is Ciclo => c != null && c.fechado);
-}
-
-/**
- * Guarda de retroatividade (SPEC regra 9): se algum dos ciclos envolvidos na
- * operação (o de origem e/ou o de destino, quando a data muda) já está
- * fechado, exige `confirmarRetroativo`. Devolve os ciclos fechados
- * envolvidos, para recálculo de sobra após a operação.
- */
-async function exigirConfirmacaoSeRetroativo(
-  deps: Deps,
-  cicloIds: readonly (string | null)[],
-  confirmarRetroativo: boolean,
-): Promise<Ciclo[]> {
-  const fechados = await ciclosFechadosEntre(deps, cicloIds);
-  if (fechados.length > 0 && !confirmarRetroativo) {
-    throw new CicloFechadoError(fechados.map((c) => c.id));
-  }
-  return fechados;
-}
-
-/**
- * Recalcula e persiste `sobraCents` de um ciclo fechado a partir do estado
- * atual das transações (SPEC regra 9). Reaproveita a mesma fórmula pura do
- * fechamento (`sobraCiclo`, em `src/domain/finance`) — nunca reimplementa.
- */
-async function recalcularSobraCicloFechado(deps: Deps, cicloId: string): Promise<void> {
-  const ciclo = await deps.ciclos.obter(cicloId);
-  if (!ciclo) return;
-
-  const [transacoes, categorias] = await Promise.all([
-    deps.transacoes.listarPorCiclo(cicloId),
-    deps.categorias.listar(),
-  ]);
-  const grupos = indexarGrupoCategoria(categorias);
-  const { sobraCents } = sobraCiclo({
-    verbaVariavelCents: ciclo.verbaVariavelCents,
-    dataFimCiclo: ciclo.dataFim,
-    transacoes: paraCalculo(transacoes, grupos),
-  });
-
-  await deps.ciclos.atualizar(cicloId, { sobraCents });
-}
-
-async function recalcularSobraDosCiclosFechados(
-  deps: Deps,
-  ciclosFechados: readonly Ciclo[],
-): Promise<void> {
-  for (const ciclo of ciclosFechados) {
-    await recalcularSobraCicloFechado(deps, ciclo.id);
-  }
 }
 
 export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise<Transacao> {
@@ -184,6 +189,12 @@ export async function criarParcelamento(deps: Deps, input: ParcelamentoInput): P
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirEscrita(deps.ator);
 
+  // D-11 na porta de entrada (TASKS-CUSTOS §5.1 ticket 6): nascer com
+  // categoria FIXO/RENDA faria a parcela não contar em `gastoRealizadoCents`
+  // — a mesma regra que `editarParcelamento` já protegia, furada na criação.
+  // Antes de qualquer escrita, para não deixar cadastro órfão sem parcelas.
+  await validarCategoriaVariavel(deps, input.categoriaId ?? null);
+
   const dataCompra = input.dataCompra ?? deps.relogio.hoje();
 
   const parcelamento = await deps.parcelamentos.criar({
@@ -193,6 +204,7 @@ export async function criarParcelamento(deps: Deps, input: ParcelamentoInput): P
     numParcelas: input.numParcelas,
     dataCompra,
     categoriaId: input.categoriaId ?? null,
+    encerradoEm: null,
   });
 
   const parcelas = gerarParcelas({

@@ -13,13 +13,9 @@ import {
   YAxis,
   type TooltipProps,
 } from 'recharts';
+import { formatarDataCurta } from '@/shared/data';
 import { formatBRL } from '@/shared/dinheiro';
 import type { PontoCurva } from '@/application/patrimonio';
-
-function formatarDataCurta(data: string): string {
-  const [, mes, dia] = data.split('-');
-  return `${dia}/${mes}`;
-}
 
 function formatarReaisCompacto(cents: number): string {
   return new Intl.NumberFormat('pt-BR', {
@@ -35,7 +31,9 @@ function TooltipCurva({ active, payload }: TooltipProps<number, string>) {
   const data = typeof ponto?.payload?.data === 'string' ? ponto.payload.data : '';
   return (
     <div className="rounded-lg border border-border-strong bg-surface-2 px-3 py-2 text-sm shadow-lg">
-      <p className="text-faint">{formatarDataCurta(data)}</p>
+      {/* `data` pode vir vazia quando o payload do Recharts não traz o ponto;
+          `formatarDataCurta` valida o formato e lançaria dentro do render. */}
+      <p className="text-faint">{data === '' ? '' : formatarDataCurta(data)}</p>
       <p className="tnum font-medium text-fg">{formatBRL(totalCents)}</p>
     </div>
   );

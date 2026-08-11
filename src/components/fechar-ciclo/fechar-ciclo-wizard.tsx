@@ -9,6 +9,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatarDataCurta } from '@/shared/data';
 import { Button } from '@/components/ui';
 import { fecharCiclo } from '@/actions/ciclos';
 import type { ResultadoFechamento, ResumoFechamento } from '@/application/fechamento';
@@ -145,7 +146,3 @@ export function FecharCicloWizard({
   );
 }
 
-function formatarDataCurta(data: string): string {
-  const [, mes, dia] = data.split('-');
-  return `${dia}/${mes}`;
-}

@@ -9,14 +9,10 @@
 import { Card, CardHeader, CardTitle, CardContent, EmptyState } from '@/components/ui';
 import { PagamentoToggle } from './pagamento-toggle';
 import { AbrirParcelamentoBotao } from './parcelamento-botao';
+import { formatarDataCurta } from '@/shared/data';
 import { formatBRL } from '@/shared/dinheiro';
 import { marcarParcelaPaga } from '@/actions/pagamentos';
 import type { LinhaParcelada } from '@/application/dashboard-tipos';
-
-function formatarDataCurta(data: string): string {
-  const [, mes, dia] = data.split('-');
-  return `${dia}/${mes}`;
-}
 
 export function ParceladosLista({
   parcelados,
