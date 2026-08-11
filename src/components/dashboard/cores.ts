@@ -61,6 +61,58 @@ export function atribuirCoresCategoricas<T>(
   }));
 }
 
+/**
+ * ---------------------------------------------------------------------------
+ * Séries da projeção (`/projecao`) — coluna empilhada da composição da renda.
+ * ---------------------------------------------------------------------------
+ * Indexado por IDENTIDADE de série, nunca por ordem de renderização: trocar a
+ * ordem da pilha, esconder uma série ou reordenar as linhas não repinta nada.
+ *
+ * Os hexes saem todos de `PALETA_CATEGORICA` (slots fixos abaixo) e a
+ * combinação foi revalidada com o validador do dataviz contra a surface
+ * `#14171f` — 6 checks PASS, pior par adjacente `#199e70`↔`#c98500` ΔE 8.4 em
+ * protanopia e 19.8 em visão normal, contraste ≥ 3:1.
+ *
+ * `--color-accent` (#6ea8fe) NÃO entra como série: reprova a banda de
+ * luminosidade no escuro (L 0.729 contra o teto 0.67). Ele segue sendo cor de
+ * interação, não de dado.
+ */
+export type SerieProjecao = 'fixos' | 'provisao' | 'poupanca' | 'parcelas' | 'verbaLivre';
+
+export const CORES_PROJECAO: Record<SerieProjecao, string> = {
+  fixos: PALETA_CATEGORICA[6], // violeta
+  provisao: PALETA_CATEGORICA[3], // amarelo
+  poupanca: PALETA_CATEGORICA[2], // aqua
+  parcelas: PALETA_CATEGORICA[1], // laranja
+  verbaLivre: PALETA_CATEGORICA[0], // azul
+};
+
+export const LABEL_PROJECAO: Record<SerieProjecao, string> = {
+  fixos: 'Custos fixos',
+  provisao: 'Provisão',
+  poupanca: 'Poupança-alvo',
+  parcelas: 'Parcelas',
+  verbaLivre: 'Verba livre',
+};
+
+/**
+ * Ordem da pilha, de BAIXO para CIMA. A verba livre é o topo de propósito: o
+ * topo é o único segmento cuja variação o olho acompanha numa pilha, e como o
+ * teto (renda prevista) é quase plano, a altura do segmento superior lê-se
+ * direto como "quanto sobra". Parcelas fica colada nela para que o encolher do
+ * laranja e o crescer do azul sejam um movimento só, na mesma fronteira.
+ *
+ * A legenda usa esta mesma ordem (SPEC do plano), então a leitura é aprendida
+ * uma vez e vale no gráfico, na tabela e na micro-barra do mobile.
+ */
+export const ORDEM_PILHA_PROJECAO: readonly SerieProjecao[] = [
+  'fixos',
+  'provisao',
+  'poupanca',
+  'parcelas',
+  'verbaLivre',
+];
+
 /** Slot fixo por método de pagamento — ordem do enum, nunca ciclada. */
 export const COR_METODO: Record<MetodoPagamento, string> = Object.fromEntries(
   METODO_PAGAMENTO.map((metodo, index) => [

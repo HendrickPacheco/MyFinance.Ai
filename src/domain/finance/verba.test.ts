@@ -4,6 +4,8 @@ import {
   poupancaAlvoCents,
   verbaVariavelCents,
   distribuirProvisaoMensalCents,
+  fixosVigentesNoCicloCents,
+  type CustoComVigencia,
 } from './verba';
 
 describe('provisaoMensalCents', () => {
@@ -129,5 +131,65 @@ describe('verbaVariavelCents (SPEC 9 — provisão zero e provisão preenchida)'
         provisaoMensalCents: 0,
       }),
     ).toBe(-30000);
+  });
+});
+
+describe('fixosVigentesNoCicloCents (sobreposição de intervalos)', () => {
+  const CICLO = { inicio: '2026-08-01', fim: '2026-08-31' };
+
+  function custo(patch: Partial<CustoComVigencia> = {}): CustoComVigencia {
+    return { valorCents: 100_000, vigenteDe: null, vigenteAte: null, ...patch };
+  }
+
+  it('soma os custos sem vigência — o caso de todo custo recém-cadastrado', () => {
+    expect(
+      fixosVigentesNoCicloCents([custo({ valorCents: 200_000 }), custo({ valorCents: 88_400 })], CICLO),
+    ).toBe(288_400);
+  });
+
+  it('devolve zero sem custos', () => {
+    expect(fixosVigentesNoCicloCents([], CICLO)).toBe(0);
+  });
+
+  it('exclui o custo que terminou ANTES do início do ciclo', () => {
+    expect(fixosVigentesNoCicloCents([custo({ vigenteAte: '2026-07-31' })], CICLO)).toBe(0);
+  });
+
+  it('exclui o custo que só começa DEPOIS do fim do ciclo', () => {
+    expect(fixosVigentesNoCicloCents([custo({ vigenteDe: '2026-09-01' })], CICLO)).toBe(0);
+  });
+
+  it('inclui as duas pontas do intervalo (comparação lexicográfica, SPEC 5.1)', () => {
+    expect(fixosVigentesNoCicloCents([custo({ vigenteAte: '2026-08-01' })], CICLO)).toBe(100_000);
+    expect(fixosVigentesNoCicloCents([custo({ vigenteDe: '2026-08-31' })], CICLO)).toBe(100_000);
+  });
+
+  it('conta INTEIRO o custo que termina no meio do ciclo (sem rateio, por decisão)', () => {
+    expect(fixosVigentesNoCicloCents([custo({ vigenteAte: '2026-08-15' })], CICLO)).toBe(100_000);
+  });
+
+  it('conta INTEIRO o custo que começa no meio do ciclo', () => {
+    expect(fixosVigentesNoCicloCents([custo({ vigenteDe: '2026-08-15' })], CICLO)).toBe(100_000);
+  });
+
+  it('respeita janela fechada nas duas pontas', () => {
+    const janela = custo({ vigenteDe: '2026-01-01', vigenteAte: '2026-12-31' });
+    expect(fixosVigentesNoCicloCents([janela], CICLO)).toBe(100_000);
+    expect(
+      fixosVigentesNoCicloCents([janela], { inicio: '2027-01-01', fim: '2027-01-31' }),
+    ).toBe(0);
+  });
+
+  it('recusa data malformada em vez de comparar lixo', () => {
+    expect(() => fixosVigentesNoCicloCents([custo({ vigenteAte: '31/08/2026' })], CICLO)).toThrow(
+      TypeError,
+    );
+    expect(() =>
+      fixosVigentesNoCicloCents([custo()], { inicio: '2026-08-01', fim: '2026/08/31' }),
+    ).toThrow(TypeError);
+  });
+
+  it('recusa valor não inteiro (dinheiro é sempre Int em centavos)', () => {
+    expect(() => fixosVigentesNoCicloCents([custo({ valorCents: 100.5 })], CICLO)).toThrow();
   });
 });

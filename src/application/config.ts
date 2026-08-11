@@ -22,7 +22,7 @@ import {
   sugerirMetaPoupancaCents,
   type VerificacaoMetaIrreal,
 } from '@/domain/finance';
-import { recalcularCicloAtualSeVazio } from './ciclos';
+import { recalcularCicloAtualSeVazio, type EfeitoNoCicloAtual } from './ciclos';
 
 /** Nº de ciclos fechados consultados para as sugestões da regra 6 (renda variável). */
 const JANELA_CICLOS_SUGESTAO_RENDA = 6;
@@ -122,22 +122,43 @@ export async function upsertConta(deps: Deps, conta: Conta): Promise<Conta> {
   return deps.contas.salvar(conta);
 }
 
-export async function upsertCustoFixo(deps: Deps, custo: CustoFixo): Promise<CustoFixo> {
+/**
+ * Salvar um custo fixo/provisão devolve o cadastro E o efeito no ciclo em
+ * curso. O efeito não é enfeite: `recalcularCicloAtualSeVazio` recalcula a
+ * verba de hoje quando o ciclo ainda não tem lançamento, e sem esse retorno a
+ * UI só saberia dizer "vale a partir do próximo ciclo" — falso justamente no
+ * dia 1, que é quando o dono mexe nos custos (TASKS-CUSTOS §4.3 item 0).
+ */
+export interface ResultadoUpsertCustoFixo {
+  custo: CustoFixo;
+  efeito: EfeitoNoCicloAtual;
+}
+
+export interface ResultadoUpsertProvisao {
+  provisao: ProvisaoAnual;
+  efeito: EfeitoNoCicloAtual;
+}
+
+export async function upsertCustoFixo(
+  deps: Deps,
+  custo: CustoFixo,
+): Promise<ResultadoUpsertCustoFixo> {
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirOwner(deps.ator);
 
   const salvo = await deps.custosFixos.salvar(custo);
-  await recalcularCicloAtualSeVazio(deps);
-  return salvo;
+  return { custo: salvo, efeito: await recalcularCicloAtualSeVazio(deps) };
 }
 
-export async function upsertProvisao(deps: Deps, provisao: ProvisaoAnual): Promise<ProvisaoAnual> {
+export async function upsertProvisao(
+  deps: Deps,
+  provisao: ProvisaoAnual,
+): Promise<ResultadoUpsertProvisao> {
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirOwner(deps.ator);
 
   const salvo = await deps.provisoes.salvar(provisao);
-  await recalcularCicloAtualSeVazio(deps);
-  return salvo;
+  return { provisao: salvo, efeito: await recalcularCicloAtualSeVazio(deps) };
 }
 
 export async function upsertCategoria(deps: Deps, categoria: Categoria): Promise<Categoria> {

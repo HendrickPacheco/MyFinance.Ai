@@ -71,6 +71,14 @@ model CustoFixo {
   contaId       String?
   conta         Conta?  @relation(fields: [contaId], references: [id])
 
+  // Vigência — hints de PROJEÇÃO FUTURA, não vigência histórica retroativa.
+  // Ciclos já nascidos ignoram estes campos (são congelados: cada Ciclo guarda
+  // seu próprio fixosCents). Servem para a projeção parar de contar um custo
+  // que vai acabar, e é isso que faz a verba "respirar" nos meses seguintes.
+  // null/null = constante para sempre (comportamento anterior à migração).
+  vigenteDe     String? // YYYY-MM-DD
+  vigenteAte    String? // YYYY-MM-DD
+
   pagamentos PagamentoFixo[]
 
   @@index([donoId])
@@ -184,6 +192,13 @@ model Parcelamento {
   numParcelas     Int
   dataCompra      String
   categoriaId     String?
+
+  // Cancelamento antecipado: as parcelas FUTURAS foram apagadas, as já pagas
+  // (e as de ciclo fechado) permanecem. Não é delete do parcelamento — a FK
+  // Transacao.parcelamentoId é Restrict e as parcelas passadas seguem vivas.
+  // null = em andamento.
+  encerradoEm     String? // YYYY-MM-DD
+
   transacoes      Transacao[]
 
   @@index([donoId])

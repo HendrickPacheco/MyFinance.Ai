@@ -4,7 +4,51 @@
  * disponível em nenhuma tela.
  */
 import { assertCentavos, somaCents, ratearCents } from '@/shared/dinheiro';
-import type { ParametrosVerba } from './tipos';
+import { assertData, type DataCivil } from '@/shared/data';
+import type { LimitesCiclo, ParametrosVerba } from './tipos';
+
+/**
+ * Um custo fixo reduzido ao que a projeção precisa saber. `null` nas duas
+ * pontas = vigente para sempre (é como todo custo nasce).
+ */
+export interface CustoComVigencia {
+  valorCents: number;
+  vigenteDe: DataCivil | null;
+  vigenteAte: DataCivil | null;
+}
+
+/**
+ * Soma os custos fixos que se sobrepõem ao intervalo do ciclo:
+ *   (vigenteDe == null || vigenteDe <= fim) && (vigenteAte == null || vigenteAte >= inicio)
+ * Comparação lexicográfica de string (SPEC 5.1) — nunca `new Date(string)`.
+ *
+ * SEM RATEIO PROPORCIONAL, e isto é deliberado: um custo que termina no meio
+ * do ciclo conta INTEIRO naquele ciclo. É a escolha conservadora — a projeção
+ * prefere reservar dinheiro a mais do que prometer verba que pode não existir.
+ * Não "corrija" isto para meio-mês: a contrapartida seria uma verba otimista
+ * num ciclo em que a última fatura do custo ainda vai chegar cheia.
+ *
+ * Vigência é hint de PROJEÇÃO FUTURA, nunca vigência histórica: ciclo já
+ * nascido guarda o próprio `fixosCents` congelado e ignora estes campos.
+ */
+export function fixosVigentesNoCicloCents(
+  custos: readonly CustoComVigencia[],
+  limites: LimitesCiclo,
+): number {
+  assertData(limites.inicio, 'limites.inicio');
+  assertData(limites.fim, 'limites.fim');
+
+  const vigentes = custos.filter((custo) => vigenteNoIntervalo(custo, limites));
+  return somaCents(vigentes.map((c) => assertCentavos(c.valorCents, 'valorCents')));
+}
+
+/** Sobreposição de intervalos, com as pontas abertas tratadas como infinitas. */
+function vigenteNoIntervalo(custo: CustoComVigencia, limites: LimitesCiclo): boolean {
+  const comecouAteOFim = custo.vigenteDe == null || assertData(custo.vigenteDe, 'vigenteDe') <= limites.fim;
+  const terminaDoInicioEmDiante =
+    custo.vigenteAte == null || assertData(custo.vigenteAte, 'vigenteAte') >= limites.inicio;
+  return comecouAteOFim && terminaDoInicioEmDiante;
+}
 
 /**
  * Provisão mensal = soma das provisões anuais ativas / 12.

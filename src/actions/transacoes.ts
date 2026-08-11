@@ -4,15 +4,17 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { criarDeps } from '@/composition';
 import { executar, type Resultado } from './resultado';
+import { executarComConfirmacao, type ResultadoRetroativo } from './resultado-retroativo';
 import {
   criarTransacao as ucCriar,
   criarParcelamento as ucParcelar,
   editarTransacao as ucEditar,
   excluirTransacao as ucExcluir,
   estornarTransacao as ucEstornar,
-  CicloFechadoError,
 } from '@/application/transacoes';
 import type { Transacao } from '@/domain/model/entidades';
+
+export type { ResultadoRetroativo } from './resultado-retroativo';
 
 const TIPO = z.enum(['DESPESA', 'RENDA', 'TRANSFERENCIA', 'ESTORNO']);
 const METODO = z.enum(['PIX', 'DEBITO', 'CREDITO', 'DINHEIRO', 'BOLETO']);
@@ -45,39 +47,18 @@ const parcelamentoSchema = z.object({
 });
 
 /**
- * Resultado de operações que podem tocar um ciclo fechado (SPEC regra 9).
- * Superset estrutural de `Resultado<T>`: a UI que só olha `.ok`/`.erro`
- * continua funcionando; quem trata retroatividade lê `requerConfirmacao` e
- * `ciclosAfetados` para pedir confirmação e reenviar com o flag.
+ * Toda rota que exibe o MESMO dinheiro precisa ser invalidada junto — senão a
+ * tela vizinha continua mostrando o número anterior, sem erro nenhum.
+ *
+ * `revalidatePath('/custos', 'layout')` (e não a rota nua) porque a barra de
+ * totais de `/custos` mora no LAYOUT: sem o segundo argumento ela fica
+ * desatualizada enquanto a aba abaixo dela já mostra o valor novo. Aprendizado
+ * da Fase 7 do TASKS-CUSTOS. Como `layout` cobre as três abas, `/custos/*` não
+ * precisa ser listado item a item.
  */
-export type ResultadoRetroativo<T = void> =
-  | { ok: true; data: T }
-  | { ok: false; erro: string; requerConfirmacao?: boolean; ciclosAfetados?: string[] };
-
-/**
- * Como `executar` (src/actions/resultado.ts), mas reconhece `CicloFechadoError`
- * por `instanceof` e traduz em pedido de confirmação — nunca deixa a exceção
- * vazar como erro genérico para a UI (SPEC 8).
- */
-async function executarComConfirmacao<T>(fn: () => Promise<T>): Promise<ResultadoRetroativo<T>> {
-  try {
-    return { ok: true, data: await fn() };
-  } catch (e) {
-    if (e instanceof CicloFechadoError) {
-      return {
-        ok: false,
-        erro: e.message,
-        requerConfirmacao: true,
-        ciclosAfetados: [...e.ciclosAfetados],
-      };
-    }
-    const erro = e instanceof Error ? e.message : 'Erro inesperado.';
-    return { ok: false, erro };
-  }
-}
-
 function revalidarTudo(): void {
   for (const p of ['/', '/ciclo', '/analise', '/fechar-ciclo']) revalidatePath(p);
+  revalidatePath('/custos', 'layout');
 }
 
 export async function criarTransacao(

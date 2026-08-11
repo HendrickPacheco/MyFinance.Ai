@@ -6,7 +6,7 @@
  * delas participa do cálculo do teto do dia — reaproveitam a MESMA semântica
  * de `contaComoVerbaVariavel` (teto.ts) para não divergir do motor principal.
  */
-import { assertData, type DataCivil } from '@/shared/data';
+import { assertData, MESES_ABREVIADOS_PT_BR, type DataCivil } from '@/shared/data';
 import type { MetodoPagamento } from '@/domain/model/enums';
 import type { TransacaoCalc } from './tipos';
 import type { ResultadoRitmo } from './ritmo';
@@ -335,6 +335,60 @@ export function somarProgramadosCents(
   return total;
 }
 
+/**
+ * O espelho de `somarProgramadosCents`: soma líquida (DESPESA − ESTORNO) só
+ * das linhas JÁ REALIZADAS do extrato.
+ *
+ * Existe para `/custos/variaveis` (TASKS-CUSTOS Fase 9), onde o recorte é um
+ * PERÍODO arbitrário e não um ciclo — ali não há
+ * `gastoVariavelSemParcelasCents` de ciclo a reaproveitar, e o total do
+ * recorte precisa sair de função pura, nunca de aritmética na tela (regra 4).
+ *
+ * Mesma regra de sinal do teto: DESPESA soma, ESTORNO abate. Programado fica
+ * de fora — competência futura não consome verba (SPEC 5.1) e some-la aqui
+ * apresentaria como gasto dinheiro que ainda não saiu.
+ */
+export function somarRealizadosCents(
+  linhas: readonly Pick<LinhaTransacaoVariavelCalc, 'valorCents' | 'ehEstorno' | 'ehProgramado'>[],
+): number {
+  let total = 0;
+  for (const l of linhas) {
+    if (l.ehProgramado) continue;
+    total += l.ehEstorno ? -l.valorCents : l.valorCents;
+  }
+  return total;
+}
+
+/** Filtros da tela de gestão de variáveis. `null`/ausente = não filtra. */
+export interface FiltroLinhasVariaveis {
+  categoriaId?: string | null;
+  metodo?: MetodoPagamento | null;
+}
+
+/**
+ * Recorte por categoria e/ou método sobre um extrato já montado.
+ *
+ * Fica no motor, e não na tela, porque o TOTAL do recorte é dinheiro: quem
+ * filtra e quem soma precisam olhar exatamente o mesmo conjunto. Filtrar no
+ * componente e somar no servidor (ou vice-versa) é como um total passa a
+ * discordar da lista que está logo acima dele.
+ *
+ * `metodo: null` no filtro significa "todos", não "sem método informado" —
+ * uma linha sem método (`metodo === null`) só some quando um método concreto
+ * é escolhido.
+ */
+export function filtrarLinhasVariaveis(
+  linhas: readonly LinhaTransacaoVariavelCalc[],
+  filtro: FiltroLinhasVariaveis,
+): LinhaTransacaoVariavelCalc[] {
+  const { categoriaId, metodo } = filtro;
+  return linhas.filter((l) => {
+    if (categoriaId != null && l.categoriaId !== categoriaId) return false;
+    if (metodo != null && l.metodo !== metodo) return false;
+    return true;
+  });
+}
+
 export interface ResultadoPoupancaProjetada {
   poupancaProjetadaCents: number;
   progressoPercentual: number;
@@ -367,21 +421,6 @@ export function projetarPoupanca(params: {
     progressoPercentual: percentualDeAlvo(poupancaProjetadaCents, params.poupancaAlvoCents),
   };
 }
-
-const MESES_ABREVIADOS_PT_BR = [
-  'jan',
-  'fev',
-  'mar',
-  'abr',
-  'mai',
-  'jun',
-  'jul',
-  'ago',
-  'set',
-  'out',
-  'nov',
-  'dez',
-] as const;
 
 /**
  * Rótulo pt-BR do período do ciclo, ex.: "1 ago — 31 ago". Extrai dia e mês

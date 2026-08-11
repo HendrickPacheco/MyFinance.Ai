@@ -45,6 +45,15 @@ export interface CustoFixo {
   diaVencimento: number;
   ativo: boolean;
   contaId: string | null;
+  /**
+   * Vigência — hints de PROJEÇÃO FUTURA, não vigência histórica retroativa.
+   * Ciclo já nascido ignora estes campos: ele guarda o próprio `fixosCents`
+   * congelado. Servem para a projeção parar de contar um custo que vai acabar,
+   * e é isso que faz a verba "respirar" nos meses seguintes.
+   * `null` nos dois = constante para sempre (como todo custo nasce hoje).
+   */
+  vigenteDe: DataCivil | null;
+  vigenteAte: DataCivil | null;
 }
 
 /**
@@ -106,6 +115,13 @@ export interface Parcelamento {
   numParcelas: number;
   dataCompra: DataCivil;
   categoriaId: string | null;
+  /**
+   * Cancelamento antecipado: as parcelas FUTURAS foram apagadas, as já pagas
+   * (e as de ciclo fechado) permanecem contando no histórico. Não é delete do
+   * parcelamento — a FK `Transacao.parcelamentoId` é Restrict e as parcelas
+   * passadas seguem vivas. `null` = em andamento.
+   */
+  encerradoEm: DataCivil | null;
 }
 
 export interface Ciclo {

@@ -20,16 +20,54 @@
  */
 import type { DataCivil } from '@/shared/data';
 import type { DestinoSobra } from '@/domain/model/enums';
+import type { CustoComVigencia } from './verba';
 
 /**
  * Uma obrigação já assumida que cai numa data futura — na prática, uma parcela
  * já gravada como `Transacao`. A projeção LÊ estas obrigações; nunca regenera
  * parcelas do passado a partir de `Parcelamento`.
+ *
+ * `descricao`/`parcelaNum`/`numParcelas` são OPCIONAIS de propósito: quem monta
+ * a entrada pode não ter o cadastro do parcelamento em mãos (as ferramentas de
+ * IA montam a entrada só com data/valor). Quem preenche é o read-model.
  */
 export interface ObrigacaoFutura {
   data: DataCivil;
   valorCents: number;
   parcelamentoId: string | null;
+  descricao?: string | null;
+  /** 1-based. */
+  parcelaNum?: number | null;
+  numParcelas?: number | null;
+}
+
+/**
+ * Uma parcela que cai dentro do ciclo, já detalhada. Só descreve — nenhum
+ * campo daqui entra em `verbaVariavelCents` (decisão D-11, ver cabeçalho).
+ *
+ * `descricao` e `parcelaNum` são NULÁVEIS, ao contrário do que o plano previa:
+ * eles vêm de campos opcionais de `ObrigacaoFutura`, e nem todo chamador os
+ * tem. Tipar como não-nulo seria mentir — a UI teria `undefined` num campo que
+ * o tipo jura existir.
+ */
+export interface ObrigacaoDoCiclo {
+  parcelamentoId: string | null;
+  descricao: string | null;
+  valorCents: number;
+  parcelaNum: number | null;
+  numParcelas: number | null;
+}
+
+/**
+ * Um parcelamento cuja ÚLTIMA parcela cai neste ciclo — a partir do próximo,
+ * este dinheiro volta para a verba livre. É a informação que faz a projeção
+ * responder "quando é que eu respiro de novo?".
+ */
+export interface FimDeParcelamento {
+  parcelamentoId: string;
+  descricao: string | null;
+  /** O valor da última parcela: é ele que deixa de comprometer verba. */
+  valorMensalCents: number;
 }
 
 /** Uma compra parcelada futura a simular (pré-mortem de compra). */
@@ -81,7 +119,18 @@ export interface EntradaProjecao {
   metaPoupancaCents: number;
   /** Se preenchida, tem precedência e incide sobre a renda do mês (0–100). */
   metaPoupancaPercent: number | null;
+  /** Fallback escalar: usado em todo ciclo futuro quando `custosComVigencia`
+   * está ausente. Continua obrigatório — é o que mantém os chamadores antigos
+   * (inclusive as ferramentas de IA) funcionando sem mudança. */
   fixosCents: number;
+  /**
+   * Custos fixos com vigência. Quando presente, o `fixosCents` de CADA ciclo
+   * futuro é recalculado por sobreposição de intervalo
+   * (`fixosVigentesNoCicloCents`) e o escalar acima é ignorado nesses ciclos.
+   * O `cicloCongelado` nunca é recomputado (SPEC 5.2): vigência só afeta
+   * ciclos ≥ 2.
+   */
+  custosComVigencia?: readonly CustoComVigencia[];
   valoresProvisaoAnualCents: readonly number[];
 
   destinoSobra: DestinoSobra;
@@ -111,8 +160,16 @@ export interface CicloProjetado {
   /** Verba do motor: renda − poupança − fixos − provisão (+ rollover).
    * NÃO desconta parcela — ver o cabeçalho deste arquivo. */
   verbaVariavelCents: number;
-  /** Soma das obrigações futuras que caem no intervalo do ciclo. */
+  /** Soma das obrigações futuras que caem no intervalo do ciclo.
+   * Vale sempre `soma(obrigacoesDoCiclo.valorCents)` — os dois saem do MESMO
+   * filtro, exatamente para não poderem divergir. */
   parcelasComprometidasCents: number;
+  /** As parcelas que caem no ciclo, uma a uma. Detalhe puro: não entra em
+   * nenhum cálculo de verba. */
+  obrigacoesDoCiclo: readonly ObrigacaoDoCiclo[];
+  /** Parcelamentos cuja última parcela é neste ciclo (`parcelaNum ===
+   * numParcelas`). Vazio quando a entrada não trouxe esses campos. */
+  terminamNesteCiclo: readonly FimDeParcelamento[];
   /** `verbaVariavelCents − parcelasComprometidasCents`. O que sobra de verdade. */
   verbaLivreCents: number;
   /** `verbaLivreCents` dividido pelos dias do ciclo (floor). */

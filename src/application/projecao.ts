@@ -28,6 +28,7 @@ import type {
   CenarioHipotetico,
   CicloCongelado,
   CicloProjetado,
+  CustoComVigencia,
   DeltaCiclo,
   EntradaProjecao,
   ObrigacaoFutura,
@@ -46,9 +47,18 @@ export interface ResultadoProjecao {
 
 const PREMISSAS_BASE = [
   'Sobra zero nos ciclos futuros: a projeção não adivinha quanto você vai gastar.',
-  'Custo fixo constante em todo o horizonte — o cadastro não tem data de término.',
+  'Custo fixo constante enquanto vigente: sai da projeção a partir do ciclo seguinte ao término cadastrado, e conta inteiro no ciclo em que termina.',
   'Renda prevista constante e igual à da configuração vigente.',
 ] as const;
+
+/** Declara quantos custos fixos têm término previsto — a verba "respira" ali. */
+function premissaDeTermino(custos: readonly CustoComVigencia[] | undefined): string | null {
+  const comTermino = (custos ?? []).filter((c) => c.vigenteAte != null).length;
+  if (comTermino === 0) return null;
+  return comTermino === 1
+    ? '1 custo fixo tem término previsto e sai da projeção na data cadastrada.'
+    : `${comTermino} custos fixos têm término previsto e saem da projeção nas datas cadastradas.`;
+}
 
 /** Parâmetros vigentes na Config, para os ciclos que ainda não nasceram. */
 async function parametrosVigentes(
@@ -61,6 +71,7 @@ async function parametrosVigentes(
     | 'metaPoupancaCents'
     | 'metaPoupancaPercent'
     | 'fixosCents'
+    | 'custosComVigencia'
     | 'valoresProvisaoAnualCents'
   >
 > {
@@ -73,7 +84,11 @@ async function parametrosVigentes(
     rendaPrevistaCents: config.rendaBaseCents,
     metaPoupancaCents: config.metaPoupancaCents,
     metaPoupancaPercent: config.metaPoupancaPercent,
+    // O escalar continua sendo emitido: é o fallback do motor e o número que a
+    // UI mostra como "fixos de hoje". Os mesmos custos vão inteiros em
+    // `custosComVigencia` — uma consulta só, nenhuma query nova.
     fixosCents: somaCents(custos.map((c) => c.valorCents)),
+    custosComVigencia: custos,
     valoresProvisaoAnualCents: provisoes.map((p) => p.valorAnualCents),
   };
 }
@@ -95,13 +110,25 @@ function congelar(ciclo: Ciclo): CicloCongelado {
   };
 }
 
-/** Parcelas já gravadas que caem no horizonte. Fonte de verdade = `Transacao`. */
+/**
+ * Parcelas já gravadas que caem no horizonte. Fonte de verdade = `Transacao`;
+ * o cadastro `Parcelamento` entra só para o `numParcelas`, que a transação não
+ * carrega e sem o qual não dá para dizer que uma parcela é a última.
+ *
+ * O cadastro é lido de UMA vez e indexado num `Map` — consultar parcelamento a
+ * parcelamento seria um N+1 no caminho que o copiloto chama a cada pergunta.
+ */
 async function obrigacoesFuturas(
   deps: Deps,
   inicio: DataCivil,
   fim: DataCivil,
 ): Promise<ObrigacaoFutura[]> {
-  const transacoes = await deps.transacoes.listarPorIntervalo(inicio, fim);
+  const [transacoes, parcelamentos] = await Promise.all([
+    deps.transacoes.listarPorIntervalo(inicio, fim),
+    deps.parcelamentos.listar(),
+  ]);
+
+  const numParcelasPorId = new Map(parcelamentos.map((p) => [p.id, p.numParcelas]));
 
   return transacoes
     .filter((t) => t.parcelamentoId != null)
@@ -109,6 +136,11 @@ async function obrigacoesFuturas(
       data: t.data,
       valorCents: t.valorCents,
       parcelamentoId: t.parcelamentoId,
+      descricao: t.descricao,
+      parcelaNum: t.parcelaNum,
+      // `null` quando o cadastro sumiu: melhor não anunciar um fim de
+      // parcelamento do que anunciar um errado.
+      numParcelas: t.parcelamentoId == null ? null : numParcelasPorId.get(t.parcelamentoId) ?? null,
     }));
 }
 
@@ -154,6 +186,8 @@ export async function obterProjecao(
   };
 
   const premissas: string[] = [...PREMISSAS_BASE];
+  const termino = premissaDeTermino(entrada.custosComVigencia);
+  if (termino) premissas.push(termino);
   premissas.push(
     congelado
       ? 'O ciclo atual usa os parâmetros congelados quando ele nasceu; os seguintes usam a configuração vigente.'
