@@ -44,7 +44,7 @@ import {
   reativarProvisao,
   excluirProvisao,
 } from './custos';
-import { criarSnapshot } from './patrimonio';
+import { criarSnapshot, aceitarRealidade } from './patrimonio';
 import {
   desmarcarCustoFixoPago,
   desmarcarParcelaPaga,
@@ -169,6 +169,7 @@ const ESCRITAS: ReadonlyArray<readonly [string, (d: FakeDeps) => Promise<unknown
     (d) => upsertCategoria(d, { id: '', nome: 'Nova', grupo: 'VARIAVEL', essencial: false, icone: null, cor: null, ordem: 9 }),
   ],
   ['criarSnapshot', (d) => criarSnapshot(d, '2026-08-01', [{ nome: 'CDB', classe: 'RENDA_FIXA', valorCents: 100 }])],
+  ['aceitarRealidade', (d) => aceitarRealidade(d, 'item-1')],
   ['desativarCustoFixo', (d) => desativarCustoFixo(d, 'cf-1')],
   ['reativarCustoFixo', (d) => reativarCustoFixo(d, 'cf-1')],
   ['excluirCustoFixo', (d) => excluirCustoFixo(d, 'cf-1')],

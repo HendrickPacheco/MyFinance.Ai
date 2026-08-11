@@ -789,22 +789,34 @@ export class PrismaPatrimonioRepository implements PatrimonioRepository {
     return rows.map(toSnapshot);
   }
 
-  async criar(snapshot: SnapshotPatrimonio): Promise<SnapshotPatrimonio> {
-    const r = await this.db.snapshotPatrimonio.create({
-      data: {
-        donoId: this.donoId,
-        data: snapshot.data,
-        totalCents: snapshot.totalCents,
-        itens: {
-          create: snapshot.itens.map((i) => ({
-            nome: i.nome,
-            classe: i.classe,
-            valorCents: i.valorCents,
-          })),
+  async salvar(snapshot: SnapshotPatrimonio): Promise<SnapshotPatrimonio> {
+    // Delete + create na MESMA transação: sem isso uma falha no create
+    // deixaria o dono sem o snapshot antigo e sem o novo. `deleteMany` filtra
+    // por donoId (regra de ouro do multi-tenant) e os itens caem por cascata.
+    const [, r] = await this.db.$transaction([
+      this.db.snapshotPatrimonio.deleteMany({
+        where: { donoId: this.donoId, data: snapshot.data },
+      }),
+      this.db.snapshotPatrimonio.create({
+        data: {
+          donoId: this.donoId,
+          data: snapshot.data,
+          totalCents: snapshot.totalCents,
+          itens: {
+            create: snapshot.itens.map((i) => ({
+              nome: i.nome,
+              classe: i.classe,
+              valorCents: i.valorCents,
+              // `contaId` chega já validado como pertencente a este dono
+              // (`criarSnapshot`): a FK do Postgres garante que a conta existe,
+              // mas NÃO que ela é sua — esse escopo é responsabilidade nossa.
+              contaId: i.contaId,
+            })),
+          },
         },
-      },
-      include: { itens: true },
-    });
+        include: { itens: true },
+      }),
+    ]);
     return toSnapshot(r);
   }
 }

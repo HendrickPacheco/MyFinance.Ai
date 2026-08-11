@@ -16,7 +16,7 @@ import { obterEstadoCicloSomenteLeitura } from '@/application/ciclo-view';
 import { ritmoExibivel } from '@/domain/finance';
 import { obterEstadoPainelSomenteLeitura } from '@/application/dashboard';
 import { obterProjecao } from '@/application/projecao';
-import { dinheiros, semCicloAberto, type SaidaFerramenta } from './saida';
+import { dinheiros, composicaoDaVerba, semCicloAberto, type SaidaFerramenta } from './saida';
 
 const ORIGEM_HOJE = 'domain/finance/teto.ts: calcularTeto';
 const ORIGEM_CICLO = 'domain/finance/ritmo.ts: indicadoresRitmo';
@@ -66,10 +66,13 @@ export async function estadoCiclo(deps: Deps): Promise<SaidaFerramenta> {
     diasTotaisCiclo: estado.ritmo.diasTotaisCiclo,
     ritmo: estado.ritmo.ritmo,
     rotulos: {
-      verbaVariavel: 'verba do ciclo, antes de descontar parcela',
+      verbaVariavel:
+        'verba do ciclo, com renda − poupança − fixos − provisão JÁ descontados; ' +
+        'só as parcelas ainda não foram',
       parcelasComprometidas: 'já preso em parcelas que caem neste ciclo',
       verbaLivre: 'o que sobra de verdade: verba variável menos parcelas',
     },
+    ...composicaoDaVerba(atual),
     ...dinheiros({
       verbaVariavel: atual.verbaVariavelCents,
       parcelasComprometidas: atual.parcelasComprometidasCents,

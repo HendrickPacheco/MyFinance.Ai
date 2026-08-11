@@ -19,7 +19,10 @@ import {
   reativarProvisao as ucReativarProvisao,
   excluirProvisao as ucExcluirProvisao,
 } from '@/application/custos';
-import { criarSnapshot as ucSnapshot } from '@/application/patrimonio';
+import {
+  criarSnapshot as ucSnapshot,
+  aceitarRealidade as ucAceitarRealidade,
+} from '@/application/patrimonio';
 import type {
   ResultadoUpsertCustoFixo,
   ResultadoUpsertProvisao,
@@ -271,6 +274,9 @@ const snapshotSchema = z.object({
       nome: z.string().min(1),
       classe: z.enum(['CONTA', 'RENDA_FIXA', 'RENDA_VARIAVEL', 'CRIPTO', 'IMOVEL', 'OUTRO']),
       valorCents: z.number().int(),
+      // Aceito do cliente, mas quem decide se este id é seu é `criarSnapshot`
+      // no caso de uso — schema valida forma, não propriedade.
+      contaId: z.string().nullable().default(null),
     }),
   ),
 });
@@ -281,5 +287,19 @@ export async function criarSnapshot(input: z.input<typeof snapshotSchema>): Prom
     const deps = await criarDeps();
     await ucSnapshot(deps, d.data, d.itens);
     revalidatePath('/patrimonio');
+  });
+}
+
+/**
+ * Aceita a realidade observada num item conciliado, movendo o saldo da conta
+ * até o valor fotografado. Revalida `/` e `/ciclo` também: saldo de conta
+ * aparece nos painéis, não só na tela de patrimônio.
+ */
+export async function aceitarRealidade(itemId: string): Promise<Resultado> {
+  return executar(async () => {
+    const id = z.string().min(1).parse(itemId);
+    const deps = await criarDeps();
+    await ucAceitarRealidade(deps, id);
+    for (const p of ['/patrimonio', '/', '/config']) revalidatePath(p);
   });
 }

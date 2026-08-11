@@ -24,6 +24,47 @@ export function dinheiros(valores: Record<string, number>): SaidaFerramenta {
 }
 
 /**
+ * Decomposição da verba variável, para toda ferramenta que a expõe.
+ *
+ * Origem (11/08/2026): o dono afirmou que a meta de poupança já sai da verba —
+ * está certo, é literalmente `verbaVariavelCents` em domain/finance/verba.ts —
+ * e o copiloto RESPONDEU QUE NÃO. Ele não tinha como saber: recebia
+ * `verbaVariavel` como número atômico, e o rótulo "antes de descontar parcela"
+ * ainda sugeria que nada havia sido descontado.
+ *
+ * Um número derivado que chega sem suas partes convida o modelo a inventar de
+ * onde ele veio — inventando uma causa (caso do patrimônio) ou negando um fato
+ * (este caso). Por isso a decomposição viaja SEMPRE junto da verba, com a
+ * fórmula em texto.
+ */
+export function composicaoDaVerba(params: {
+  rendaPrevistaCents: number;
+  poupancaAlvoCents: number;
+  fixosCents: number;
+  provisaoMensalCents: number;
+  rolloverRecebidoCents: number;
+}): SaidaFerramenta {
+  return {
+    composicaoDaVerba: {
+      formula: 'verbaVariavel = renda − poupança − fixos − provisão + rollover',
+      ...dinheiros({
+        renda: params.rendaPrevistaCents,
+        poupancaJaDescontada: params.poupancaAlvoCents,
+        fixosJaDescontados: params.fixosCents,
+        provisaoJaDescontada: params.provisaoMensalCents,
+        rollover: params.rolloverRecebidoCents,
+      }),
+      metaDePoupancaJaEstaNaVerba: true,
+      observacao:
+        'A meta de poupança JÁ foi subtraída para chegar em verbaVariavel. Ela não ' +
+        'aparece como linha separada porque não é um gasto do ciclo — é dinheiro que ' +
+        'nunca entrou na verba. Nunca diga que a meta não está descontada, e nunca ' +
+        'sugira separá-la de novo a partir da verba livre: isso a contaria duas vezes.',
+    },
+  };
+}
+
+/**
  * Resposta honesta quando não há ciclo aberto. A ferramenta NÃO cria um — quem
  * abre ciclo é a tela que o usuário acessa, nunca uma pergunta (decisão D-8).
  */

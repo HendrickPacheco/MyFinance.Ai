@@ -1,6 +1,7 @@
 import { criarDeps } from '@/composition';
 import { obterPatrimonio, sugestaoItensSnapshot } from '@/application/patrimonio';
 import { Card, CardContent, CardHeader, CardTitle, EmptyState } from '@/components/ui';
+import { ConciliacaoPatrimonio } from '@/components/patrimonio/conciliacao-patrimonio';
 import { CurvaPatrimonioChart } from '@/components/patrimonio/curva-patrimonio-chart';
 import { HistoricoSnapshots } from '@/components/patrimonio/historico-snapshots';
 import { NovoSnapshotForm } from '@/components/patrimonio/novo-snapshot-form';
@@ -10,11 +11,13 @@ export const dynamic = 'force-dynamic';
 
 export default async function PatrimonioPage() {
   const deps = await criarDeps();
-  const [estado, itensSugeridos] = await Promise.all([
+  const [estado, itensSugeridos, contas] = await Promise.all([
     obterPatrimonio(deps),
     sugestaoItensSnapshot(deps),
+    deps.contas.listar({ incluirArquivadas: false }),
   ]);
   const hojeISO = deps.relogio.hoje();
+  const contasVinculaveis = contas.map((c) => ({ id: c.id, nome: c.nome }));
 
   return (
     <div className="mx-auto w-full space-y-8 lg:max-w-4xl">
@@ -25,6 +28,8 @@ export default async function PatrimonioPage() {
         taxaAcumulacaoMediaCents={estado.taxaAcumulacaoMediaCents}
         temDados={estado.temDados}
       />
+
+      <ConciliacaoPatrimonio divergencias={estado.divergencias} />
 
       <Card>
         <CardHeader>
@@ -51,7 +56,12 @@ export default async function PatrimonioPage() {
         </Card>
       )}
 
-      <NovoSnapshotForm itensSugeridos={itensSugeridos} hojeISO={hojeISO} />
+      <NovoSnapshotForm
+        itensSugeridos={itensSugeridos}
+        hojeISO={hojeISO}
+        contas={contasVinculaveis}
+        datasComSnapshot={estado.snapshots.map((s) => s.data)}
+      />
     </div>
   );
 }

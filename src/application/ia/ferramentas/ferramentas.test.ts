@@ -192,6 +192,145 @@ describe('toda ferramenta, com dados reais', () => {
   });
 });
 
+/**
+ * Regressão de um caso real (11/08/2026): sem nenhum ciclo fechado, o copiloto
+ * respondeu "seus custos fixos precisam estar registrados no app" com 12 custos
+ * fixos cadastrados. A ferramenta só emitia `mesesDeReservaDesconhecido: true`,
+ * um booleano sem causa, e o modelo preencheu a lacuna com a explicação mais
+ * plausível — que era falsa. O contrato agora é: quando o número não existe, a
+ * saída diz POR QUE ele não existe.
+ */
+describe('patrimonio_resumo — o desconhecido tem que vir com motivo', () => {
+  function depsSemCicloFechado() {
+    return criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloAtual()], // aberto, nunca fechado
+      contas: [contaFake({ id: 'reserva', tipo: 'RESERVA', saldoCents: 6_000_000 })],
+      custosFixos: [
+        { id: 'cf1', nome: 'Aluguel', valorCents: 400_000, diaVencimento: 5, ativo: true, contaId: null, vigenteDe: null, vigenteAte: null },
+        { id: 'cf2', nome: 'Internet', valorCents: 160_500, diaVencimento: 10, ativo: true, contaId: null, vigenteDe: null, vigenteAte: null },
+      ],
+      snapshots: [
+        {
+          id: 's1',
+          data: '2026-07-01',
+          totalCents: 6_000_000,
+          itens: [{ id: 'i1', snapshotId: 's1', nome: 'Reserva', classe: 'RENDA_FIXA', valorCents: 6_000_000 , contaId: null }],
+        },
+      ],
+    });
+  }
+
+  it('sem ciclo fechado: mesesDeReserva é null mas o motivo é explícito', async () => {
+    const saida = await executarFerramenta(depsSemCicloFechado(), 'patrimonio_resumo', {});
+
+    expect(saida.mesesDeReserva).toBeNull();
+    expect(saida.motivoDesconhecido).toEqual(expect.stringContaining('ciclo'));
+  });
+
+  it('o motivo nunca culpa os custos fixos — foi essa a alucinação', async () => {
+    const saida = await executarFerramenta(depsSemCicloFechado(), 'patrimonio_resumo', {});
+
+    // O motivo fala de custo VARIÁVEL; qualquer texto sugerindo fixo ausente
+    // é exatamente a resposta errada que apareceu em produção.
+    expect(saida.motivoDesconhecido).toEqual(expect.stringContaining('VARIÁVEL'));
+    expect(saida.custosFixosRegistrados).toBe(true);
+  });
+
+  it('a cobertura dos comprometidos é respondível sem nenhum ciclo fechado', async () => {
+    const saida = await executarFerramenta(depsSemCicloFechado(), 'patrimonio_resumo', {});
+
+    // fixos 400.000 + 160.500 = 560.500, sem provisão. 6.000.000 / 560.500 ≈ 10,7
+    expect(saida.custoComprometidoMensalCents).toBe(560_500);
+    expect(saida.mesesDeReservaComprometidos as number).toBeCloseTo(10.7, 1);
+  });
+
+  it('saldo de reserva zerado é sinalizado, não devolvido como 0,0 meses mudo', async () => {
+    const deps = criarDeps({
+      hoje: HOJE,
+      ciclos: [cicloAtual()],
+      contas: [contaFake({ id: 'reserva', tipo: 'RESERVA', saldoCents: 0 })],
+      custosFixos: [
+        { id: 'cf1', nome: 'Aluguel', valorCents: 400_000, diaVencimento: 5, ativo: true, contaId: null, vigenteDe: null, vigenteAte: null },
+      ],
+      snapshots: [
+        {
+          id: 's1',
+          data: '2026-07-01',
+          totalCents: 6_000_000,
+          itens: [{ id: 'i1', snapshotId: 's1', nome: 'Reserva', classe: 'RENDA_FIXA', valorCents: 6_000_000 , contaId: null }],
+        },
+      ],
+    });
+
+    const saida = await executarFerramenta(deps, 'patrimonio_resumo', {});
+
+    // O patrimônio existe (6M no snapshot) mas o saldo da conta é 0: sem o
+    // aviso, o copiloto anunciaria "0 meses de reserva" com 60k no banco.
+    expect(saida.mesesDeReservaComprometidos).toBe(0);
+    expect(saida.saldoReservaZerado).toBe(true);
+    expect(saida.avisoSaldoReserva).toEqual(expect.stringContaining('Ajustes'));
+  });
+});
+
+/**
+ * Regressão de um caso real (11/08/2026): o dono afirmou que a meta de poupança
+ * já sai da verba — está certo, é a fórmula de `verbaVariavelCents` — e o
+ * copiloto respondeu "Não é assim na projeção atual". Ele não tinha como saber:
+ * recebia `verbaVariavel` como número atômico, sem renda, poupança, fixos nem
+ * provisão, e o rótulo dizia "antes de descontar parcela" — o que sugere que
+ * nada foi descontado.
+ *
+ * O estrago do erro é dupla contagem: acreditar nele levaria a separar a meta
+ * OUTRA VEZ a partir da verba livre.
+ */
+describe('composição da verba — a meta de poupança já está descontada', () => {
+  it.each(['estado_ciclo', 'projetar_ciclos'])(
+    '%s expõe as parcelas que formam a verba',
+    async (nome) => {
+      const saida = await executarFerramenta(depsCompletos(), nome, ARGUMENTOS[nome]);
+      // `projetar_ciclos` aninha por ciclo; `estado_ciclo` traz na raiz.
+      const composicao = (saida.composicaoDaVerba ??
+        (saida.ciclos as Record<string, unknown>[])[0]?.composicaoDaVerba) as
+        | Record<string, unknown>
+        | undefined;
+
+      expect(composicao, `${nome} sem composicaoDaVerba`).toBeDefined();
+      expect(composicao?.metaDePoupancaJaEstaNaVerba).toBe(true);
+      expect(composicao?.poupancaJaDescontadaCents).toBeTypeOf('number');
+      expect(composicao?.formula).toEqual(expect.stringContaining('poupança'));
+    },
+  );
+
+  it('a composição bate exatamente com a verba variável do motor', async () => {
+    const saida = await executarFerramenta(depsCompletos(), 'estado_ciclo', {});
+    const c = saida.composicaoDaVerba as Record<string, number | undefined>;
+    const n = (campo: string): number => {
+      const v = c[campo];
+      expect(v, `composicaoDaVerba sem ${campo}`).toBeTypeOf('number');
+      return v as number;
+    };
+
+    const recomposta =
+      n('rendaCents') -
+      n('poupancaJaDescontadaCents') -
+      n('fixosJaDescontadosCents') -
+      n('provisaoJaDescontadaCents') +
+      n('rolloverCents');
+
+    expect(recomposta).toBe(saida.verbaVariavelCents);
+  });
+
+  it('o rótulo não sugere que nada foi descontado', async () => {
+    const saida = await executarFerramenta(depsCompletos(), 'estado_ciclo', {});
+    const rotulo = (saida.rotulos as Record<string, string>).verbaVariavel;
+
+    // O rótulo antigo era 'verba do ciclo, antes de descontar parcela' — um
+    // "antes de descontar" solto que o modelo leu como "nada foi descontado".
+    expect(rotulo).toEqual(expect.stringContaining('JÁ descontados'));
+  });
+});
+
 describe('rótulo de bolso — os três campos de verba (SPEC 13)', () => {
   it('estado_ciclo devolve verba variável, parcelas e verba livre, coerentes entre si', async () => {
     const saida = await executarFerramenta(depsCompletos(), 'estado_ciclo', {});

@@ -168,6 +168,7 @@ export function toItemPatrimonio(r: PItem): ItemPatrimonio {
     nome: r.nome,
     classe: r.classe as ClassePatrimonio,
     valorCents: r.valorCents,
+    contaId: r.contaId,
   };
 }
 

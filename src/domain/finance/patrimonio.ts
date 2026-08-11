@@ -60,6 +60,69 @@ export function mesesDeReserva(params: {
   return saldoReservaCents / custoMensalMedioCents;
 }
 
+/**
+ * Uma linha de conciliação: o razão do app contra a realidade observada.
+ * `deltaCents` positivo = você tem mais do que o app achava (rendimento,
+ * depósito não lançado); negativo = tem menos (gasto não lançado).
+ */
+export interface DivergenciaConciliacao {
+  itemId: string;
+  contaId: string;
+  nomeItem: string;
+  /** `Conta.saldoCents`: o que o app calculou a partir de transações e fechamentos. */
+  razaoCents: number;
+  /** `ItemPatrimonio.valorCents`: o que você observou no banco e digitou. */
+  observadoCents: number;
+  /** `observado - razao`. Nunca zero — item que bate não vira divergência. */
+  deltaCents: number;
+}
+
+export interface ItemConciliavel {
+  id: string;
+  nome: string;
+  contaId: string | null;
+  valorCents: number;
+}
+
+/**
+ * Compara os itens de um snapshot com o saldo das contas que eles fotografam.
+ *
+ * Só entra na lista item COM `contaId` cujo valor DIFERE do razão: divergência
+ * de zero não é informação, e item sem conta ligada (imóvel, cripto) não tem
+ * razão contra o que comparar. A diferença é deixada como sinal para o dono
+ * decidir — nada aqui escreve, e sincronizar em silêncio destruiria justamente
+ * o dado que torna a conciliação útil.
+ */
+export function divergenciasConciliacao(
+  itens: readonly ItemConciliavel[],
+  saldosPorConta: ReadonlyMap<string, number>,
+): DivergenciaConciliacao[] {
+  const divergencias: DivergenciaConciliacao[] = [];
+
+  for (const item of itens) {
+    if (item.contaId === null) continue;
+
+    const razaoCents = saldosPorConta.get(item.contaId);
+    // Conta ausente do mapa (arquivada, apagada) não é divergência de zero —
+    // é ausência de razão para comparar.
+    if (razaoCents === undefined) continue;
+
+    const deltaCents = item.valorCents - razaoCents;
+    if (deltaCents === 0) continue;
+
+    divergencias.push({
+      itemId: item.id,
+      contaId: item.contaId,
+      nomeItem: item.nome,
+      razaoCents,
+      observadoCents: item.valorCents,
+      deltaCents,
+    });
+  }
+
+  return divergencias;
+}
+
 export interface ItemPatrimonioClasse {
   classe: ClassePatrimonio;
   valorCents: number;
