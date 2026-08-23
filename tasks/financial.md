@@ -42,12 +42,6 @@
 - Conversa **fora do backup** por decisão — restaurar backup não toca nas conversas.
 - Sem alerta quando o saldo da conta diverge do snapshot no TOTAL (a conciliação é por
   linha e só aparece se o item tiver `contaId`).
-- **5 branches ressuscitados no GitHub** pelo force-push (os refs `origin/*` locais
-  estavam obsoletos: já tinham sido deletados após os PRs). Deletar com
-  `git push origin --delete feat/copiloto-sessoes-e-ferramentas feat/custos-e-projecao
-  feat/parcelamento-manual-no-painel worktree-auth-roles-seguranca
-  worktree-agent-af1ae1b780629682f`. Só `main` e `feat/ia-memoria-e-escrita-por-proposta`
-  existiam antes.
 - Considerar `git config --global user.useConfigOnly true` — faz o git RECUSAR commit
   onde o `user.email` não foi setado explicitamente, em vez de adivinhar. É a trava que
   teria evitado o e-mail corporativo no histórico.
