@@ -51,6 +51,20 @@ undefined (reading 'findMany')` num repositório novo, ou campo novo chegando `u
 fresco — mas **um server que já estava rodando quando o schema mudou continua velho**.
 Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
 
+### `next build` com o dev server de pé quebra o CSS
+
+Irmã da armadilha do Prisma acima, e mais confusa porque parece regressão de estilo.
+`next build` e `next dev` escrevem no **mesmo** `.next`. Rodar o build (ou `rm -rf .next`)
+com um `pnpm dev` de pé deixa o server com um mapa de chunks apontando para arquivos que
+não existem mais — a página carrega sem estilo nenhum e nada no código mudou.
+
+Aconteceu em 24/08/2026 durante a G8. Sintoma: "o CSS todo quebrou" sem nenhum arquivo
+`.css` no diff.
+
+Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçado no navegador.
+**Antes de rodar `next build` ou apagar `.next`, verifique se há dev server rodando**
+(`lsof -ti:3000`).
+
 ## Regras invioláveis (SPEC seção 13 — "Não faça")
 
 1. **Dinheiro é sempre `Int` em centavos.** Nunca `Float`/`Decimal`/`Number` decimal
