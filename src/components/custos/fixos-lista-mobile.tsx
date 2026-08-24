@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui';
 import { MenuAcoes } from './menu-acoes';
-import { acoesDoCusto, rotuloVigencia, type AcoesLinhaFixo } from './fixos-tabela';
+import { acoesDoCusto, legendaDoCusto, type AcoesLinhaFixo } from './fixos-tabela';
 import type { LinhaCustoFixoGestao } from '@/application/custos-view';
 import { formatBRL } from '@/shared/dinheiro';
 
@@ -21,7 +21,7 @@ export function FixosListaMobile({ linhas, ...acoes }: FixosListaMobileProps) {
   return (
     <ul className="divide-y divide-border">
       {linhas.map((linha) => {
-        const vigencia = rotuloVigencia(linha.custo.vigenteDe, linha.custo.vigenteAte);
+        const legenda = legendaDoCusto(linha);
         return (
           <li key={linha.custo.id} className="flex items-center justify-between gap-3 py-2">
             <div className="min-w-0">
@@ -35,7 +35,7 @@ export function FixosListaMobile({ linhas, ...acoes }: FixosListaMobileProps) {
               </p>
               <p className="tnum text-xs text-faint">
                 vence dia {linha.custo.diaVencimento}
-                {vigencia ? ` · ${vigencia}` : ''}
+                {legenda ? ` · ${legenda}` : ''}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">

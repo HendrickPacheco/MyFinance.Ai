@@ -29,6 +29,7 @@ import { PrismaMemoriaRepository } from '../src/infrastructure/repositories/pris
 import { PrismaConversaRepository } from '../src/infrastructure/repositories/prisma-conversa';
 import { semearWorkspace } from '../src/infrastructure/onboarding';
 import { exportarTudo } from '../src/infrastructure/backup';
+import { validarCategoriaDeCustoFixo } from '../src/application/categoria-custo-fixo';
 
 const prisma = new PrismaClient();
 
@@ -304,6 +305,7 @@ async function main(): Promise<void> {
     diaVencimento: 5,
     ativo: true,
     contaId: null,
+    categoriaId: null,
     vigenteDe: null,
     vigenteAte: null,
   });
@@ -384,6 +386,105 @@ async function main(): Promise<void> {
   checar(
     'o parcelamento do A segue em andamento',
     (await repoA.parcelamentos.obter(parcelamentoA.id))?.encerradoEm === null,
+  );
+
+  // ── Arestas fechadas na G0 (TASKS-GRAFO §6) ───────────────────────────────
+  // `CustoFixo.categoriaId`, `Parcelamento.categoriaId`, `Transacao.estornoDeId`
+  // e `Ciclo.cicloAnteriorId` são FKs de verdade agora. A FK confere que o id
+  // EXISTE; ela aceitaria de bom grado ligar o custo do dono A à categoria do
+  // dono B (§7.2). Quem impede é o guard da camada de aplicação — e é por isso
+  // que ele é exercido aqui, contra o Postgres real, e não só com fake.
+  console.log('\nARESTAS DA G0 — nenhuma cruza donos:');
+  const categoriaA = categoriasA.find((c) => c.nome === 'Mercado');
+  const categoriaB = categoriasB.find((c) => c.nome === 'Mercado');
+  if (!categoriaA || !categoriaB) throw new Error('categoria "Mercado" ausente no seed');
+
+  await esperaErro('categorizar custo fixo com a categoria do A é recusado ao B', () =>
+    validarCategoriaDeCustoFixo({ categorias: repoB.categorias }, categoriaA.id),
+  );
+  checar(
+    'e a própria categoria do B é aceita',
+    (await validarCategoriaDeCustoFixo({ categorias: repoB.categorias }, categoriaB.id).then(
+      () => true,
+      () => false,
+    )) === true,
+  );
+
+  const custoFixoCategorizadoB = await repoB.custosFixos.salvar({
+    id: '',
+    nome: 'Internet do B',
+    valorCents: 12_000,
+    diaVencimento: 15,
+    ativo: true,
+    contaId: null,
+    categoriaId: categoriaB.id,
+    vigenteDe: null,
+    vigenteAte: null,
+  });
+  const parcelamentoCategorizadoB = await repoB.parcelamentos.criar({
+    id: '',
+    descricao: 'Geladeira do B',
+    valorTotalCents: 240_000,
+    numParcelas: 10,
+    dataCompra: '2026-09-04',
+    categoriaId: categoriaB.id,
+    encerradoEm: null,
+  });
+
+  // Critério de aceite explícito da G0: o nome da categoria sai da relação, sem
+  // um segundo `findMany` de categorias e um `Map` montado à mão.
+  const parcelamentoComCategoria = await prisma.parcelamento.findFirst({
+    where: { id: parcelamentoCategorizadoB.id, donoId: b.id },
+    include: { categoria: true },
+  });
+  const custoFixoComCategoria = await prisma.custoFixo.findFirst({
+    where: { id: custoFixoCategorizadoB.id, donoId: b.id },
+    include: { categoria: true },
+  });
+  checar(
+    'parcelamento.categoria.nome vem pela relação, sem join manual',
+    parcelamentoComCategoria?.categoria?.nome === 'Mercado',
+  );
+  checar(
+    'custoFixo.categoria.nome vem pela relação, sem join manual',
+    custoFixoComCategoria?.categoria?.nome === 'Mercado',
+  );
+  checar(
+    'e a categoria devolvida é a do B, não a homônima do A',
+    parcelamentoComCategoria?.categoriaId === categoriaB.id &&
+      custoFixoComCategoria?.categoriaId === categoriaB.id,
+  );
+
+  // Cadeia de rollover: `criarSeAusente` resolve o anterior por uma consulta já
+  // escopada em `donoId`. O A tem ciclo em 2026-09-01; o B também. Se a cadeia
+  // ignorasse o dono, o ciclo de outubro do B apontaria para o de setembro do A
+  // (ou vice-versa) e o vazamento seria silencioso.
+  const outubroB = await repoB.ciclos.criarSeAusente({
+    ...cicloB.ciclo,
+    id: '',
+    dataInicio: '2026-10-01',
+    dataFim: '2026-10-31',
+    observacao: 'outubro do B',
+  });
+  const outubroBNoBanco = await prisma.ciclo.findFirst({
+    where: { id: outubroB.ciclo.id },
+    select: { cicloAnteriorId: true },
+  });
+  checar(
+    'o ciclo seguinte do B aponta para o ciclo anterior DO B',
+    outubroBNoBanco?.cicloAnteriorId === cicloB.ciclo.id,
+  );
+  checar(
+    'e nunca para o ciclo do A na mesma data',
+    outubroBNoBanco?.cicloAnteriorId !== cicloA.ciclo.id,
+  );
+  const setembroANoBanco = await prisma.ciclo.findFirst({
+    where: { id: cicloA.ciclo.id },
+    select: { cicloAnteriorId: true },
+  });
+  checar(
+    'o ciclo do A não foi religado ao ciclo criado pelo B',
+    setembroANoBanco?.cicloAnteriorId === null,
   );
 
   // ── aplicarLote (TASKS-CUSTOS Fase 8, §5.1 ticket 1) ──────────────────────

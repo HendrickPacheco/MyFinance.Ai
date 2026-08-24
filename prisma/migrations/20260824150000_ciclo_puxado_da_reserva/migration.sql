@@ -1,0 +1,42 @@
+-- Fase G8 (TASKS-GRAFO §12): a puxada da reserva ganha bloco próprio em
+-- "Para onde vai a renda", e esta coluna é o registro que o bloco lê.
+--
+-- O QUE `puxarDaReserva` FAZ (application/ciclos.ts, saída (b) do modo
+-- recuperação, SPEC 5.4), e por que estava certo:
+--
+--   1. move dinheiro REAL da conta RESERVA para a VARIAVEL — grava uma
+--      TRANSFERENCIA e ajusta os dois saldos;
+--   2. soma X à verba do ciclo;
+--   3. reduz a poupança-alvo em X, COM PISO EM ZERO.
+--
+-- O passo 3 é o que fecha a conta enquanto a poupança-alvo comporta X: o que
+-- deixou de ser poupado virou disponível, e a identidade
+-- "poupança + fixos + provisão ± rollover + disponível = renda" continua
+-- verdadeira sem que nada de fora tenha entrado.
+--
+-- Quando a poupança-alvo NÃO comporta X, ela desce só até zero e a verba sobe
+-- o valor cheio. A parte não coberta — `X − poupançaAlvo` — é disponível que a
+-- renda deste ciclo não explica: veio da reserva. É ESSE excedente que a coluna
+-- guarda, acumulado, e não o valor bruto puxado. O valor bruto faria a soma
+-- fechar num caso e quebrar no outro, porque a parcela coberta pela poupança já
+-- está declarada — ela é a razão de o bloco "Poupança (meta)" estar menor.
+--
+-- Sem a coluna, esse excedente aparecia como "diferença não explicada"
+-- NEGATIVA: o app dizendo que perdeu a conta de um dinheiro que tem lastro na
+-- reserva do dono.
+--
+-- BACKFILL: `DEFAULT 0` basta e é o valor CORRETO para todo ciclo existente.
+-- Uma puxada passada não é recuperável daqui — ela só deixou rastro em prosa,
+-- na `observacao` do ciclo, e reparsear texto livre para reconstruir dinheiro
+-- seria pior do que zero. Zero mantém os ciclos antigos exatamente como estão:
+-- os que fechavam continuam fechando, e os que não fechavam seguem expondo a
+-- diferença em "não explicado" — a resposta honesta para um dado que não existe.
+--
+-- ATENÇÃO (mesma armadilha da migração G0): NÃO inclua aqui o
+-- `DROP INDEX "Memoria_embedding_hnsw_idx"` que o `prisma migrate diff`
+-- sugere. Esse índice nasce de SQL cru (pgvector não é tipado pelo Prisma),
+-- então toda diff acha que ele sobra. Dropá-lo derruba a busca semântica da
+-- memória do copiloto.
+
+-- AlterTable
+ALTER TABLE "Ciclo" ADD COLUMN "puxadoDaReservaForaDaRendaCents" INTEGER NOT NULL DEFAULT 0;

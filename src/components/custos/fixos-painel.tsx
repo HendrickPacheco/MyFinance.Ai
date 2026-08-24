@@ -23,6 +23,7 @@ import {
   upsertCustoFixo,
 } from '@/actions/config';
 import type { LinhaCustoFixoGestao } from '@/application/custos-view';
+import type { OpcaoCategoria } from '@/application/dashboard-tipos';
 import type { EfeitoNoCicloAtual } from '@/application/ciclos';
 import type { Resultado } from '@/actions/resultado';
 import type { CustoFixo } from '@/domain/model/entidades';
@@ -75,9 +76,12 @@ const CHAMAR: Record<AcaoConfirmavel, (id: string) => Promise<Resultado<EfeitoNo
  */
 export function FixosPainel({
   linhas,
+  categorias,
   proximoInicio,
 }: {
   linhas: readonly LinhaCustoFixoGestao[];
+  /** Opções do select de categoria, já filtradas e ordenadas pelo servidor. */
+  categorias: readonly OpcaoCategoria[];
   /** Primeiro dia do próximo ciclo, para a frase de "desativar". */
   proximoInicio: DataCivil | null;
 }) {
@@ -148,6 +152,7 @@ export function FixosPainel({
           // atual é preservado, e reativar é uma ação própria.
           ativo: editando?.ativo ?? true,
           contaId: editando?.contaId ?? null,
+          categoriaId: rascunho.categoriaId,
           vigenteDe: rascunho.vigenteDe,
           vigenteAte: rascunho.vigenteAte,
         });
@@ -264,6 +269,7 @@ export function FixosPainel({
 
         <FixoForm
           editando={editando}
+          categorias={categorias}
           pendente={pendente}
           erro={null}
           onSubmit={salvar}

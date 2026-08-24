@@ -274,6 +274,8 @@ function semear(tabelas: Tabelas): void {
     diaVencimento: 10,
     ativo: true,
     contaId: 'conta-var',
+    // Aresta fechada na G0: o custo fixo aponta para uma Categoria de verdade.
+    categoriaId: 'cat-mercado',
   });
   tabelas.provisaoAnual.push({
     id: 'prov-ipva',
@@ -306,6 +308,8 @@ function semear(tabelas: Tabelas): void {
     fechadoEm: '2026-08-05',
     sobraCents: 12_345,
     observacao: null,
+    // Primeiro ciclo do dono: não há anterior, e `null` é o valor correto.
+    cicloAnteriorId: null,
   });
   tabelas.pagamentoFixo.push({
     id: 'pag-aluguel-julho',
@@ -883,6 +887,197 @@ describe('mass-assignment (TASKS-AUTH V2): schema estrito por tabela', () => {
 
     await expect(importarTudo(db.client, payload, DONO_TESTE)).rejects.toThrow();
     expect(db.tabelas.snapshotPatrimonio).toEqual([]);
+  });
+});
+
+/**
+ * Saneamento de arestas no import (G0).
+ *
+ * `sanearArestas` é a ÚNICA defesa contra uma aresta do arquivo apontar para
+ * fora dele — para um id que não existe (a FK abortaria o import DEPOIS de os
+ * dados atuais já terem sido apagados) ou, pior, para o id de OUTRO DONO (a FK
+ * aceitaria, e a aresta nasceria cruzando donos — TASKS-GRAFO §7.2). Ela é
+ * exercitada aqui pela porta pública `importarTudo`, com o fake simulando as
+ * mesmas FKs do Postgres: se o saneamento sumir, estes testes falham com
+ * `ViolacaoDeChaveEstrangeiraSimulada` em vez de passarem em silêncio.
+ */
+describe('sanearArestas: aresta que aponta para fora do arquivo', () => {
+  /** Arquivo legítimo e completo, no shape exato de um .json exportado. */
+  async function arquivoDe(db: FakePrisma): Promise<{ version: number; dados: Linha }> {
+    const payload = await exportarTudo(db.client, DONO_TESTE);
+    return JSON.parse(JSON.stringify(payload)) as { version: number; dados: Linha };
+  }
+
+  function linhas(dados: Linha, colecao: string): Linha[] {
+    return dados[colecao] as Linha[];
+  }
+
+  it('(a) referência opcional a um id ausente vira null, e o resto do arquivo importa', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    const arquivo = await arquivoDe(db);
+    // Id que não está no arquivo: ou não existe, ou é de outro dono.
+    for (const tx of linhas(arquivo.dados, 'transacoes')) tx.categoriaId = 'cat-de-outro-dono';
+    zerar(db.tabelas);
+
+    await expect(importarTudo(db.client, arquivo, DONO_TESTE)).resolves.toBeTruthy();
+
+    for (const tx of db.tabelas.transacao) expect(tx.categoriaId).toBeNull();
+    // O resto do payload não foi punido pela aresta podre.
+    expect(db.tabelas.transacao).toHaveLength(2);
+    expect(db.tabelas.categoria).toHaveLength(1);
+    expect(primeiraLinha(db.tabelas.ciclo).id).toBe('ciclo-julho');
+  });
+
+  it('(b) pagamentoFixo com custoFixoId ausente é descartado, sem abortar o import', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    const arquivo = await arquivoDe(db);
+    linhas(arquivo.dados, 'pagamentosFixos').push({
+      id: 'pag-fantasma',
+      custoFixoId: 'fixo-de-outro-dono',
+      cicloId: 'ciclo-julho',
+      pagoEm: '2026-07-09',
+    });
+    zerar(db.tabelas);
+
+    await expect(importarTudo(db.client, arquivo, DONO_TESTE)).resolves.toBeTruthy();
+
+    // A referência é OBRIGATÓRIA: anular não é opção, então a linha some — mas
+    // sozinha, sem levar o pagamento legítimo junto.
+    expect(db.tabelas.pagamentoFixo.map((p) => p.id)).toEqual(['pag-aluguel-julho']);
+  });
+
+  it('(c) arquivo legítimo faz round-trip idêntico — o saneamento não destrói dado válido', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    const esperado = copiaProfunda(db.tabelas);
+    const arquivo = await arquivoDe(db);
+    zerar(db.tabelas);
+
+    await importarTudo(db.client, arquivo, DONO_TESTE);
+
+    for (const nome of NOMES_TABELAS) {
+      expect(db.tabelas[nome]).toEqual(esperado[nome]);
+    }
+  });
+});
+
+/**
+ * Auto-relações: estar no arquivo não basta.
+ *
+ * `Ciclo.cicloAnteriorId` e `Transacao.estornoDeId` apontam para a própria
+ * tabela, e o Postgres checa FK em trigger AFTER ROW — um arquivo com
+ * `{"id":"c1","cicloAnteriorId":"c1"}` entra sem reclamar e cria um laço.
+ * Inerte hoje (ninguém caminha a cadeia), fatal na CTE recursiva planejada
+ * para a G1, onde o defeito é silencioso e se multiplica (TASKS-GRAFO §7.3).
+ */
+describe('sanearArestas: auto-relações (laço na cadeia)', () => {
+  function cicloArquivo(over: Linha): Linha {
+    return {
+      id: 'ciclo-x',
+      dataInicio: '2026-07-05',
+      dataFim: '2026-08-04',
+      rendaPrevistaCents: 1,
+      rendaRealizadaCents: null,
+      poupancaAlvoCents: 1,
+      fixosCents: 1,
+      provisaoMensalCents: 1,
+      verbaVariavelCents: 1,
+      rolloverRecebidoCents: 0,
+      fechado: false,
+      fechadoEm: null,
+      sobraCents: null,
+      observacao: null,
+      cicloAnteriorId: null,
+      ...over,
+    };
+  }
+
+  function transacaoArquivo(over: Linha): Linha {
+    return {
+      id: 'tx-x',
+      data: '2026-07-10',
+      valorCents: 100,
+      tipo: 'DESPESA',
+      descricao: null,
+      metodo: null,
+      categoriaId: null,
+      contaId: null,
+      contaDestinoId: null,
+      provisaoId: null,
+      parcelamentoId: null,
+      parcelaNum: null,
+      estornoDeId: null,
+      cicloId: null,
+      pagoEm: null,
+      ...over,
+    };
+  }
+
+  function arquivoCom(dados: Partial<Record<string, unknown>>) {
+    return {
+      version: BACKUP_VERSION,
+      dados: {
+        config: null,
+        contas: [],
+        categorias: [],
+        custosFixos: [],
+        provisoes: [],
+        parcelamentos: [],
+        ciclos: [],
+        pagamentosFixos: [],
+        transacoes: [],
+        snapshots: [],
+        memorias: [],
+        ...dados,
+      },
+    };
+  }
+
+  it('ciclo que aponta para si mesmo perde a aresta', async () => {
+    const db = criarFakePrisma();
+
+    await importarTudo(
+      db.client,
+      arquivoCom({ ciclos: [cicloArquivo({ id: 'c1', cicloAnteriorId: 'c1' })] }),
+      DONO_TESTE,
+    );
+
+    expect(primeiraLinha(db.tabelas.ciclo).cicloAnteriorId).toBeNull();
+  });
+
+  it('ciclo mútuo (c3 -> c5 -> c3) é quebrado: só a aresta cronológica sobrevive', async () => {
+    const db = criarFakePrisma();
+
+    await importarTudo(
+      db.client,
+      arquivoCom({
+        ciclos: [
+          cicloArquivo({ id: 'c3', dataInicio: '2026-03-01', dataFim: '2026-03-31', cicloAnteriorId: 'c5' }),
+          cicloArquivo({ id: 'c5', dataInicio: '2026-05-01', dataFim: '2026-05-31', cicloAnteriorId: 'c3' }),
+        ],
+      }),
+      DONO_TESTE,
+    );
+
+    const porId = new Map(db.tabelas.ciclo.map((c) => [c.id, c]));
+    // c3 começou ANTES de c5: "c3 veio depois de c5" é inversão, não cadeia.
+    expect(porId.get('c3')?.cicloAnteriorId).toBeNull();
+    // c5 -> c3 respeita o invariante e é preservado.
+    expect(porId.get('c5')?.cicloAnteriorId).toBe('c3');
+  });
+
+  it('transação que estorna a si mesma perde a aresta', async () => {
+    const db = criarFakePrisma();
+
+    await importarTudo(
+      db.client,
+      arquivoCom({ transacoes: [transacaoArquivo({ id: 't1', estornoDeId: 't1' })] }),
+      DONO_TESTE,
+    );
+
+    expect(primeiraLinha(db.tabelas.transacao).estornoDeId).toBeNull();
   });
 });
 

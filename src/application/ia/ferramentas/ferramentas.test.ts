@@ -51,6 +51,7 @@ const ARGUMENTOS: Record<string, unknown> = {
   estado_ciclo: {},
   gastos_por_categoria: { limite: null },
   pagamentos_pendentes: {},
+  para_onde_vai_a_renda: { limite: null },
   analise_corte: { numCiclos: null },
   assinaturas_detectadas: { numCiclos: null },
   patrimonio_resumo: {},
@@ -210,8 +211,8 @@ describe('patrimonio_resumo — o desconhecido tem que vir com motivo', () => {
       ciclos: [cicloAtual()], // aberto, nunca fechado
       contas: [contaFake({ id: 'reserva', tipo: 'RESERVA', saldoCents: 6_000_000 })],
       custosFixos: [
-        { id: 'cf1', nome: 'Aluguel', valorCents: 400_000, diaVencimento: 5, ativo: true, contaId: null, vigenteDe: null, vigenteAte: null },
-        { id: 'cf2', nome: 'Internet', valorCents: 160_500, diaVencimento: 10, ativo: true, contaId: null, vigenteDe: null, vigenteAte: null },
+        { id: 'cf1', nome: 'Aluguel', valorCents: 400_000, diaVencimento: 5, ativo: true, contaId: null, categoriaId: null, vigenteDe: null, vigenteAte: null },
+        { id: 'cf2', nome: 'Internet', valorCents: 160_500, diaVencimento: 10, ativo: true, contaId: null, categoriaId: null, vigenteDe: null, vigenteAte: null },
       ],
       snapshots: [
         {
@@ -254,7 +255,7 @@ describe('patrimonio_resumo — o desconhecido tem que vir com motivo', () => {
       ciclos: [cicloAtual()],
       contas: [contaFake({ id: 'reserva', tipo: 'RESERVA', saldoCents: 0 })],
       custosFixos: [
-        { id: 'cf1', nome: 'Aluguel', valorCents: 400_000, diaVencimento: 5, ativo: true, contaId: null, vigenteDe: null, vigenteAte: null },
+        { id: 'cf1', nome: 'Aluguel', valorCents: 400_000, diaVencimento: 5, ativo: true, contaId: null, categoriaId: null, vigenteDe: null, vigenteAte: null },
       ],
       snapshots: [
         {

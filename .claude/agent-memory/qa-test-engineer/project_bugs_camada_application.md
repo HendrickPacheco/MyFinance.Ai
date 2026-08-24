@@ -1,22 +1,26 @@
 ---
 name: bugs-application-marcados-como-skip
-description: Cinco testes it.skip marcados [BUG] na camada application/backup representam bugs de produção reais e confirmados, não testes quebrados
+description: O prefixo [BUG] em testes da camada application marca bug de produção real; os cinco skips de 03/08 foram todos corrigidos e os testes viraram regressão ativa
 metadata:
   type: project
 ---
 
 Em 2026-08-03 a camada `src/application/` e `src/infrastructure/backup.ts` ganharam
-cobertura. Cinco testes ficaram `it.skip` com o prefixo `[BUG]` — todos foram
-executados sem o skip e **falham de verdade**; não são testes mal escritos.
+cobertura. Cinco testes ficaram `it.skip` com o prefixo `[BUG]` — bugs de produção
+reais, não testes mal escritos. Ordem de gravidade acordada na época: rollover
+duplicado > sobra descartada > corrida na criação de ciclo > centavo perdido na
+provisão > backup sem checagem de versão.
 
-Ordem de gravidade acordada: rollover duplicado > sobra descartada > corrida na
-criação de ciclo > centavo perdido na provisão > backup sem checagem de versão.
+**Estado em 2026-08-22: todos corrigidos.** `grep -rn "\.skip" src/` não retorna
+nada e a suíte inteira (1062 testes) passa. Os quatro `[BUG]` que restam em
+`fechamento.test.ts` e `ciclos.test.ts` são `it(` normal — viraram **testes de
+regressão ativos**, e é assim que devem ficar.
 
-**Why:** o agente de teste não pode editar código de produção; a decisão de
-corrigir (e como) é do usuário. Sem esta nota, uma sessão futura pode "consertar"
-o teste em vez do bug, ou remover o skip achando que é lixo.
+**Why:** o prefixo `[BUG]` sobrevive à correção de propósito. Ele marca "aqui já
+deu errado uma vez", que é justamente o teste que ninguém pode apagar como
+redundante numa limpeza futura.
 
-**How to apply:** ao mexer em `fechamento.ts`, `ciclos.ts` ou `backup.ts`,
-remover o `.skip` correspondente é o critério de pronto da correção. Antes de
-recomendar qualquer um deles como "já corrigido", rodar o teste sem skip para
-confirmar o estado atual — o código pode ter mudado desde então.
+**How to apply:** `[BUG]` + `it(` = regressão, deixe quieto. `[BUG]` + `it.skip(`
+ou `it.fails(` = lacuna aberta, e remover o marcador é o critério de pronto.
+Antes de afirmar que qualquer um está aberto ou fechado, rode o grep — esta nota
+já ficou desatualizada uma vez.

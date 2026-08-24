@@ -10,6 +10,7 @@
  */
 import type { MetodoPagamento } from '@/domain/model/enums';
 import { METODO_PAGAMENTO } from '@/domain/model/enums';
+import type { ChaveBlocoDaRenda, ChaveSubdivisaoDoDisponivel } from '@/domain/finance';
 
 export const PALETA_CATEGORICA = [
   '#3987e5', // azul
@@ -112,6 +113,37 @@ export const ORDEM_PILHA_PROJECAO: readonly SerieProjecao[] = [
   'parcelas',
   'verbaLivre',
 ];
+
+/**
+ * ---------------------------------------------------------------------------
+ * Blocos de "Para onde vai a renda" (`/analise/renda`) — G8.
+ * ---------------------------------------------------------------------------
+ * Mesmos slots da pilha de `/projecao` para as grandezas que são A MESMA COISA
+ * (poupança, custos fixos, provisão, parcelas): quem aprendeu a ler uma tela
+ * não reaprende na outra. Indexado por identidade de bloco, nunca por ordem.
+ *
+ * `AJUSTE_ROLLOVER` e `NAO_EXPLICADO` não são destino de dinheiro — são
+ * correções da conta. Por isso saem da paleta categórica: cinza neutro para o
+ * ajuste, vermelho para a diferença que ainda não tem explicação.
+ */
+export const CORES_DESTINO_RENDA: Record<ChaveBlocoDaRenda, string> = {
+  POUPANCA: PALETA_CATEGORICA[2], // aqua — igual à poupança-alvo da projeção
+  CUSTOS_FIXOS: PALETA_CATEGORICA[6], // violeta — igual aos fixos da projeção
+  PROVISAO: PALETA_CATEGORICA[3], // amarelo — igual à provisão da projeção
+  AJUSTE_ROLLOVER: COR_OUTROS,
+  // Mesmo cinza do rollover, de propósito: os dois são a mesma coisa — dinheiro
+  // que está no disponível sem ter vindo desta renda. Cor própria sugeriria um
+  // destino da renda, que é justamente o que eles não são.
+  PUXADA_DA_RESERVA: COR_OUTROS,
+  DISPONIVEL_PARA_GASTAR: PALETA_CATEGORICA[0], // azul — o balde que sobra
+  NAO_EXPLICADO: PALETA_CATEGORICA[7], // vermelho
+};
+
+/** As duas subdivisões do balde. Laranja = compromisso, azul = escolha. */
+export const CORES_SUBDIVISAO_DISPONIVEL: Record<ChaveSubdivisaoDoDisponivel, string> = {
+  PARCELAMENTOS_DO_CICLO: PALETA_CATEGORICA[1], // laranja — igual às parcelas da projeção
+  GASTOS_EVENTUAIS_DO_MES: PALETA_CATEGORICA[0], // azul
+};
 
 /** Slot fixo por método de pagamento — ordem do enum, nunca ciclada. */
 export const COR_METODO: Record<MetodoPagamento, string> = Object.fromEntries(

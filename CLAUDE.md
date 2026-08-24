@@ -51,6 +51,20 @@ undefined (reading 'findMany')` num repositório novo, ou campo novo chegando `u
 fresco — mas **um server que já estava rodando quando o schema mudou continua velho**.
 Recuperação: `pnpm db:generate && rm -rf .next && pnpm dev`.
 
+### `next build` com o dev server de pé quebra o CSS
+
+Irmã da armadilha do Prisma acima, e mais confusa porque parece regressão de estilo.
+`next build` e `next dev` escrevem no **mesmo** `.next`. Rodar o build (ou `rm -rf .next`)
+com um `pnpm dev` de pé deixa o server com um mapa de chunks apontando para arquivos que
+não existem mais — a página carrega sem estilo nenhum e nada no código mudou.
+
+Aconteceu em 24/08/2026 durante a G8. Sintoma: "o CSS todo quebrou" sem nenhum arquivo
+`.css` no diff.
+
+Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçado no navegador.
+**Antes de rodar `next build` ou apagar `.next`, verifique se há dev server rodando**
+(`lsof -ti:3000`).
+
 ## Regras invioláveis (SPEC seção 13 — "Não faça")
 
 1. **Dinheiro é sempre `Int` em centavos.** Nunca `Float`/`Decimal`/`Number` decimal
@@ -176,9 +190,28 @@ Adapters implementam as portas; casos de uso recebem portas por injeção e cham
 pnpm test          # Vitest (motor de cálculo) — deve ficar 100% verde
 pnpm typecheck     # tsc --noEmit — zero erros, zero any
 pnpm db:generate   # gera o Prisma Client
-pnpm db:migrate    # cria/aplica migração (PostgreSQL local)
+pnpm db:migrate    # NÃO FUNCIONA neste repo — ver "Migrações" abaixo
 pnpm db:seed       # Config singleton + contas base + categorias BR (idempotente)
 ```
+
+### Migrações — `prisma migrate dev` não funciona aqui
+
+`pnpm db:migrate` aborta com **P3006**: a migração `20260804200000_multi_tenant_dono_id`
+depende de dados (exige um OWNER já existente) e o shadow database do Prisma nasce vazio,
+então ela falha ao ser reaplicada lá. Não é defeito da sua mudança — é permanente.
+
+**Como migrar de verdade** (padrão já usado em `20260811120000_item_patrimonio_conta` e
+`20260824120000_fecha_arestas_categoria_estorno_rollover`):
+
+1. Escrever o `migration.sql` à mão em `prisma/migrations/<timestamp>_<nome>/`.
+2. Aplicar com `prisma db execute`.
+3. Registrar com `prisma migrate resolve --applied <nome>`.
+4. Conferir com `prisma migrate diff` — há um falso positivo conhecido no índice HNSW do
+   pgvector (`DROP INDEX "Memoria_embedding_hnsw_idx"`), que é esperado e pode ser ignorado.
+
+Escrever SQL à mão tem uma consequência que o `migrate dev` esconderia: **a ordem das
+operações é sua responsabilidade**. Limpar órfãos ANTES de criar a FK, e o `EXISTS` da
+limpeza precisa incluir `donoId` — não só o id — senão sobra lixo de aresta cruzando donos.
 
 O banco é um **PostgreSQL 16 local** (Homebrew, `brew services start postgresql@16`),
 database `financial_dev`. `DATABASE_URL` em `.env` aponta

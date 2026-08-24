@@ -91,6 +91,7 @@ export function toCustoFixo(r: PCustoFixo): CustoFixo {
     diaVencimento: r.diaVencimento,
     ativo: r.ativo,
     contaId: r.contaId,
+    categoriaId: r.categoriaId,
     vigenteDe: r.vigenteDe,
     vigenteAte: r.vigenteAte,
   };
@@ -160,6 +161,7 @@ export function toCiclo(r: PCiclo): Ciclo {
     provisaoMensalCents: r.provisaoMensalCents,
     verbaVariavelCents: r.verbaVariavelCents,
     rolloverRecebidoCents: r.rolloverRecebidoCents,
+    puxadoDaReservaForaDaRendaCents: r.puxadoDaReservaForaDaRendaCents,
     fechado: r.fechado,
     fechadoEm: r.fechadoEm,
     sobraCents: r.sobraCents,

@@ -27,7 +27,11 @@ async function CustosFixosConteudo() {
         previaRecalculo={estado.previaRecalculo}
       />
 
-      <FixosPainel linhas={estado.linhas} proximoInicio={resumo.proximoInicio} />
+      <FixosPainel
+        linhas={estado.linhas}
+        categorias={estado.categorias}
+        proximoInicio={resumo.proximoInicio}
+      />
       <ProvisoesPainel provisoes={estado.provisoes} proximoInicio={resumo.proximoInicio} />
     </div>
   );
