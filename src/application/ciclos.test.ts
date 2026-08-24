@@ -490,6 +490,9 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
     expect(ciclo.poupancaAlvoCents).toBe(50_000); // 100000 − 50000
     expect(ciclo.verbaVariavelCents).toBe(750_000); // 700000 + 50000
     expect(ciclo.observacao).toContain('50000');
+    // A poupança-alvo absorveu a puxada inteira: a renda deste ciclo explica o
+    // aumento do disponível sozinha, e nada entrou de fora.
+    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(0);
 
     const transferencias = deps.transacoes.itens.filter((t) => t.tipo === 'TRANSFERENCIA');
     expect(transferencias).toHaveLength(1);
@@ -511,6 +514,29 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
 
     expect(ciclo.poupancaAlvoCents).toBe(0);
     expect(ciclo.verbaVariavelCents).toBe(1_000_000);
+    // A poupança-alvo só cobriu 100.000 dos 300.000 puxados. Os 200.000
+    // restantes são disponível que a renda deste ciclo não explica — vieram da
+    // reserva, e é isso que a coluna registra para os blocos continuarem
+    // somando exatamente a renda.
+    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(200_000);
+  });
+
+  it('acumula o excedente entre puxadas sucessivas do mesmo ciclo', async () => {
+    const deps = criarDeps({
+      hoje: '2026-07-20',
+      contas: [
+        contaFake({ id: 'reserva', tipo: 'RESERVA', saldoCents: 900_000 }),
+        contaFake({ id: 'variavel', nome: 'Conta variável', tipo: 'VARIAVEL', saldoCents: 0 }),
+      ],
+    });
+
+    // Primeira puxada: cabe inteira na poupança-alvo de 100.000.
+    await puxarDaReserva(deps, 60_000);
+    // Segunda: sobram 40.000 de poupança-alvo, então 60.000 vêm de fora.
+    const ciclo = await puxarDaReserva(deps, 100_000);
+
+    expect(ciclo.poupancaAlvoCents).toBe(0);
+    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(60_000);
   });
 
   it('sem conta RESERVA/VARIAVEL ainda ajusta o ciclo, sem criar transação', async () => {

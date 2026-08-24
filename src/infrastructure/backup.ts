@@ -276,6 +276,12 @@ const cicloSchema = z
     provisaoMensalCents: z.number().int(),
     verbaVariavelCents: z.number().int(),
     rolloverRecebidoCents: z.number().int().optional(),
+    /**
+     * Ausente em backup anterior à G8 = ciclo sem puxada da reserva. O schema é
+     * `.strict()`: sem esta linha, um backup exportado DEPOIS da G8 seria
+     * recusado na volta por trazer um campo desconhecido.
+     */
+    puxadoDaReservaForaDaRendaCents: z.number().int().optional(),
     fechado: z.boolean().optional(),
     fechadoEm: dataCivil.nullish(),
     sobraCents: z.number().int().nullish(),

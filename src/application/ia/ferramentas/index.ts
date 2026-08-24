@@ -19,6 +19,7 @@ import { CATALOGO_FERRAMENTAS } from './catalogo';
 import { erroFerramenta, type SaidaFerramenta } from './saida';
 import { estadoCiclo, gastosPorCategoria, pagamentosPendentes, situacaoHoje } from './situacao';
 import { analiseCorte, assinaturasDetectadas } from './analise';
+import { paraOndeVaiARenda } from './renda';
 import { patrimonioResumo } from './patrimonio';
 import {
   projetarCiclosFerramenta,
@@ -47,6 +48,7 @@ const EXECUTORES: Record<string, Executor> = {
   estado_ciclo: estadoCiclo as Executor,
   gastos_por_categoria: gastosPorCategoria as Executor,
   pagamentos_pendentes: pagamentosPendentes as Executor,
+  para_onde_vai_a_renda: paraOndeVaiARenda as Executor,
   analise_corte: analiseCorte as Executor,
   assinaturas_detectadas: assinaturasDetectadas as Executor,
   patrimonio_resumo: patrimonioResumo as Executor,

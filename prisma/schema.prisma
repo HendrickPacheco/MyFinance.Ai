@@ -247,6 +247,23 @@ model Ciclo {
   provisaoMensalCents   Int // soma congelada
   verbaVariavelCents    Int // derivado e congelado
   rolloverRecebidoCents Int             @default(0) // sobra (±) herdada do ciclo anterior (destino=ROLLOVER)
+  // Quanto do que foi puxado da RESERVA neste ciclo NÃO é explicado pela renda
+  // dele (saída (b) do modo recuperação, SPEC 5.4). Acumulativo — `puxarDaReserva`
+  // pode ser chamado mais de uma vez.
+  //
+  // NÃO é o valor bruto puxado, e a diferença importa. A puxada soma X à verba e
+  // reduz `poupancaAlvoCents` em X COM PISO EM ZERO. A parte coberta pela redução
+  // da poupança já está declarada — ela É o bloco "Poupança (meta)" menor. Só a
+  // parte não coberta (X − poupancaAlvo, quando a poupança não comporta X) é
+  // disponível que veio de fora desta renda. Guardar o bruto faria a soma dos
+  // blocos fechar num caso e quebrar no outro.
+  //
+  // Existe para a identidade "poupança + fixos + provisão ± rollover + disponível
+  // = renda" continuar fechando. O excedente tem lastro — dinheiro real
+  // transferido da conta de reserva para a variável — e por isso ganha bloco
+  // próprio em "Para onde vai a renda", como o rollover, em vez de virar
+  // "diferença não explicada" negativa.
+  puxadoDaReservaForaDaRendaCents Int @default(0)
   fechado               Boolean         @default(false)
   fechadoEm             String?
   sobraCents            Int?

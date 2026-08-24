@@ -798,6 +798,7 @@ function dadosCiclo(c: Ciclo, donoId: string) {
     provisaoMensalCents: c.provisaoMensalCents,
     verbaVariavelCents: c.verbaVariavelCents,
     rolloverRecebidoCents: c.rolloverRecebidoCents,
+    puxadoDaReservaForaDaRendaCents: c.puxadoDaReservaForaDaRendaCents,
     fechado: c.fechado,
     fechadoEm: c.fechadoEm,
     sobraCents: c.sobraCents,

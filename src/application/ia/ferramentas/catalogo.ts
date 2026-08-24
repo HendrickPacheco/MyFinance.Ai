@@ -139,6 +139,25 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
     observacao: ORIGEM_READ_ONLY,
   },
   {
+    nome: 'para_onde_vai_a_renda',
+    descricao:
+      'Decomposição da RENDA do ciclo atual em blocos que somam exatamente 100% dela: Poupança (meta), Custos fixos, Provisão mensal, Ajuste de rollover e Disponível para gastar — este último subdividido em "Parcelamentos do ciclo" e "Gastos eventuais do mês". Use para "para onde vai meu dinheiro", "quanto da minha renda é custo fixo", "quanto sobra depois de tudo". Diferente de gastos_por_categoria, que só olha gasto de verba variável: aqui entra TUDO, inclusive custo fixo e provisão. ATENÇÃO: "Parcelamentos do ciclo" já está dentro de "Disponível para gastar" — somá-lo aos blocos de topo conta o mesmo dinheiro duas vezes. Use os rótulos de rotulosParaODono; nunca diga "verba variável" nem "verba livre" ao dono. Quando misturaOrigens for true numa categoria, cite as partes por origem, nunca só o total.',
+    argumentos: z.object({
+      limite: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .nullable()
+        .describe('Quantas categorias detalhar. null = todas.'),
+    }),
+    origem:
+      'application/destino-da-renda.ts: obterDestinoDaRendaSomenteLeitura → domain/finance/destino-da-renda.ts: destinoDaRenda',
+    comoFoiCalculado: 'domain/finance/destino-da-renda.ts: destinoDaRenda',
+    bloqueio: null,
+    observacao: ORIGEM_READ_ONLY,
+  },
+  {
     nome: 'analise_corte',
     descricao:
       'Onde dá para cortar gasto: ranking de categorias por custo ANUALIZADO nos últimos ciclos fechados, com tendência e se a categoria é essencial. Use para "onde eu corto" ou "como poupar mais".',

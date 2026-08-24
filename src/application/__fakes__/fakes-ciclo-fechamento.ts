@@ -1068,6 +1068,7 @@ export function cicloFake(patch: Partial<Ciclo> = {}): Ciclo {
     provisaoMensalCents: 0,
     verbaVariavelCents: 700_000,
     rolloverRecebidoCents: 0,
+    puxadoDaReservaForaDaRendaCents: 0,
     fechado: false,
     fechadoEm: null,
     sobraCents: null,

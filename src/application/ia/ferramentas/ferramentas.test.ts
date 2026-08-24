@@ -51,6 +51,7 @@ const ARGUMENTOS: Record<string, unknown> = {
   estado_ciclo: {},
   gastos_por_categoria: { limite: null },
   pagamentos_pendentes: {},
+  para_onde_vai_a_renda: { limite: null },
   analise_corte: { numCiclos: null },
   assinaturas_detectadas: { numCiclos: null },
   patrimonio_resumo: {},

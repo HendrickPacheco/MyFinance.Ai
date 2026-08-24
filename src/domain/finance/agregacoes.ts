@@ -11,13 +11,15 @@ import type { MetodoPagamento } from '@/domain/model/enums';
 import type { TransacaoCalc } from './tipos';
 import type { ResultadoRitmo } from './ritmo';
 import { contaComoVerbaVariavel } from './teto';
+import {
+  ROTULO_CATEGORIA_REMOVIDA,
+  ROTULO_SEM_CATEGORIA,
+  SEM_CATEGORIA_ID,
+} from './sem-categoria';
 
 /** Nº de "décimos de percentual" que somam 100,0% (1 casa decimal). */
 const DECIMOS_ALVO = 1000;
 
-const SEM_CATEGORIA_ID = '__sem-categoria__';
-const SEM_CATEGORIA_NOME = 'Sem categoria';
-const CATEGORIA_REMOVIDA_NOME = 'Categoria removida';
 
 /**
  * Rateia `valoresCents` em percentuais 0–100 (1 casa decimal) que somam
@@ -180,8 +182,8 @@ export function agregarGastoPorCategoria(
       categoriaId,
       nome:
         categoriaId === SEM_CATEGORIA_ID
-          ? SEM_CATEGORIA_NOME
-          : (nomesPorId.get(categoriaId) ?? CATEGORIA_REMOVIDA_NOME),
+          ? ROTULO_SEM_CATEGORIA
+          : (nomesPorId.get(categoriaId) ?? ROTULO_CATEGORIA_REMOVIDA),
       totalCents,
       percentual: percentuais[i] ?? 0,
     }))

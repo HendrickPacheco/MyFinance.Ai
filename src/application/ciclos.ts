@@ -170,6 +170,7 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
         provisaoMensalCents: provMensalCents,
         verbaVariavelCents: verba,
         rolloverRecebidoCents: rollover,
+        puxadoDaReservaForaDaRendaCents: 0,
         fechado: false,
         fechadoEm: null,
         sobraCents: null,
@@ -218,6 +219,12 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
     fixosCents,
     provisaoMensalCents: provMensalCents,
     verbaVariavelCents: verba,
+    // O recálculo reescreve poupança e verba pela fórmula pura, desfazendo o
+    // ajuste que a puxada tinha feito nos dois. O registro tem que acompanhar:
+    // deixá-lo em pé descontaria dos blocos um dinheiro que já não está na
+    // verba. Nenhum centavo se move aqui — a TRANSFERENCIA da reserva para a
+    // variável continua gravada, com os saldos que ela produziu.
+    puxadoDaReservaForaDaRendaCents: 0,
   });
 }
 
@@ -313,6 +320,12 @@ export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<EfeitoNoC
     fixosCents,
     provisaoMensalCents: provMensalCents,
     verbaVariavelCents: verba,
+    // Mesmo motivo de `recalcularCicloAtual`: poupança e verba voltam à
+    // fórmula pura, então o registro da puxada não pode sobreviver a elas.
+    // (Na prática este caminho não roda depois de uma puxada — ela grava uma
+    // TRANSFERENCIA no ciclo e a guarda `transacoes.length > 0` acima barra o
+    // recálculo. Fica pela invariante, não pelo caminho.)
+    puxadoDaReservaForaDaRendaCents: 0,
   });
 
   return {
@@ -409,10 +422,34 @@ export async function puxarDaReserva(deps: Deps, valorCents: number): Promise<Ci
     await deps.contas.ajustarSaldo(variavel.id, +valorCents);
   }
 
-  const nota = `Puxou ${valorCents} centavos da reserva; poupança reduzida em ${valorCents} neste ciclo.`;
+  // A verba sobe o valor CHEIO e a poupança-alvo desce só até onde tinha — e
+  // isso está certo. O dinheiro tem lastro: a TRANSFERENCIA acima o moveu de
+  // verdade da reserva para a conta variável. Clampar a puxada recusaria ao
+  // dono o uso do próprio dinheiro, que é regressão, não correção.
+  //
+  // O que faltava era CONTABILIDADE. Estes dois números separam as duas metades
+  // da puxada:
+  //
+  //  - `poupancaAbatidaCents` é REALOCAÇÃO desta renda — o que ia ser poupado
+  //    passa a ser gasto. Já fica declarado sozinho: é o bloco "Poupança (meta)"
+  //    aparecendo menor.
+  //  - o resto é disponível que esta renda NÃO explica, e é o que precisa de
+  //    bloco próprio. Sem ele, virava "diferença não explicada" negativa em
+  //    "Para onde vai a renda" — o app dizendo que perdeu a conta de um dinheiro
+  //    que está na reserva do dono.
+  //
+  // Guardar o valor bruto no lugar do excedente faria a soma dos blocos fechar
+  // quando a poupança comporta a puxada e quebrar quando não comporta.
+  const poupancaAbatidaCents = Math.min(ciclo.poupancaAlvoCents, valorCents);
+  const foraDaRendaCents = valorCents - poupancaAbatidaCents;
+
+  const nota = `Puxou ${valorCents} centavos da reserva; poupança reduzida em ${poupancaAbatidaCents} neste ciclo.`;
   return deps.ciclos.atualizar(ciclo.id, {
-    poupancaAlvoCents: Math.max(ciclo.poupancaAlvoCents - valorCents, 0),
+    poupancaAlvoCents: ciclo.poupancaAlvoCents - poupancaAbatidaCents,
     verbaVariavelCents: ciclo.verbaVariavelCents + valorCents,
+    // ACUMULA: o dono pode puxar mais de uma vez no mesmo ciclo.
+    puxadoDaReservaForaDaRendaCents:
+      ciclo.puxadoDaReservaForaDaRendaCents + foraDaRendaCents,
     observacao: ciclo.observacao ? `${ciclo.observacao}\n${nota}` : nota,
   });
 }

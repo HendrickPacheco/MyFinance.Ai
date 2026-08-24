@@ -145,6 +145,17 @@ export interface Ciclo {
   provisaoMensalCents: number;
   verbaVariavelCents: number;
   rolloverRecebidoCents: number;
+  /**
+   * A parte do que foi puxado da reserva neste ciclo que a renda dele NÃO
+   * explica (saída (b) do modo recuperação, SPEC 5.4). Acumulativo.
+   *
+   * Não é o bruto puxado: a puxada reduz a poupança-alvo em X com piso em zero,
+   * e a parte coberta por essa redução já aparece como um bloco "Poupança
+   * (meta)" menor. O que sobra é disponível com lastro na reserva, vindo de
+   * fora desta renda — e é o que permite a decomposição de "Para onde vai a
+   * renda" continuar fechando em 100%.
+   */
+  puxadoDaReservaForaDaRendaCents: number;
   fechado: boolean;
   fechadoEm: DataCivil | null;
   sobraCents: number | null;

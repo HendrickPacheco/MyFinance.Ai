@@ -161,6 +161,7 @@ export function toCiclo(r: PCiclo): Ciclo {
     provisaoMensalCents: r.provisaoMensalCents,
     verbaVariavelCents: r.verbaVariavelCents,
     rolloverRecebidoCents: r.rolloverRecebidoCents,
+    puxadoDaReservaForaDaRendaCents: r.puxadoDaReservaForaDaRendaCents,
     fechado: r.fechado,
     fechadoEm: r.fechadoEm,
     sobraCents: r.sobraCents,
