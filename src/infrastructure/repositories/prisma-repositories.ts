@@ -251,6 +251,7 @@ export class PrismaCustoFixoRepository implements CustoFixoRepository {
       diaVencimento: custo.diaVencimento,
       ativo: custo.ativo,
       contaId: custo.contaId,
+      categoriaId: custo.categoriaId,
       vigenteDe: custo.vigenteDe,
       vigenteAte: custo.vigenteAte,
     };
@@ -700,9 +701,49 @@ export class PrismaCicloRepository implements CicloRepository {
     return rows.map(toCiclo);
   }
 
+  /**
+   * Id do ciclo imediatamente anterior a `dataInicio` — sempre DO MESMO DONO.
+   * É por aqui que `cicloAnteriorId` é resolvido: um `where` já escopado, e
+   * nunca um id vindo de fora, é o que torna impossível a aresta cruzar donos
+   * (TASKS-GRAFO §7.2 — a FK sozinha aceitaria o ciclo de outro usuário).
+   */
+  private async idDoAnterior(dataInicio: DataCivil): Promise<string | null> {
+    const r = await this.db.ciclo.findFirst({
+      where: { donoId: this.donoId, dataInicio: { lt: dataInicio } },
+      orderBy: { dataInicio: 'desc' },
+      select: { id: true },
+    });
+    return r?.id ?? null;
+  }
+
+  /**
+   * Reaponta para `ciclo` o sucessor imediato dele, se já existir. Só acontece
+   * quando um ciclo nasce FORA de ordem cronológica (importação, correção
+   * manual): sem isto, o sucessor continuaria apontando para o ciclo que era o
+   * anterior antes deste aparecer no meio, e a cadeia pularia um elo.
+   */
+  private async religarSucessor(id: string, dataInicio: DataCivil): Promise<void> {
+    const sucessor = await this.db.ciclo.findFirst({
+      where: { donoId: this.donoId, dataInicio: { gt: dataInicio } },
+      orderBy: { dataInicio: 'asc' },
+      select: { id: true },
+    });
+    if (!sucessor) return;
+    await this.db.ciclo.updateMany({
+      where: { id: sucessor.id, donoId: this.donoId },
+      data: { cicloAnteriorId: id },
+    });
+  }
+
   async criarSeAusente(ciclo: Ciclo): Promise<{ ciclo: Ciclo; criado: boolean }> {
     try {
-      const r = await this.db.ciclo.create({ data: semIdVazio(dadosCiclo(ciclo, this.donoId)) });
+      const r = await this.db.ciclo.create({
+        data: {
+          ...semIdVazio(dadosCiclo(ciclo, this.donoId)),
+          cicloAnteriorId: await this.idDoAnterior(ciclo.dataInicio),
+        },
+      });
+      await this.religarSucessor(r.id, r.dataInicio);
       return { ciclo: toCiclo(r), criado: true };
     } catch (erro) {
       if (!ehViolacaoDeUnicidade(erro)) throw erro;

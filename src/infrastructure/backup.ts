@@ -231,6 +231,8 @@ const custoFixoSchema = z
     diaVencimento: z.number().int(),
     ativo: z.boolean().optional(),
     contaId: z.string().nullish(),
+    /** Ausente em backup anterior à G0 = custo sem categoria, que é o padrão. */
+    categoriaId: z.string().nullish(),
     // Opcionais: backup gerado ANTES da migração de vigência não os traz, e
     // ausente = custo constante, que é o comportamento de sempre.
     vigenteDe: dataCivil.nullish(),
@@ -278,6 +280,8 @@ const cicloSchema = z
     fechadoEm: dataCivil.nullish(),
     sobraCents: z.number().int().nullish(),
     observacao: z.string().nullish(),
+    /** Ausente em backup anterior à G0. Cadeia de rollover — ver `schema.prisma`. */
+    cicloAnteriorId: z.string().nullish(),
   })
   .strict();
 
@@ -397,7 +401,114 @@ async function salvaguardarEstadoAtual(db: PrismaClient, donoId: string): Promis
   return backupPath;
 }
 
-/** Salvaguarda o estado atual em ./data antes de substituir todos os dados. */
+type DadosBackup = z.infer<typeof backupSchema>['dados'];
+
+/**
+ * Anula toda referência que não aponte para um registro DO PRÓPRIO ARQUIVO.
+ *
+ * O import apaga e recria o conjunto inteiro do dono, então toda referência
+ * legítima está necessariamente dentro do payload. Um id que não está aqui só
+ * pode ser uma de duas coisas, e as duas são ruins:
+ *
+ *  - **id que não existe** — a FK abortaria o import inteiro, num erro cru de
+ *    Postgres, DEPOIS de os dados atuais já terem sido apagados;
+ *  - **id de OUTRO DONO** — a FK aceitaria de bom grado, e a aresta nasceria
+ *    cruzando donos (TASKS-GRAFO §7.2). O arquivo é um payload que o dono
+ *    envia: `.strict()` já barra chave desconhecida, mas nada barrava um id
+ *    escolhido a dedo até a G0 transformar essas colunas em FK de verdade.
+ *
+ * `pagamentosFixos` é o único caso em que a linha é DESCARTADA em vez de
+ * anulada: as referências dele são obrigatórias, e um pagamento sem custo fixo
+ * ou sem ciclo não é um registro degradado, é um registro sem significado.
+ *
+ * As duas AUTO-RELAÇÕES (`Ciclo.cicloAnteriorId` e `Transacao.estornoDeId`)
+ * exigem mais do que "o alvo está no arquivo". O Postgres checa FK em trigger
+ * AFTER ROW, então `{"id":"c1","cicloAnteriorId":"c1"}` — e também um ciclo
+ * mútuo `c3 -> c5 -> c3` — entra sem reclamar e vira um laço na cadeia. Hoje
+ * ninguém caminha essa cadeia, mas a G1 planeja uma CTE recursiva sobre ela, e
+ * numa recursiva o laço não é um erro visível: é loop ou linha multiplicada.
+ * Por isso:
+ *
+ *  - `estornoDeId` recusa a própria linha (um estorno de si mesmo não existe);
+ *  - `cicloAnteriorId` exige `alvo.dataInicio < registro.dataInicio` — o
+ *    invariante que DEFINE o campo, e que de quebra mata auto-referência e
+ *    inversão de ordem de uma vez. Data civil compara como string (regra 2).
+ */
+function sanearArestas(d: DadosBackup): DadosBackup {
+  const idsDe = (registros: readonly { id: string }[]) => new Set(registros.map((r) => r.id));
+  const contas = idsDe(d.contas);
+  const categorias = idsDe(d.categorias);
+  const provisoes = idsDe(d.provisoes);
+  const parcelamentos = idsDe(d.parcelamentos);
+  const ciclos = idsDe(d.ciclos);
+  const custosFixos = idsDe(d.custosFixos);
+  const transacoes = idsDe(d.transacoes);
+
+  const em =
+    (conhecidos: ReadonlySet<string>) =>
+    (id: string | null | undefined): string | null =>
+      id != null && conhecidos.has(id) ? id : null;
+
+  const emConta = em(contas);
+  const emCategoria = em(categorias);
+  const emCiclo = em(ciclos);
+  const emProvisao = em(provisoes);
+  const emParcelamento = em(parcelamentos);
+  const emTransacao = em(transacoes);
+
+  const inicioPorCiclo = new Map(d.ciclos.map((c) => [c.id, c.dataInicio]));
+
+  /** O anterior de um ciclo é, por definição, um ciclo que COMEÇOU antes dele. */
+  const anteriorCronologico = (registro: {
+    dataInicio: string;
+    cicloAnteriorId?: string | null;
+  }): string | null => {
+    const candidato = registro.cicloAnteriorId;
+    if (candidato == null) return null;
+    const inicioDoAlvo = inicioPorCiclo.get(candidato);
+    if (inicioDoAlvo === undefined || inicioDoAlvo >= registro.dataInicio) return null;
+    return candidato;
+  };
+
+  /** Uma transação não pode estornar a si mesma. */
+  const originalEstornada = (registro: { id: string; estornoDeId?: string | null }): string | null =>
+    registro.estornoDeId === registro.id ? null : emTransacao(registro.estornoDeId);
+
+  return {
+    ...d,
+    config: d.config
+      ? { ...d.config, destinoSobraContaId: emConta(d.config.destinoSobraContaId) }
+      : d.config,
+    custosFixos: d.custosFixos.map((c) => ({
+      ...c,
+      contaId: emConta(c.contaId),
+      categoriaId: emCategoria(c.categoriaId),
+    })),
+    parcelamentos: d.parcelamentos.map((p) => ({
+      ...p,
+      categoriaId: emCategoria(p.categoriaId),
+    })),
+    ciclos: d.ciclos.map((c) => ({ ...c, cicloAnteriorId: anteriorCronologico(c) })),
+    pagamentosFixos: d.pagamentosFixos.filter(
+      (p) => custosFixos.has(p.custoFixoId) && ciclos.has(p.cicloId),
+    ),
+    transacoes: d.transacoes.map((t) => ({
+      ...t,
+      categoriaId: emCategoria(t.categoriaId),
+      contaId: emConta(t.contaId),
+      contaDestinoId: emConta(t.contaDestinoId),
+      provisaoId: emProvisao(t.provisaoId),
+      parcelamentoId: emParcelamento(t.parcelamentoId),
+      estornoDeId: originalEstornada(t),
+      cicloId: emCiclo(t.cicloId),
+    })),
+    snapshots: d.snapshots.map((s) => ({
+      ...s,
+      itens: s.itens.map((i) => ({ ...i, contaId: emConta(i.contaId) })),
+    })),
+  };
+}
+
 /**
  * Importa um backup PARA UM DONO. Só apaga e só grava linhas dele — restaurar
  * o backup de um usuário jamais toca os dados de outro.
@@ -411,7 +522,7 @@ export async function importarTudo(
   if (parsed.version < MIN_BACKUP_VERSION_COMPATIVEL || parsed.version > BACKUP_VERSION) {
     throw new BackupVersaoIncompativelError(parsed.version, MIN_BACKUP_VERSION_COMPATIVEL, BACKUP_VERSION);
   }
-  const d = parsed.dados;
+  const d = sanearArestas(parsed.dados);
 
   // 1) Salvaguarda do estado atual antes de qualquer escrita destrutiva. Se
   // isto lançar, o import aborta aqui — a transação abaixo nunca abre.
@@ -442,10 +553,11 @@ export async function importarTudo(
     await tx.memoria.deleteMany({ where: { donoId } });
 
     // Ordem de criação respeita as FKs: entidades sem dependência primeiro,
-    // depois as que referenciam (config -> conta; custoFixo -> conta;
-    // parcelamento -> categoria; ciclo -> nenhuma FK própria; pagamentoFixo
-    // -> custoFixo + ciclo; transacao -> tudo; itemPatrimonio -> conta, por
-    // isso os snapshots são criados DEPOIS de `d.contas` lá embaixo).
+    // depois as que referenciam (config -> conta; custoFixo -> conta +
+    // categoria; parcelamento -> categoria; ciclo -> o ciclo anterior, ele
+    // mesmo; pagamentoFixo -> custoFixo + ciclo; transacao -> tudo;
+    // itemPatrimonio -> conta, por isso os snapshots são criados DEPOIS de
+    // `d.contas` lá embaixo).
     // Todo registro é carimbado com o donoId de QUEM ESTÁ IMPORTANDO, não com
     // nada vindo do arquivo — o arquivo nem carrega donoId (ver `exportarTudo`).
     const comDono = <T,>(registros: readonly T[]) => registros.map((r) => ({ ...r, donoId }));
@@ -456,7 +568,17 @@ export async function importarTudo(
     if (d.config) await tx.config.create({ data: { ...d.config, donoId } });
     if (d.custosFixos.length) await tx.custoFixo.createMany({ data: comDono(d.custosFixos) });
     if (d.parcelamentos.length) await tx.parcelamento.createMany({ data: comDono(d.parcelamentos) });
-    if (d.ciclos.length) await tx.ciclo.createMany({ data: comDono(d.ciclos) });
+    if (d.ciclos.length) {
+      // `Ciclo.cicloAnteriorId` é auto-referente (G0). A ordenação cronológica
+      // NÃO é o que garante a integridade: `createMany` emite um único INSERT e
+      // as FKs do Postgres são triggers AFTER ROW, então todas as linhas já
+      // estão lá quando a checagem roda — a ordem do array é irrelevante para o
+      // banco. Quem garante que o alvo existe (e que a cadeia não tem laço) é
+      // `sanearArestas`. Ordenar aqui é higiene: torna o insert determinístico e
+      // deixa a cadeia legível para quem for depurar um dump.
+      const ordenados = [...d.ciclos].sort((a, b) => a.dataInicio.localeCompare(b.dataInicio));
+      await tx.ciclo.createMany({ data: comDono(ordenados) });
+    }
     // Sem `embedding`: o vetor não viaja no arquivo e é reindexado sob demanda.
     if (d.memorias.length) await tx.memoria.createMany({ data: comDono(d.memorias) });
     if (d.pagamentosFixos.length)

@@ -91,6 +91,7 @@ export function toCustoFixo(r: PCustoFixo): CustoFixo {
     diaVencimento: r.diaVencimento,
     ativo: r.ativo,
     contaId: r.contaId,
+    categoriaId: r.categoriaId,
     vigenteDe: r.vigenteDe,
     vigenteAte: r.vigenteAte,
   };

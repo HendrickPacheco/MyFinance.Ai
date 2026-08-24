@@ -130,6 +130,7 @@ describe('garantirCicloAtual — regra 10 (ciclo anterior não fechado nunca blo
           diaVencimento: 10,
           ativo: true,
           contaId: null,
+          categoriaId: null,
           vigenteDe: null,
           vigenteAte: null,
         },
@@ -293,6 +294,7 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
       diaVencimento: 5,
       ativo: true,
       contaId: null,
+      categoriaId: null,
       vigenteDe: null,
       vigenteAte: null,
     });

@@ -39,6 +39,7 @@ const CUSTO_ALUGUEL: CustoFixo = {
   diaVencimento: 10,
   ativo: true,
   contaId: null,
+  categoriaId: null,
   vigenteDe: null,
   vigenteAte: null,
 };
@@ -50,6 +51,7 @@ const CUSTO_INTERNET: CustoFixo = {
   diaVencimento: 15,
   ativo: true,
   contaId: null,
+  categoriaId: null,
   vigenteDe: null,
   vigenteAte: null,
 };

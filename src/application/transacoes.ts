@@ -352,7 +352,14 @@ export async function estornarTransacao(
     provisaoId: original?.provisaoId ?? null,
     parcelamentoId: null,
     parcelaNum: null,
-    estornoDeId: id,
+    // Só vira aresta o id que ESTE dono enxerga. `obter` já é escopado em
+    // `donoId`, então `original == null` significa "não existe" OU "é de outra
+    // pessoa" — e nos dois casos gravar o id seria errado desde a G0, quando
+    // `estornoDeId` virou FK: o primeiro caso violaria a constraint, e o
+    // segundo criaria uma aresta cruzando donos, que o Postgres aceitaria de
+    // bom grado (TASKS-GRAFO §7.2). O estorno continua sendo criado — só nasce
+    // solto, exatamente como o teste de "original inexistente" já esperava.
+    estornoDeId: original ? id : null,
     cicloId: cicloDestinoId,
     pagoEm: null,
   });

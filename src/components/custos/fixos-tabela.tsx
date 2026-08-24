@@ -54,6 +54,19 @@ export function ordenarLinhas(
   });
 }
 
+/**
+ * Legenda abaixo do nome: categoria e vigência na mesma linha. Uma linha só
+ * por custo — duas sublinhas empilhadas fariam a tabela crescer de altura
+ * para informação que é contexto, não o número que a tela existe para mostrar.
+ */
+export function legendaDoCusto(linha: LinhaCustoFixoGestao): string | null {
+  const partes = [
+    linha.categoriaNome,
+    rotuloVigencia(linha.custo.vigenteDe, linha.custo.vigenteAte),
+  ].filter((p): p is string => p !== null);
+  return partes.length > 0 ? partes.join(' · ') : null;
+}
+
 export function ordemDaColuna(ordenacao: OrdenacaoFixos, coluna: ColunaFixos): OrdemColuna {
   return ordenacao.coluna === coluna ? ordenacao.direcao : 'none';
 }
@@ -62,7 +75,7 @@ export function ordemDaColuna(ordenacao: OrdenacaoFixos, coluna: ColunaFixos): O
  * Rótulo de vigência. Vigência é HINT DE PROJEÇÃO FUTURA: ciclo já nascido
  * guarda o próprio `fixosCents` congelado e ignora estas datas.
  */
-export function rotuloVigencia(vigenteDe: string | null, vigenteAte: string | null): string | null {
+function rotuloVigencia(vigenteDe: string | null, vigenteAte: string | null): string | null {
   if (vigenteDe && vigenteAte) {
     return `${formatarDataCurta(vigenteDe)} → ${formatarDataCurta(vigenteAte)}`;
   }
@@ -163,7 +176,7 @@ export function FixosTabela({
       </THead>
       <TBody>
         {linhas.map((linha) => {
-          const vigencia = rotuloVigencia(linha.custo.vigenteDe, linha.custo.vigenteAte);
+          const legenda = legendaDoCusto(linha);
           return (
             <Tr key={linha.custo.id}>
               <Td>
@@ -175,7 +188,7 @@ export function FixosTabela({
                     Desativado
                   </Badge>
                 ) : null}
-                {vigencia ? <p className="tnum text-xs text-faint">{vigencia}</p> : null}
+                {legenda ? <p className="tnum text-xs text-faint">{legenda}</p> : null}
               </Td>
               <Td numerico className="text-muted">
                 dia {linha.custo.diaVencimento}

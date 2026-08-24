@@ -14,11 +14,13 @@
  */
 import { addDias, type DataCivil } from '@/shared/data';
 import { formatarPeriodoCiclo } from '@/domain/finance';
-import type { CustoFixo, ProvisaoAnual } from '@/domain/model/entidades';
+import type { Categoria, CustoFixo, ProvisaoAnual } from '@/domain/model/entidades';
 import type { Deps } from './deps';
+import type { OpcaoCategoria } from './dashboard-tipos';
 import { obterProjecao } from './projecao';
 import { previaRecalculoCicloAtual, type PreviaRecalculo } from './ciclos';
 import { listarCustosFixos, listarProvisoes } from './custos';
+import { GRUPOS_DE_CATEGORIA_DE_CUSTO_FIXO } from './categoria-custo-fixo';
 
 /**
  * Os quatro números que a barra de totais compara, mais o rótulo do período.
@@ -76,6 +78,13 @@ export interface LinhaCustoFixoGestao {
    * nem oferece o botão de excluir (§4.1).
    */
   ciclosComPagamento: number;
+  /**
+   * Nome da categoria, quando há uma. A tela tem só o id — resolver isto no
+   * cliente exigiria uma segunda fonte de verdade. `null` cobre tanto "sem
+   * categoria" quanto "categoria apagada" (a FK é SET NULL, então na prática o
+   * id nem sobrevive à exclusão).
+   */
+  categoriaNome: string | null;
 }
 
 export interface EstadoCustosFixos {
@@ -83,6 +92,13 @@ export interface EstadoCustosFixos {
   provisoes: readonly ProvisaoAnual[];
   /** `null` quando não há ciclo aberto — sem ciclo não há delta a mostrar. */
   previaRecalculo: PreviaRecalculo | null;
+  /**
+   * Categorias oferecidas no formulário, FIXO primeiro. A lista é filtrada
+   * pelos MESMOS grupos que `validarCategoriaDeCustoFixo` aceita — oferecer
+   * aqui uma opção que o servidor vai recusar é a mesma classe de defeito do
+   * botão "excluir" impossível do §4.1.
+   */
+  categorias: readonly OpcaoCategoria[];
 }
 
 /**
@@ -91,19 +107,37 @@ export interface EstadoCustosFixos {
  * não uma por custo) e a prévia do recálculo para o `ConfirmInline` do banner.
  */
 export async function obterEstadoCustosFixos(deps: Deps): Promise<EstadoCustosFixos> {
-  const [custos, provisoes, contagem, previaRecalculo] = await Promise.all([
+  const [custos, provisoes, contagem, previaRecalculo, categorias] = await Promise.all([
     listarCustosFixos(deps),
     listarProvisoes(deps),
     deps.pagamentosFixos.contarPorCustoFixoAgrupado(),
     previaRecalculoCicloAtual(deps),
+    deps.categorias.listar(),
   ]);
+
+  const nomePorId = new Map(categorias.map((c) => [c.id, c.nome]));
 
   return {
     linhas: custos.map((custo) => ({
       custo,
       ciclosComPagamento: contagem[custo.id] ?? 0,
+      categoriaNome: custo.categoriaId ? (nomePorId.get(custo.categoriaId) ?? null) : null,
     })),
     provisoes,
     previaRecalculo,
+    categorias: categorias
+      .filter((c) => GRUPOS_DE_CATEGORIA_DE_CUSTO_FIXO.includes(c.grupo))
+      .sort(porGrupoDeCustoFixoDepoisPorOrdem)
+      .map((c) => ({ id: c.id, nome: c.nome, grupo: c.grupo })),
   };
+}
+
+/**
+ * FIXO antes de VARIAVEL, e dentro de cada grupo a ordem que o dono definiu no
+ * cadastro. O grupo natural de um custo fixo aparece primeiro no select; as
+ * variáveis ficam no fim como alternativa, não como sugestão.
+ */
+function porGrupoDeCustoFixoDepoisPorOrdem(a: Categoria, b: Categoria): number {
+  const posicao = (c: Categoria) => GRUPOS_DE_CATEGORIA_DE_CUSTO_FIXO.indexOf(c.grupo);
+  return posicao(a) - posicao(b) || a.ordem - b.ordem || a.nome.localeCompare(b.nome, 'pt-BR');
 }

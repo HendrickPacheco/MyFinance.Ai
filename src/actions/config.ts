@@ -96,6 +96,10 @@ const custoSchema = z
     diaVencimento: z.number().int().min(1).max(31),
     ativo: z.boolean().default(true),
     contaId: z.string().nullish(),
+    // Id vindo da tela: o schema só garante a FORMA. Que a categoria seja do
+    // mesmo dono e de grupo aceito é decidido por `validarCategoriaDeCustoFixo`
+    // dentro do caso de uso, onde há acesso aos repositórios escopados.
+    categoriaId: z.string().nullish(),
     // Vigência: hints de projeção futura. Ausente = custo constante, que é como
     // todos os custos existentes se comportam — o campo não muda nada até ser
     // preenchido de propósito.
@@ -126,6 +130,7 @@ export async function upsertCustoFixo(
     const r = await ucCusto(deps, {
       ...d,
       contaId: d.contaId ?? null,
+      categoriaId: d.categoriaId ?? null,
       vigenteDe: d.vigenteDe ?? null,
       vigenteAte: d.vigenteAte ?? null,
     });

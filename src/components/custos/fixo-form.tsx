@@ -5,11 +5,14 @@ import { Plus } from 'lucide-react';
 import { Button, Input, Label, Select } from '@/components/ui';
 import { CampoDinheiro } from './campo-dinheiro';
 import type { CustoFixo } from '@/domain/model/entidades';
+import type { OpcaoCategoria } from '@/application/dashboard-tipos';
 
 export interface RascunhoCustoFixo {
   nome: string;
   valorCents: number;
   diaVencimento: number;
+  /** `null` = sem categoria, estado legítimo e padrão de todo custo antigo. */
+  categoriaId: string | null;
   vigenteDe: string | null;
   vigenteAte: string | null;
 }
@@ -17,6 +20,12 @@ export interface RascunhoCustoFixo {
 export interface FixoFormProps {
   /** `null` = criando. Preenchido = editando aquele custo. */
   editando: CustoFixo | null;
+  /**
+   * Já filtradas e ordenadas pelo servidor (FIXO primeiro). Não reordenar
+   * aqui: a lista é a mesma que o caso de uso aceita, e reordená-la no cliente
+   * criaria uma segunda regra de qual categoria é a natural.
+   */
+  categorias: readonly OpcaoCategoria[];
   pendente: boolean;
   erro: string | null;
   onSubmit: (rascunho: RascunhoCustoFixo) => void;
@@ -34,15 +43,27 @@ const DIAS = Array.from({ length: 31 }, (_, i) => i + 1);
  * Todo campo monetário usa o acumulador de centavos (`CampoDinheiro`), nunca
  * texto livre reparseado (§5, débito 4).
  */
-export function FixoForm({ editando, pendente, erro, onSubmit, onCancelar }: FixoFormProps) {
+export function FixoForm({
+  editando,
+  categorias,
+  pendente,
+  erro,
+  onSubmit,
+  onCancelar,
+}: FixoFormProps) {
   const [nome, setNome] = React.useState('');
   const [valorCents, setValorCents] = React.useState(0);
   const [dia, setDia] = React.useState(5);
+  // `''` é o "sem categoria" do `<select>`; vira `null` no envio. Nunca o id da
+  // primeira categoria: um custo fixo não deve ganhar categoria por acidente,
+  // e o padrão de todo custo já cadastrado é justamente não ter nenhuma.
+  const [categoriaId, setCategoriaId] = React.useState('');
   const [vigenteDe, setVigenteDe] = React.useState('');
   const [vigenteAte, setVigenteAte] = React.useState('');
   const nomeRef = React.useRef<HTMLInputElement>(null);
   const idErro = React.useId();
   const idHintVigencia = React.useId();
+  const idHintCategoria = React.useId();
 
   // Trocar o alvo de edição repovoa o formulário e leva o foco para ele — sem
   // isso, clicar em "Editar" numa linha lá em cima rolaria a tela e deixaria o
@@ -51,6 +72,7 @@ export function FixoForm({ editando, pendente, erro, onSubmit, onCancelar }: Fix
     setNome(editando?.nome ?? '');
     setValorCents(editando?.valorCents ?? 0);
     setDia(editando?.diaVencimento ?? 5);
+    setCategoriaId(editando?.categoriaId ?? '');
     setVigenteDe(editando?.vigenteDe ?? '');
     setVigenteAte(editando?.vigenteAte ?? '');
     if (editando) nomeRef.current?.focus();
@@ -62,6 +84,7 @@ export function FixoForm({ editando, pendente, erro, onSubmit, onCancelar }: Fix
       nome,
       valorCents,
       diaVencimento: dia,
+      categoriaId: categoriaId === '' ? null : categoriaId,
       // String vazia do `<input type="date">` significa "sem vigência", que no
       // domínio é `null` — nunca "" (que não é data civil válida).
       vigenteDe: vigenteDe === '' ? null : vigenteDe,
@@ -100,6 +123,31 @@ export function FixoForm({ editando, pendente, erro, onSubmit, onCancelar }: Fix
               </option>
             ))}
           </Select>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <Label htmlFor="fixo-categoria">Categoria (opcional)</Label>
+          <Select
+            id="fixo-categoria"
+            value={categoriaId}
+            onChange={(e) => setCategoriaId(e.target.value)}
+            disabled={categorias.length === 0}
+            aria-describedby={idHintCategoria}
+          >
+            <option value="">Sem categoria</option>
+            {categorias.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nome}
+              </option>
+            ))}
+          </Select>
+          <p id={idHintCategoria} className="mt-2 text-xs text-faint">
+            {categorias.length === 0
+              ? 'Nenhuma categoria de despesa cadastrada ainda — crie uma em Configuração.'
+              : 'Só serve para responder “para onde vai minha renda”. Não muda a verba nem entra na análise de gastos variáveis.'}
+          </p>
         </div>
       </div>
 

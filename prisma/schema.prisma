@@ -72,6 +72,18 @@ model CustoFixo {
   contaId       String?
   conta         Conta?  @relation(fields: [contaId], references: [id])
 
+  // Categoria do custo fixo (G0). Nasce `null` em todo custo já cadastrado e é
+  // preenchida pelo dono na tela de custos fixos — sem ela, "para onde vai a
+  // renda" não consegue quebrar o bloco de fixos por categoria.
+  //
+  // A FK garante que o id existe; ela NÃO garante que a categoria é do MESMO
+  // dono (o Postgres aceitaria ligar o custo do dono A à categoria do dono B).
+  // Essa garantia é explícita, em `validarCategoriaDeCustoFixo`
+  // (application/categoria-custo-fixo.ts), no único caminho que aceita um id
+  // vindo da tela.
+  categoriaId String?
+  categoria   Categoria? @relation(fields: [categoriaId], references: [id])
+
   // Vigência — hints de PROJEÇÃO FUTURA, não vigência histórica retroativa.
   // Ciclos já nascidos ignoram estes campos (são congelados: cada Ciclo guarda
   // seu próprio fixosCents). Servem para a projeção parar de contar um custo
@@ -83,6 +95,7 @@ model CustoFixo {
   pagamentos PagamentoFixo[]
 
   @@index([donoId])
+  @@index([categoriaId])
 }
 
 // Rastreamento de "pago no ciclo" (coluna "Pago?" da planilha do usuário).
@@ -133,6 +146,12 @@ model Categoria {
   ordem      Int         @default(0)
   transacoes Transacao[]
 
+  // Arestas fechadas na G0. Antes disto, `Parcelamento.categoriaId` era uma
+  // string solta: apagar a categoria deixava o id apontando para o vazio, e
+  // ninguém conseguia ler `parcelamento.categoria.nome` sem join manual.
+  custosFixos   CustoFixo[]
+  parcelamentos Parcelamento[]
+
   // Nome único POR DONO: dois usuários podem ter "Mercado" cada um.
   @@unique([donoId, nome])
   @@index([donoId])
@@ -163,8 +182,16 @@ model Transacao {
   parcelamento   Parcelamento? @relation(fields: [parcelamentoId], references: [id])
   parcelaNum     Int?
 
-  // Estorno: aponta para a transação original
+  // Estorno: aponta para a transação original. Self-relation de verdade desde
+  // a G0 — antes era uma string solta, e o par estorno/original só se
+  // reconstituía por join manual.
+  //
+  // `SetNull` (e não `Restrict`) porque excluir a original é um caminho que já
+  // existe e não pode passar a falhar: o estorno sobrevive como lançamento
+  // solto, exatamente o que já acontecia de fato quando não havia FK nenhuma.
   estornoDeId String?
+  estornoDe   Transacao?  @relation("Estorno", fields: [estornoDeId], references: [id], onDelete: SetNull)
+  estornos    Transacao[] @relation("Estorno")
 
   cicloId   String?
   ciclo     Ciclo?   @relation(fields: [cicloId], references: [id])
@@ -179,18 +206,20 @@ model Transacao {
   @@index([cicloId])
   @@index([categoriaId])
   @@index([provisaoId])
+  @@index([estornoDeId])
   @@index([donoId])
 }
 
 model Parcelamento {
-  id              String  @id @default(cuid())
+  id              String     @id @default(cuid())
   donoId          String
-  dono            Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  dono            Usuario    @relation(fields: [donoId], references: [id], onDelete: Cascade)
   descricao       String
   valorTotalCents Int
   numParcelas     Int
   dataCompra      String
   categoriaId     String?
+  categoria       Categoria? @relation(fields: [categoriaId], references: [id])
 
   // Cancelamento antecipado: as parcelas FUTURAS foram apagadas, as já pagas
   // (e as de ciclo fechado) permanecem. Não é delete do parcelamento — a FK
@@ -201,6 +230,7 @@ model Parcelamento {
   transacoes Transacao[]
 
   @@index([donoId])
+  @@index([categoriaId])
 }
 
 // Snapshot dos parâmetros no início do ciclo — CONGELADO (SPEC 5.2).
@@ -224,8 +254,29 @@ model Ciclo {
   transacoes            Transacao[]
   pagamentosFixos       PagamentoFixo[]
 
+  // Cadeia de rollover (G0): o ciclo imediatamente anterior DO MESMO DONO, por
+  // `dataInicio`. `rolloverRecebidoCents` já diz QUANTO veio herdado; esta
+  // aresta diz DE ONDE — sem ela, remontar a cadeia exige ordenar todos os
+  // ciclos por data a cada consulta.
+  //
+  // Mantida pelo adapter (`PrismaCicloRepository.criarSeAusente`), nunca por
+  // input de tela: o predecessor é resolvido por uma consulta já escopada em
+  // `donoId`, e por isso a aresta não tem como cruzar donos. É também o motivo
+  // de o campo NÃO existir na entidade `Ciclo` do domínio — não há caso de uso
+  // que o escreva, e expor um campo que ninguém preenche convidaria a preenchê-lo
+  // com um id vindo de fora.
+  //
+  // Um-para-muitos (e não `@unique`) de propósito: com unicidade, criar um
+  // ciclo retroativo que disputa o mesmo predecessor levantaria P2002, que
+  // `criarSeAusente` já usa para significar "perdi a corrida do mesmo
+  // dataInicio" — dois significados no mesmo código de erro.
+  cicloAnteriorId String?
+  cicloAnterior   Ciclo?  @relation("CadeiaDeCiclos", fields: [cicloAnteriorId], references: [id], onDelete: SetNull)
+  ciclosSeguintes Ciclo[] @relation("CadeiaDeCiclos")
+
   @@unique([donoId, dataInicio])
   @@index([donoId])
+  @@index([cicloAnteriorId])
 }
 
 model SnapshotPatrimonio {

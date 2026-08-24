@@ -78,6 +78,7 @@ const CUSTO_FIXO = {
   diaVencimento: 10,
   ativo: true,
   contaId: null,
+  categoriaId: null,
   vigenteDe: null,
   vigenteAte: null,
 };
@@ -148,6 +149,7 @@ const ESCRITAS: ReadonlyArray<readonly [string, (d: FakeDeps) => Promise<unknown
         diaVencimento: 10,
         ativo: true,
         contaId: null,
+        categoriaId: null,
         vigenteDe: null,
         vigenteAte: null,
       }),

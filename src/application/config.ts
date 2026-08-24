@@ -23,6 +23,7 @@ import {
   type VerificacaoMetaIrreal,
 } from '@/domain/finance';
 import { recalcularCicloAtualSeVazio, type EfeitoNoCicloAtual } from './ciclos';
+import { validarCategoriaDeCustoFixo } from './categoria-custo-fixo';
 
 /** Nº de ciclos fechados consultados para as sugestões da regra 6 (renda variável). */
 const JANELA_CICLOS_SUGESTAO_RENDA = 6;
@@ -145,6 +146,11 @@ export async function upsertCustoFixo(
 ): Promise<ResultadoUpsertCustoFixo> {
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirOwner(deps.ator);
+
+  // `categoriaId` é o único campo aqui cujo valor é um ID VINDO DA TELA. A FK
+  // criada na G0 confere que ele existe, não que ele é do mesmo dono — quem
+  // fecha isso é o guard (TASKS-GRAFO §7.2).
+  await validarCategoriaDeCustoFixo(deps, custo.categoriaId);
 
   const salvo = await deps.custosFixos.salvar(custo);
   return { custo: salvo, efeito: await recalcularCicloAtualSeVazio(deps) };

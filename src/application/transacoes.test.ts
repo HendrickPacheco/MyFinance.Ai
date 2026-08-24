@@ -180,6 +180,9 @@ describe('estornarTransacao — data do estorno (SPEC regra 5 / seção 9)', () 
 
     expect(estorno.data).toBe(deps.relogio.hoje()); // hoje = 2026-07-20 (RelogioFixo)
     expect(estorno.valorCents).toBe(15_000);
+    // `estornoDeId` virou FK de verdade na G0: apontar para um id inexistente
+    // passaria no fake e explodiria só no Postgres, em runtime.
+    expect(estorno.estornoDeId).toBeNull();
   });
 
   it('bloqueia estorno de transação de ciclo fechado sem confirmação', async () => {

@@ -46,6 +46,16 @@ export interface CustoFixo {
   ativo: boolean;
   contaId: string | null;
   /**
+   * Categoria do custo fixo (G0). `null` em todo custo cadastrado antes desta
+   * fase — o dono preenche na tela de custos fixos.
+   *
+   * Categorizar um custo fixo NÃO o mistura com a verba variável (regra 5): o
+   * filtro `grupo === 'VARIAVEL'` das telas de gasto continua excluindo fixo.
+   * Isto existe para a pergunta oposta — "para onde vai minha renda?" —, que é
+   * respondida numa visão separada.
+   */
+  categoriaId: string | null;
+  /**
    * Vigência — hints de PROJEÇÃO FUTURA, não vigência histórica retroativa.
    * Ciclo já nascido ignora estes campos: ele guarda o próprio `fixosCents`
    * congelado. Servem para a projeção parar de contar um custo que vai acabar,

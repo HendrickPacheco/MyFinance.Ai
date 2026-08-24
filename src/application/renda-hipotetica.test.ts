@@ -38,6 +38,7 @@ function custoFixoDono(): CustoFixo {
     diaVencimento: 10,
     ativo: true,
     contaId: null,
+    categoriaId: null,
     vigenteDe: null,
     vigenteAte: null,
   };
