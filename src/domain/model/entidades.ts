@@ -12,6 +12,13 @@ import type {
   MetodoPagamento,
   DestinoSobra,
   ClassePatrimonio,
+  OrigemImportacao,
+  StatusImportacao,
+  SinalLinhaFatura,
+  ConfiancaTranscricao,
+  TipoVeredito,
+  AlvoTipoItemImportado,
+  DecisaoItemImportado,
 } from './enums';
 
 export interface Config {
@@ -261,4 +268,66 @@ export interface MensagemConversa {
    */
   proveniencia: Proveniencia | null;
   criadaEm: Date;
+}
+
+// ── Importação de fatura (I3 — persistência do rascunho) ───────────────────
+// Espelham `Importacao`/`ItemImportado` do schema. O vocabulário (sinal,
+// confiança, veredito, decisão) vem de `enums.ts`, que é a fonte única —
+// aqui ele aparece ACHATADO para persistência, enquanto a função pura de
+// conciliação continua falando no tipo discriminado `Veredito`. Os apelidos
+// `*ItemImportado` existem só para o nome do campo ler bem no adapter.
+
+export type SinalItemImportado = SinalLinhaFatura;
+export type ConfiancaItemImportado = ConfiancaTranscricao;
+export type VereditoItemImportado = TipoVeredito;
+export type { OrigemImportacao, StatusImportacao, AlvoTipoItemImportado, DecisaoItemImportado };
+
+/**
+ * Um documento de gastos anexado (fatura de cartão, extrato colado), já
+ * transcrito em linhas — o RASCUNHO da importação. Os BYTES do documento
+ * nunca são persistidos em lugar nenhum; só o hash (idempotência),
+ * `nomeArquivo` (exibição) e os itens transcritos.
+ */
+export interface Importacao {
+  id: string;
+  origem: OrigemImportacao;
+  nomeArquivo: string | null;
+  /** sha256 do TEXTO normalizado — nunca dos bytes do documento. */
+  hashConteudo: string;
+  /** "YYYY-MM" — mês da FATURA, informado pelo dono no upload. */
+  competenciaRef: string;
+  status: StatusImportacao;
+  tokensEntrada: number;
+  tokensSaida: number;
+  criadaEm: Date;
+  confirmadaEm: Date | null;
+}
+
+/**
+ * Uma linha transcrita da fatura, com o veredito da conciliação ao lado.
+ * `descricaoOriginal`/`dataOriginalTexto` são o texto cru, imutável, que
+ * permite auditar depois se o extrator leu certo.
+ */
+export interface ItemImportado {
+  id: string;
+  importacaoId: string;
+  /** Posição na fatura — estabiliza a UI. */
+  ordem: number;
+  descricaoOriginal: string;
+  /** Sempre positivo; o sentido vem de `sinal`, como em `Transacao.valorCents`. */
+  valorCents: number;
+  sinal: SinalItemImportado;
+  /** `null` = data ambígua, nunca chutada. */
+  data: DataCivil | null;
+  dataOriginalTexto: string;
+  parcelaAtual: number | null;
+  parcelaTotal: number | null;
+  confianca: ConfiancaItemImportado;
+  veredito: VereditoItemImportado;
+  /** D-14: sempre preenchido — linha que não dá para decidir diz por quê. */
+  vereditoMotivo: string;
+  alvoTipo: AlvoTipoItemImportado | null;
+  alvoId: string | null;
+  decisao: DecisaoItemImportado;
+  chaveDedup: string;
 }

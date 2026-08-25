@@ -26,6 +26,8 @@ import type {
   Conta,
   Conversa,
   CustoFixo,
+  Importacao,
+  ItemImportado,
   MensagemConversa,
   PagamentoFixo,
   Parcelamento,
@@ -53,6 +55,12 @@ import type { HashSenhaPort } from '@/domain/ports/hash-senha';
 import type { RateLimiterPort } from '@/domain/ports/rate-limiter';
 import { EmailJaUsadoError, type NovoUsuario, type UsuarioRepository } from '@/domain/ports/usuarios';
 import type { ConversaComMensagens, ConversaPort, NovoTurno } from '@/domain/ports/conversa';
+import type {
+  DecisaoRegistravel,
+  ImportacaoComItens,
+  ImportacaoRepository,
+  NovaImportacao,
+} from '@/domain/ports/importacao';
 
 function clone<T>(v: T): T {
   return structuredClone(v);
@@ -723,6 +731,8 @@ export interface FakeDeps extends Deps {
   memorias: FakeMemoriaRepo;
   /** Concreto para os testes poderem inspecionar conversas/mensagens gravadas. */
   conversas: FakeConversaRepo;
+  /** Concreto para os testes poderem inspecionar rascunhos de importação gravados. */
+  importacoes: FakeImportacaoRepo;
 }
 
 export const CONFIG_PADRAO: Config = {
@@ -996,6 +1006,104 @@ export class FakeConversaRepo implements ConversaPort {
 }
 
 /**
+ * Rascunhos de importação de fatura em memória (I3). Espelha as garantias do
+ * adapter real: `criarRascunho` grava cabeçalho + itens de uma vez,
+ * `registrarDecisao`/`marcarConfirmada`/`marcarDescartada` lançam quando o id
+ * não existe — mesmo comportamento de `updateMany` afetando zero linhas no
+ * Prisma real, só que aqui num único dono (os fakes deste arquivo não
+ * simulam multi-tenant, como `FakeConversaRepo`).
+ */
+export class FakeImportacaoRepo implements ImportacaoRepository {
+  public importacoes: Importacao[] = [];
+  public itens: ItemImportado[] = [];
+  private proximoId = 1;
+
+  private comItens(importacao: Importacao): ImportacaoComItens {
+    return clone({
+      importacao,
+      itens: this.itens
+        .filter((i) => i.importacaoId === importacao.id)
+        .sort((a, b) => a.ordem - b.ordem),
+    });
+  }
+
+  async criarRascunho(dados: NovaImportacao): Promise<ImportacaoComItens> {
+    const importacao: Importacao = {
+      id: `importacao-${this.proximoId++}`,
+      origem: dados.origem,
+      nomeArquivo: dados.nomeArquivo,
+      hashConteudo: dados.hashConteudo,
+      competenciaRef: dados.competenciaRef,
+      status: 'RASCUNHO',
+      tokensEntrada: dados.tokensEntrada,
+      tokensSaida: dados.tokensSaida,
+      criadaEm: new Date('2026-08-25T12:00:00Z'),
+      confirmadaEm: null,
+    };
+    this.importacoes.push(importacao);
+    for (const item of dados.itens) {
+      this.itens.push({
+        id: `item-importado-${this.proximoId++}`,
+        importacaoId: importacao.id,
+        ordem: item.ordem,
+        descricaoOriginal: item.descricaoOriginal,
+        valorCents: item.valorCents,
+        sinal: item.sinal,
+        data: item.data,
+        dataOriginalTexto: item.dataOriginalTexto,
+        parcelaAtual: item.parcelaAtual,
+        parcelaTotal: item.parcelaTotal,
+        confianca: item.confianca,
+        veredito: item.veredito,
+        vereditoMotivo: item.vereditoMotivo,
+        alvoTipo: item.alvoTipo,
+        alvoId: item.alvoId,
+        decisao: 'PENDENTE',
+        chaveDedup: item.chaveDedup,
+      });
+    }
+    return this.comItens(importacao);
+  }
+
+  async obterPorHash(hashConteudo: string): Promise<ImportacaoComItens | null> {
+    const achada = this.importacoes.find((i) => i.hashConteudo === hashConteudo);
+    return achada ? this.comItens(achada) : null;
+  }
+
+  async obter(id: string): Promise<ImportacaoComItens | null> {
+    const achada = this.importacoes.find((i) => i.id === id);
+    return achada ? this.comItens(achada) : null;
+  }
+
+  async listar(limite = 20): Promise<Importacao[]> {
+    return clone(
+      [...this.importacoes]
+        .sort((a, b) => b.criadaEm.getTime() - a.criadaEm.getTime())
+        .slice(0, limite),
+    );
+  }
+
+  async registrarDecisao(itemId: string, decisao: DecisaoRegistravel): Promise<void> {
+    const item = this.itens.find((i) => i.id === itemId);
+    if (!item) throw new Error(`Item de importação ${itemId} não encontrado.`);
+    item.decisao = decisao;
+  }
+
+  async marcarConfirmada(id: string): Promise<void> {
+    const importacao = this.importacoes.find((i) => i.id === id);
+    if (!importacao) throw new Error(`Importação ${id} não encontrada.`);
+    importacao.status = 'CONFIRMADA';
+    importacao.confirmadaEm = new Date('2026-08-25T12:00:00Z');
+  }
+
+  async marcarDescartada(id: string): Promise<void> {
+    const importacao = this.importacoes.find((i) => i.id === id);
+    if (!importacao) throw new Error(`Importação ${id} não encontrada.`);
+    importacao.status = 'DESCARTADA';
+  }
+}
+
+/**
  * Embedding determinístico e sem rede: o vetor é o histograma dos códigos de
  * caractere. Textos parecidos ficam perto, o que basta para testar ordenação
  * sem depender de provedor.
@@ -1052,6 +1160,7 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     // Quem testa busca semântica passa `embeddings: new FakeEmbedding()`.
     embeddings: opcoes.embeddings,
     conversas: new FakeConversaRepo(),
+    importacoes: new FakeImportacaoRepo(),
   };
 }
 

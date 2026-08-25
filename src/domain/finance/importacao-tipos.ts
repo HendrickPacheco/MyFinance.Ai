@@ -10,16 +10,25 @@
  *  - data civil é `string` "YYYY-MM-DD", comparada lexicograficamente.
  */
 import type { DataCivil } from '@/shared/data';
+import type {
+  ConfiancaTranscricao,
+  SinalLinhaFatura,
+  TipoVeredito as TipoVereditoPersistido,
+} from '@/domain/model/enums';
 
 /**
  * O que a linha É, independentemente do sinal do número impresso. Fatura de
  * cartão imprime estorno com menos, com parênteses ou com "CR" dependendo do
  * banco — ler o sentido do caractere é como o extrator erra.
+ *
+ * Apelido da união canônica de `domain/model/enums.ts`: o mesmo vocabulário
+ * é gravado em `ItemImportado.sinal`, e duas listas para o mesmo fato é como
+ * uma delas envelhece sozinha.
  */
-export type SinalLinha = 'COMPRA' | 'ESTORNO' | 'TARIFA' | 'PAGAMENTO_FATURA';
+export type SinalLinha = SinalLinhaFatura;
 
 /** Grau de certeza da TRANSCRIÇÃO. Enum, nunca `0..1` — float não é auditável. */
-export type Confianca = 'ALTA' | 'MEDIA' | 'BAIXA';
+export type Confianca = ConfiancaTranscricao;
 
 /**
  * Uma linha transcrita da fatura, antes de qualquer conciliação.
@@ -98,6 +107,18 @@ export type Veredito =
   | { tipo: 'IGNORAR'; motivo: string };
 
 export type TipoVeredito = Veredito['tipo'];
+
+/**
+ * Trava de compilação: os nomes do tipo discriminado acima e a união gravada
+ * em `ItemImportado.veredito` (`domain/model/enums.ts`) têm que ser
+ * EXATAMENTE os mesmos, nos dois sentidos. Acrescentar um veredito aqui e
+ * esquecer de acrescentá-lo lá (ou o contrário) para de compilar neste
+ * ponto, em vez de virar uma linha impossível de gravar em produção.
+ */
+type _VocabularioDeVereditoNaoDivergiu = [
+  TipoVeredito extends TipoVereditoPersistido ? true : never,
+  TipoVereditoPersistido extends TipoVeredito ? true : never,
+];
 
 /**
  * Como a linha é apresentada ao dono (§9.2, revista pela §15.7).

@@ -27,6 +27,7 @@ import {
 } from '../src/infrastructure/repositories/prisma-repositories';
 import { PrismaMemoriaRepository } from '../src/infrastructure/repositories/prisma-memoria';
 import { PrismaConversaRepository } from '../src/infrastructure/repositories/prisma-conversa';
+import { PrismaImportacaoRepository } from '../src/infrastructure/repositories/prisma-importacao';
 import { semearWorkspace } from '../src/infrastructure/onboarding';
 import { exportarTudo } from '../src/infrastructure/backup';
 import { validarCategoriaDeCustoFixo } from '../src/application/categoria-custo-fixo';
@@ -634,6 +635,56 @@ async function main(): Promise<void> {
       status: 'RASCUNHO',
     },
   });
+
+  // ── Importação — repositório (I3) ─────────────────────────────────────────
+  // O bloco acima prova o BANCO com Prisma cru. Este prova o mesmo através do
+  // adapter que os casos de uso realmente chamam — sem isto, um `where`
+  // esquecido dentro de `PrismaImportacaoRepository` passaria despercebido
+  // mesmo com o schema/constraints corretos.
+  console.log('\nIMPORTAÇÃO — repositório não cruza donos:');
+  const importacoesA = new PrismaImportacaoRepository(prisma, a.id);
+  const importacoesB = new PrismaImportacaoRepository(prisma, b.id);
+
+  checar(
+    'obter(id do A) pelo repositório do B devolve null',
+    (await importacoesB.obter(impA.id)) === null,
+  );
+  checar(
+    'obter(id do A) pelo repositório do A enxerga o rascunho',
+    (await importacoesA.obter(impA.id))?.importacao.id === impA.id,
+  );
+  checar(
+    'obterPorHash do B não enxerga o rascunho do A com o MESMO hash',
+    (await importacoesB.obterPorHash(HASH_IGUAL))?.importacao.id !== impA.id,
+  );
+  checar(
+    'obterPorHash do A enxerga o próprio rascunho pelo hash',
+    (await importacoesA.obterPorHash(HASH_IGUAL))?.importacao.id === impA.id,
+  );
+
+  await esperaErro(
+    'registrarDecisao num item do A a partir do repositório do B é recusado (zero linhas afetadas)',
+    () => importacoesB.registrarDecisao(itemA.id, 'APROVADA'),
+  );
+  checar(
+    'e o item do A continua PENDENTE',
+    (await prisma.itemImportado.findFirst({ where: { id: itemA.id } }))?.decisao === 'PENDENTE',
+  );
+
+  await esperaErro(
+    'e marcarConfirmada de importação alheia (B tentando confirmar a do A) lança',
+    () => importacoesB.marcarConfirmada(impA.id),
+  );
+  checar(
+    'a importação do A continua RASCUNHO depois da tentativa do B',
+    (await prisma.importacao.findFirst({ where: { id: impA.id } }))?.status === 'RASCUNHO',
+  );
+
+  await importacoesA.marcarConfirmada(impA.id);
+  checar(
+    'marcarConfirmada pelo dono certo (A) muda o status para CONFIRMADA',
+    (await prisma.importacao.findFirst({ where: { id: impA.id } }))?.status === 'CONFIRMADA',
+  );
 
   console.log('\nBACKUP — o export do B não contém dados do A:');
   const dumpB = JSON.stringify(await exportarTudo(prisma, b.id));

@@ -10,7 +10,7 @@
  * Nenhum SDK, nenhum nome de modelo e nenhuma variável de ambiente aparecem
  * aqui — isso vive só em `src/infrastructure/ia/`.
  */
-import type { ZodTypeAny } from 'zod';
+import type { ZodType, ZodTypeAny } from 'zod';
 
 /** Uma ferramenta oferecida ao modelo. Os argumentos são schema Zod; traduzir
  * para o formato do provedor (JSON Schema) é responsabilidade do adapter. */
@@ -88,4 +88,25 @@ export interface ProvedorIAPort {
     mensagens: readonly MensagemIA[];
     ferramentas: readonly DefinicaoFerramenta[];
   }): Promise<ResultadoTurno>;
+
+  /**
+   * Executa UM turno sem ferramenta nenhuma: manda o histórico e um schema
+   * Zod, recebe de volta dados já validados contra ELE MESMO. É o caminho da
+   * extração de fatura (I3) — o modelo só TRANSCREVE texto em estrutura, e
+   * como não há ferramenta no turno, não há nada para uma injeção de
+   * conteúdo do documento acionar.
+   *
+   * Mesma disciplina de `completarComTools`: o schema não pode usar
+   * `.optional()` (o adapter gera JSON Schema estrito — ver
+   * `infrastructure/ia/esquema-json.ts`), e uma saída que não valida contra
+   * `entrada.schema` lança `ErroProvedorIA` com motivo `SCHEMA_INVALIDO`.
+   *
+   * Lança `ErroProvedorIA` — nunca deixa vazar erro do SDK.
+   */
+  completarComSchema<T>(entrada: {
+    mensagens: readonly MensagemIA[];
+    schema: ZodType<T>;
+    /** Nome do schema, em snake_case, só para diagnóstico e para o provedor. */
+    nomeDoSchema: string;
+  }): Promise<{ dados: T; consumo?: ConsumoTokens }>;
 }

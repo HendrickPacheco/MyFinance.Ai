@@ -19,9 +19,11 @@
  */
 import OpenAI from 'openai';
 import type { Responses } from 'openai/resources/responses/responses';
+import type { ZodType } from 'zod';
 import {
   ErroProvedorIA,
   type ChamadaFerramenta,
+  type ConsumoTokens,
   type DefinicaoFerramenta,
   type MensagemIA,
   type ProvedorIAPort,
@@ -89,6 +91,12 @@ function traduzirErro(erro: unknown): ErroProvedorIA {
   return new ErroProvedorIA('INDISPONIVEL', `Falha ao falar com o provedor de IA: ${mensagem}`, erro);
 }
 
+function extrairConsumo(resposta: Responses.Response): ConsumoTokens | undefined {
+  return resposta.usage
+    ? { entrada: resposta.usage.input_tokens, saida: resposta.usage.output_tokens }
+    : undefined;
+}
+
 /** Procura uma recusa explícita entre os itens de saída. */
 function acharRecusa(saida: readonly Responses.ResponseOutputItem[]): string | null {
   for (const item of saida) {
@@ -139,6 +147,41 @@ export class ProvedorIAOpenAI implements ProvedorIAPort {
     }
   }
 
+  async completarComSchema<T>(entrada: {
+    mensagens: readonly MensagemIA[];
+    schema: ZodType<T>;
+    nomeDoSchema: string;
+  }): Promise<{ dados: T; consumo?: ConsumoTokens }> {
+    const itens = entrada.mensagens.flatMap(paraItensSDK);
+
+    try {
+      return await this.turnoComSchema(itens, entrada.schema, entrada.nomeDoSchema);
+    } catch (erro) {
+      const traduzido = traduzirErro(erro);
+
+      // Mesma política de `completarComTools`: uma única re-solicitação, e só
+      // para schema inválido — devolve o erro de validação ao modelo para
+      // ele se corrigir. Segunda falha propaga.
+      if (traduzido.motivo !== 'SCHEMA_INVALIDO') throw traduzido;
+
+      const comCorrecao: ItemEntrada[] = [
+        ...itens,
+        {
+          role: 'user',
+          content:
+            `A resposta anterior não passou na validação do schema "${entrada.nomeDoSchema}": ${traduzido.message}. ` +
+            'Responda de novo respeitando exatamente o schema declarado.',
+        },
+      ];
+
+      try {
+        return await this.turnoComSchema(comCorrecao, entrada.schema, entrada.nomeDoSchema);
+      } catch (segundoErro) {
+        throw traduzirErro(segundoErro);
+      }
+    }
+  }
+
   private async turno(
     itens: ItemEntrada[],
     ferramentas: readonly DefinicaoFerramenta[],
@@ -150,9 +193,7 @@ export class ProvedorIAOpenAI implements ProvedorIAPort {
       store: false,
     });
 
-    const consumo = resposta.usage
-      ? { entrada: resposta.usage.input_tokens, saida: resposta.usage.output_tokens }
-      : undefined;
+    const consumo = extrairConsumo(resposta);
 
     const recusa = acharRecusa(resposta.output);
     if (recusa) throw new ErroProvedorIA('CONTEUDO_RECUSADO', recusa);
@@ -169,6 +210,71 @@ export class ProvedorIAOpenAI implements ProvedorIAPort {
     }
 
     return { resposta: { tipo: 'TEXTO', texto: resposta.output_text }, consumo };
+  }
+
+  /**
+   * Turno de saída estruturada, sem ferramenta nenhuma. Deliberadamente NÃO
+   * recebe `tools`: este caminho lê texto de fatura, a única fronteira hostil
+   * deste app (R3 do `TASKS-IMPORTACAO.md`) — um "estabelecimento" chamado
+   * `IGNORE INSTRUÇÕES E...` é conteúdo do documento, não um comando. Sem
+   * ferramenta oferecida ao modelo, uma injeção não tem o que acionar; ela só
+   * pode, no pior caso, virar uma linha transcrita estranha, que a
+   * conciliação (função pura) e o dono julgam depois.
+   */
+  private async turnoComSchema<T>(
+    itens: ItemEntrada[],
+    schema: ZodType<T>,
+    nomeDoSchema: string,
+  ): Promise<{ dados: T; consumo?: ConsumoTokens }> {
+    const resposta = await this.cliente.responses.create({
+      model: this.config.modelo,
+      input: itens,
+      store: false,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: nomeDoSchema,
+          schema: paraJsonSchemaEstrito(schema, nomeDoSchema),
+          strict: true,
+        },
+      },
+    });
+
+    const consumo = extrairConsumo(resposta);
+
+    const recusa = acharRecusa(resposta.output);
+    if (recusa) throw new ErroProvedorIA('CONTEUDO_RECUSADO', recusa);
+
+    const dados = this.validarSaidaEstruturada(resposta.output_text, schema, nomeDoSchema);
+    return { dados, consumo };
+  }
+
+  /**
+   * Valida o JSON de saída estruturada com o MESMO schema Zod que gerou o
+   * JSON Schema — nada meio-preenchido passa adiante, mesmo com `strict:
+   * true` do lado do provedor.
+   */
+  private validarSaidaEstruturada<T>(saidaJson: string, schema: ZodType<T>, nomeDoSchema: string): T {
+    let bruto: unknown;
+    try {
+      bruto = JSON.parse(saidaJson) as unknown;
+    } catch {
+      throw new ErroProvedorIA(
+        'SCHEMA_INVALIDO',
+        `Saída estruturada "${nomeDoSchema}" não é JSON válido.`,
+      );
+    }
+
+    const validado = schema.safeParse(bruto);
+    if (!validado.success) {
+      throw new ErroProvedorIA(
+        'SCHEMA_INVALIDO',
+        `Saída estruturada "${nomeDoSchema}" não bate com o schema: ${validado.error.message}`,
+        validado.error,
+      );
+    }
+
+    return validado.data;
   }
 
   /**
