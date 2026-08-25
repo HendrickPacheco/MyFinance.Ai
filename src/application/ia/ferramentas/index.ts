@@ -34,6 +34,7 @@ import {
   proporMemoria,
   proporParcelamento,
 } from './escrita';
+import { conciliarImportacaoFerramenta, proporImportacao } from './importacao';
 
 /** Recebe os argumentos JÁ validados pelo schema da ferramenta. */
 type Executor = (deps: Deps, argumentos: never) => Promise<SaidaFerramenta>;
@@ -62,6 +63,9 @@ const EXECUTORES: Record<string, Executor> = {
   propor_parcelamento: proporParcelamento as Executor,
   buscar_memoria: buscarMemoriaFerramenta as Executor,
   propor_memoria: proporMemoria as Executor,
+  // Importação de fatura (I3). Nenhuma extrai nem grava — ver importacao.ts.
+  conciliar_importacao: conciliarImportacaoFerramenta as Executor,
+  propor_importacao: proporImportacao as Executor,
 };
 
 export const NOMES_DE_FERRAMENTA = Object.keys(EXECUTORES);

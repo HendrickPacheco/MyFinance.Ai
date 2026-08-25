@@ -25,8 +25,129 @@ function cicloAtual() {
   return cicloFake({ id: 'ciclo-atual', dataInicio: '2026-07-05', dataFim: '2026-08-04' });
 }
 
+const IMPORTACAO_FIXTURE_ID = 'importacao-fixture';
+
+/**
+ * Um rascunho de importação com uma linha de cada faixa (§9.2/§15.7), para
+ * `conciliar_importacao`/`propor_importacao` terem o que ler na bateria
+ * genérica. Construído direto nos arrays públicos do fake — não passa por
+ * `criarRascunho` porque a extração/conciliação em si é de outra fase (I2),
+ * já testada em `domain/finance/importacao.test.ts`.
+ */
+function semearImportacao(deps: FakeDeps): void {
+  deps.importacoes.importacoes.push({
+    id: IMPORTACAO_FIXTURE_ID,
+    origem: 'TEXTO_COLADO',
+    nomeArquivo: null,
+    hashConteudo: 'hash-fixture',
+    competenciaRef: '2026-07',
+    status: 'RASCUNHO',
+    tokensEntrada: 0,
+    tokensSaida: 0,
+    criadaEm: new Date('2026-07-20T12:00:00Z'),
+    confirmadaEm: null,
+  });
+  deps.importacoes.itens.push(
+    {
+      id: 'item-ja-registrado',
+      importacaoId: IMPORTACAO_FIXTURE_ID,
+      ordem: 1,
+      descricaoOriginal: 'UBER TRIP',
+      valorCents: 2_500,
+      sinal: 'COMPRA',
+      data: '2026-07-10',
+      dataOriginalTexto: '10/07',
+      parcelaAtual: null,
+      parcelaTotal: null,
+      confianca: 'ALTA',
+      veredito: 'CASA_VARIAVEL',
+      vereditoMotivo: 'Casa com a transação t1 por valor e data.',
+      alvoTipo: 'TRANSACAO',
+      alvoId: 't1',
+      decisao: 'PENDENTE',
+      chaveDedup: 'dedup-1',
+    },
+    {
+      id: 'item-custo-fixo',
+      importacaoId: IMPORTACAO_FIXTURE_ID,
+      ordem: 2,
+      descricaoOriginal: 'NETFLIX.COM',
+      valorCents: 3_990,
+      sinal: 'COMPRA',
+      data: '2026-07-05',
+      dataOriginalTexto: '05/07',
+      parcelaAtual: null,
+      parcelaTotal: null,
+      confianca: 'ALTA',
+      veredito: 'CASA_CUSTO_FIXO',
+      vereditoMotivo: 'Casa com o custo fixo Netflix por nome e valor.',
+      alvoTipo: 'CUSTO_FIXO',
+      alvoId: 'cf-netflix',
+      decisao: 'PENDENTE',
+      chaveDedup: 'dedup-2',
+    },
+    {
+      id: 'item-novo',
+      importacaoId: IMPORTACAO_FIXTURE_ID,
+      ordem: 3,
+      descricaoOriginal: 'PADARIA DO ZE',
+      valorCents: 1_890,
+      sinal: 'COMPRA',
+      data: '2026-07-12',
+      dataOriginalTexto: '12/07',
+      parcelaAtual: null,
+      parcelaTotal: null,
+      confianca: 'ALTA',
+      veredito: 'NOVA_AVULSA',
+      vereditoMotivo: 'Sem casamento com transação, custo fixo ou parcela existente.',
+      alvoTipo: null,
+      alvoId: null,
+      decisao: 'PENDENTE',
+      chaveDedup: 'dedup-3',
+    },
+    {
+      id: 'item-precisa-de-voce',
+      importacaoId: IMPORTACAO_FIXTURE_ID,
+      ordem: 4,
+      descricaoOriginal: 'TARIFA DE MANUTENCAO',
+      valorCents: 1_500,
+      sinal: 'TARIFA',
+      data: '2026-07-15',
+      dataOriginalTexto: '15/07',
+      parcelaAtual: null,
+      parcelaTotal: null,
+      confianca: 'MEDIA',
+      veredito: 'NOVA_AVULSA',
+      vereditoMotivo: 'Tarifa sem casamento — o dono decide se é dele.',
+      alvoTipo: null,
+      alvoId: null,
+      decisao: 'PENDENTE',
+      chaveDedup: 'dedup-4',
+    },
+    {
+      id: 'item-ignorado',
+      importacaoId: IMPORTACAO_FIXTURE_ID,
+      ordem: 5,
+      descricaoOriginal: 'PAGAMENTO RECEBIDO',
+      valorCents: 500_00,
+      sinal: 'PAGAMENTO_FATURA',
+      data: '2026-07-18',
+      dataOriginalTexto: '18/07',
+      parcelaAtual: null,
+      parcelaTotal: null,
+      confianca: 'ALTA',
+      veredito: 'IGNORAR',
+      vereditoMotivo: 'Pagamento da própria fatura, não é gasto.',
+      alvoTipo: null,
+      alvoId: null,
+      decisao: 'PENDENTE',
+      chaveDedup: 'dedup-5',
+    },
+  );
+}
+
 function depsCompletos(): FakeDeps {
-  return criarDeps({
+  const deps = criarDeps({
     hoje: HOJE,
     ciclos: [cicloAtual()],
     contas: [contaFake({ id: 'c1', saldoCents: 500_000 })],
@@ -43,6 +164,8 @@ function depsCompletos(): FakeDeps {
       }),
     ],
   });
+  semearImportacao(deps);
+  return deps;
 }
 
 /** Argumentos válidos mínimos por ferramenta. */
@@ -87,6 +210,9 @@ const ARGUMENTOS: Record<string, unknown> = {
   },
   buscar_memoria: { consulta: 'planos de longo prazo', limite: null },
   propor_memoria: { tipoMemoria: 'PLANO', texto: 'quer sair do aluguel até 2028' },
+  // Importação de fatura (I3) — leem o rascunho semeado por `semearImportacao`.
+  conciliar_importacao: { importacaoId: IMPORTACAO_FIXTURE_ID },
+  propor_importacao: { importacaoId: IMPORTACAO_FIXTURE_ID },
 };
 
 function fotografar(deps: FakeDeps): string {

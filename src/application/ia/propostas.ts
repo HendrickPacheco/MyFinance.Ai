@@ -101,15 +101,71 @@ export const propostaMemoriaSchema = z.object({
   texto: z.string().trim().min(1).max(500),
 });
 
+/**
+ * As mesmas cinco faixas de `Faixa` (`domain/finance/importacao-tipos.ts`,
+ * §9.2/§15.7), repetidas aqui como literais pela mesma razão de
+ * `METODOS_PROPONIVEIS` acima: este schema é a fronteira com a UI que recolhe
+ * a proposta de volta para `confirmarProposta`, então uma faixa nova no
+ * domínio só passa a ser proponível quando alguém decidir conscientemente
+ * incluí-la aqui.
+ */
+export const FAIXAS_PROPONIVEIS = [
+  'JA_REGISTRADO',
+  'CUSTO_FIXO_RECONHECIDO',
+  'NOVO',
+  'PRECISA_DE_VOCE',
+  'IGNORADO',
+] as const;
+
+/**
+ * Uma linha da fatura dentro da proposta de importação. 🔴 Note o que NÃO
+ * existe aqui: `categoriaId`, ou qualquer outro campo decisório que dependa
+ * de inferência do modelo. A trava da §9.3 (`TASKS-IMPORTACAO.md`) é
+ * estrutural neste schema — uma linha sem categoria entra sem categoria, e o
+ * dono classifica depois, na confirmação por linha.
+ */
+export const itemPropostaImportacaoSchema = z.object({
+  itemId: z.string().min(1),
+  ordem: z.number().int(),
+  faixa: z.enum(FAIXAS_PROPONIVEIS),
+  descricao: z.string().trim().min(1).max(160),
+  data: DATA_CIVIL.nullable(),
+  valorCents: z.number().int().positive(),
+  valorFormatado: formatadoExibicao,
+  /** D-14: sempre preenchido — linha que não dá para decidir diz por quê. */
+  vereditoMotivo: z.string().nullable(),
+});
+
+/**
+ * Proposta com N linhas (§15.1/§15.7): uma proposta só, decisão por linha.
+ * Diferente de LANCAMENTO/PARCELAMENTO/MEMORIA, confirmar esta proposta NÃO
+ * grava nada de uma vez — cada linha `NOVO`/`PRECISA_DE_VOCE` é confirmada
+ * individualmente por `confirmarItemImportado`
+ * (`application/importacao/confirmar.ts`). Ver o comentário em
+ * `confirmarProposta` (`actions/ia.ts`) sobre por que este tipo é recusado
+ * ali.
+ */
+export const propostaImportacaoSchema = z.object({
+  tipo: z.literal('IMPORTACAO'),
+  importacaoId: z.string().min(1),
+  competenciaRef: z.string().regex(/^\d{4}-\d{2}$/, 'competência precisa estar em YYYY-MM'),
+  totalGeralCents: z.number().int(),
+  totalGeralFormatado: formatadoExibicao,
+  itens: z.array(itemPropostaImportacaoSchema).min(1).max(500),
+});
+
 export const propostaSchema = z.discriminatedUnion('tipo', [
   propostaLancamentoSchema,
   propostaParcelamentoSchema,
   propostaMemoriaSchema,
+  propostaImportacaoSchema,
 ]);
 
 export type PropostaLancamento = z.infer<typeof propostaLancamentoSchema>;
 export type PropostaParcelamento = z.infer<typeof propostaParcelamentoSchema>;
 export type PropostaMemoria = z.infer<typeof propostaMemoriaSchema>;
+export type ItemPropostaImportacao = z.infer<typeof itemPropostaImportacaoSchema>;
+export type PropostaImportacao = z.infer<typeof propostaImportacaoSchema>;
 export type Proposta = z.infer<typeof propostaSchema>;
 
 /**
@@ -177,6 +233,33 @@ export function descreverProposta(
         detalhes: [
           { rotulo: 'Tipo', valor: proposta.tipoMemoria },
           { rotulo: 'Texto', valor: proposta.texto },
+        ],
+      };
+    }
+
+    case 'IMPORTACAO': {
+      const ROTULO_FAIXA: Record<(typeof FAIXAS_PROPONIVEIS)[number], string> = {
+        JA_REGISTRADO: 'Já registrado (nada a fazer)',
+        CUSTO_FIXO_RECONHECIDO: 'Custo fixo reconhecido (nada a fazer)',
+        NOVO: 'Novo — confirme um a um',
+        PRECISA_DE_VOCE: 'Precisa de você',
+        IGNORADO: 'Ignorado',
+      };
+      const contagemPorFaixa = new Map<(typeof FAIXAS_PROPONIVEIS)[number], number>();
+      for (const item of proposta.itens) {
+        contagemPorFaixa.set(item.faixa, (contagemPorFaixa.get(item.faixa) ?? 0) + 1);
+      }
+
+      return {
+        proposta: { ...proposta, totalGeralFormatado: formatBRL(proposta.totalGeralCents) },
+        resumo: `Fatura ${proposta.competenciaRef}: ${proposta.itens.length} linha(s), total ${formatBRL(proposta.totalGeralCents)}`,
+        detalhes: [
+          { rotulo: 'Competência', valor: proposta.competenciaRef },
+          { rotulo: 'Total da fatura', valor: formatBRL(proposta.totalGeralCents) },
+          ...FAIXAS_PROPONIVEIS.map((faixa) => ({
+            rotulo: ROTULO_FAIXA[faixa],
+            valor: String(contagemPorFaixa.get(faixa) ?? 0),
+          })),
         ],
       };
     }

@@ -248,6 +248,20 @@ export async function confirmarProposta(proposta: Proposta): Promise<Resultado<v
           origem: 'COPILOTO',
         });
         break;
+
+      case 'IMPORTACAO':
+        // 🔴 De propósito, esta action NUNCA grava uma proposta IMPORTACAO.
+        // D-18 revista (`TASKS-IMPORTACAO.md` §15.7): a confirmação é POR
+        // LINHA, nunca em bloco. Um clique único aqui gravaria as N linhas
+        // de uma vez — exatamente o que a revisão do dono proibiu. Quem
+        // grava é `confirmarItemImportado`
+        // (`application/importacao/confirmar.ts`), chamado uma vez por
+        // linha nova/ambígua a partir da tela de revisão — nunca esta
+        // action. Lançar em vez de virar no-op silencioso: um botão que
+        // parece confirmar e não faz nada é pior que um erro explícito.
+        throw new Error(
+          'Proposta de importação não é confirmada em bloco. Cada linha é confirmada individualmente — use a confirmação por linha na tela de revisão da fatura.',
+        );
     }
 
     // Memória não muda nenhum número de tela; lançamento e parcelamento mudam

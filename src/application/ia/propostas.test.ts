@@ -143,6 +143,176 @@ describe('opcoes_de_lancamento', () => {
   });
 });
 
+describe('conciliar_importacao', () => {
+  const IMPORTACAO_ID = 'importacao-1';
+
+  function depsComRascunho() {
+    const d = deps();
+    d.importacoes.importacoes.push({
+      id: IMPORTACAO_ID,
+      origem: 'TEXTO_COLADO',
+      nomeArquivo: null,
+      hashConteudo: 'hash-1',
+      competenciaRef: '2026-07',
+      status: 'RASCUNHO',
+      tokensEntrada: 0,
+      tokensSaida: 0,
+      criadaEm: new Date('2026-07-20T12:00:00Z'),
+      confirmadaEm: null,
+    });
+    d.importacoes.itens.push(
+      {
+        id: 'item-1',
+        importacaoId: IMPORTACAO_ID,
+        ordem: 1,
+        descricaoOriginal: 'MERCADO XPTO',
+        valorCents: 5_000,
+        sinal: 'COMPRA',
+        data: '2026-07-10',
+        dataOriginalTexto: '10/07',
+        parcelaAtual: null,
+        parcelaTotal: null,
+        confianca: 'ALTA',
+        veredito: 'CASA_VARIAVEL',
+        vereditoMotivo: 'Casa por valor e data.',
+        alvoTipo: 'TRANSACAO',
+        alvoId: 't1',
+        decisao: 'PENDENTE',
+        chaveDedup: 'd1',
+      },
+      {
+        id: 'item-2',
+        importacaoId: IMPORTACAO_ID,
+        ordem: 2,
+        descricaoOriginal: 'PADARIA DO ZE',
+        valorCents: 1_200,
+        sinal: 'COMPRA',
+        data: '2026-07-11',
+        dataOriginalTexto: '11/07',
+        parcelaAtual: null,
+        parcelaTotal: null,
+        confianca: 'ALTA',
+        veredito: 'NOVA_AVULSA',
+        vereditoMotivo: 'Sem casamento.',
+        alvoTipo: null,
+        alvoId: null,
+        decisao: 'PENDENTE',
+        chaveDedup: 'd2',
+      },
+    );
+    return d;
+  }
+
+  it('devolve as cinco faixas, cada uma com par Cents/Formatado', async () => {
+    const saida = await executarFerramenta(depsComRascunho(), 'conciliar_importacao', {
+      importacaoId: IMPORTACAO_ID,
+    });
+
+    expect(saida.erro).toBeUndefined();
+    const resumo = saida.resumoPorFaixa as Record<string, { quantidade: number; totalCents: number; totalFormatado: string }>;
+    for (const chave of ['jaRegistrado', 'custoFixoReconhecido', 'novo', 'precisaDeVoce', 'ignorado']) {
+      expect(resumo[chave], `resumoPorFaixa sem ${chave}`).toBeDefined();
+      expect(resumo[chave]!.totalFormatado).toBe(formatBRL(resumo[chave]!.totalCents));
+    }
+    expect(resumo.jaRegistrado!.quantidade).toBe(1);
+    expect(resumo.novo!.quantidade).toBe(1);
+    expect(saida.totalGeralCents).toBe(6_200);
+    expect(saida.totalGeralFormatado).toBe(formatBRL(6_200));
+  });
+
+  it('recusa um id que não existe, em vez de inventar um rascunho', async () => {
+    const saida = await executarFerramenta(deps(), 'conciliar_importacao', {
+      importacaoId: 'nao-existe',
+    });
+
+    expect(String(saida.erro)).toMatch(/não encontrada/i);
+  });
+});
+
+describe('propor_importacao', () => {
+  const IMPORTACAO_ID = 'importacao-2';
+
+  function depsComRascunho() {
+    const d = deps();
+    d.importacoes.importacoes.push({
+      id: IMPORTACAO_ID,
+      origem: 'TEXTO_COLADO',
+      nomeArquivo: null,
+      hashConteudo: 'hash-2',
+      competenciaRef: '2026-07',
+      status: 'RASCUNHO',
+      tokensEntrada: 0,
+      tokensSaida: 0,
+      criadaEm: new Date('2026-07-20T12:00:00Z'),
+      confirmadaEm: null,
+    });
+    d.importacoes.itens.push({
+      id: 'item-1',
+      importacaoId: IMPORTACAO_ID,
+      ordem: 1,
+      descricaoOriginal: 'PADARIA DO ZE',
+      valorCents: 1_200,
+      sinal: 'COMPRA',
+      data: '2026-07-11',
+      dataOriginalTexto: '11/07',
+      parcelaAtual: null,
+      parcelaTotal: null,
+      confianca: 'ALTA',
+      veredito: 'NOVA_AVULSA',
+      vereditoMotivo: 'Sem casamento.',
+      alvoTipo: null,
+      alvoId: null,
+      decisao: 'PENDENTE',
+      chaveDedup: 'd1',
+    });
+    return d;
+  }
+
+  it('não grava nada — nenhum repositório de escrita é tocado', async () => {
+    const d = depsComRascunho();
+
+    const saida = await executarFerramenta(d, 'propor_importacao', { importacaoId: IMPORTACAO_ID });
+
+    expect(saida.erro).toBeUndefined();
+    expect(saida.precisaConfirmacao).toBe(true);
+    expect(String(saida.aviso)).toMatch(/NADA foi gravado/i);
+    // A linha continua PENDENTE — só `confirmarItemImportado` muda a decisão.
+    expect(d.importacoes.itens[0]?.decisao).toBe('PENDENTE');
+  });
+
+  it('a proposta sobrevive à revalidação Zod que recolherPropostas faz', async () => {
+    const saida = await executarFerramenta(depsComRascunho(), 'propor_importacao', {
+      importacaoId: IMPORTACAO_ID,
+    });
+    expect(saida.erro, `propor_importacao devolveu erro: ${String(saida.erro)}`).toBeUndefined();
+    const exibivel = saida.proposta as PropostaExibivel;
+
+    expect(propostaSchema.safeParse(exibivel.proposta).success).toBe(true);
+  });
+
+  it('🔴 nenhuma linha traz categoria inventada pelo modelo', async () => {
+    const saida = await executarFerramenta(depsComRascunho(), 'propor_importacao', {
+      importacaoId: IMPORTACAO_ID,
+    });
+    expect(saida.erro, `propor_importacao devolveu erro: ${String(saida.erro)}`).toBeUndefined();
+    const exibivel = saida.proposta as PropostaExibivel;
+
+    const proposta = exibivel.proposta as { itens: Record<string, unknown>[] };
+    for (const item of proposta.itens) {
+      expect(Object.keys(item)).not.toContain('categoriaId');
+      expect(Object.keys(item)).not.toContain('categoriaSugerida');
+    }
+  });
+
+  it('recusa um id que não existe', async () => {
+    const saida = await executarFerramenta(deps(), 'propor_importacao', {
+      importacaoId: 'nao-existe',
+    });
+
+    expect(String(saida.erro)).toMatch(/não encontrada/i);
+  });
+});
+
 describe('descreverProposta (função pura)', () => {
   it('usa formatBRL e nunca monta o valor à mão', () => {
     const exibivel = descreverProposta({

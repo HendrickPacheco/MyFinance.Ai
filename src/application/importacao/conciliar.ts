@@ -374,7 +374,7 @@ function totalGeral(linhas: readonly { valorCents: number }[]): { totalGeralCent
  * `retroativa Boolean` a `ItemImportado`, se isso se mostrar necessário na
  * prática.
  */
-function faixaAproximadaDoItemPersistido(item: ItemImportado): Faixa {
+export function faixaAproximadaDoItemPersistido(item: ItemImportado): Faixa {
   switch (item.veredito) {
     case 'CASA_PARCELA':
     case 'CASA_VARIAVEL':
