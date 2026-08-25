@@ -587,7 +587,10 @@ model ItemImportado {
   confianca         String // ALTA | MEDIA | BAIXA
 
   // Saída da conciliação (função pura da I2).
-  veredito       String // CASA_VARIAVEL | CASA_PARCELA | CASA_CUSTO_FIXO | NOVA_AVULSA | NOVA_PARCELA | AMBIGUA | IGNORADA
+  // Os nomes são exatamente os do tipo `Veredito` em
+  // `domain/finance/importacao-tipos.ts` — divergir aqui criaria dois
+  // vocabulários para o mesmo fato, que é como um deles envelhece sozinho.
+  veredito       String // CASA_PARCELA | CASA_VARIAVEL | CASA_CUSTO_FIXO | NOVA_AVULSA | NOVA_PARCELA_ORFA | AMBIGUA | IGNORAR
   vereditoMotivo String // D-14: sempre preenchido
   alvoTipo       String? // TRANSACAO | CUSTO_FIXO — com o que casou
   alvoId         String?

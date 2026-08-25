@@ -708,8 +708,38 @@ fato financeiro. As confirmadas precisam viajar porque `Transacao.itemImportadoI
 aponta para dentro delas — sem os itens no arquivo, ou a FK quebraria o import, ou
 o desfazer da I4 morreria no primeiro restore.
 
-**Dívida deixada pela I1, para a I2:** `gerarParcelas`
-(`domain/finance/parcelamento.ts`) **ainda ignora** `parcelaInicial`. A coluna nasce
+**I2 ✅ concluída em 25/08/2026.** Três funções puras novas em
+`src/domain/finance/`, todas sem `await`, sem `new Date(` e sem import de
+`infrastructure/`:
+
+- `importacao-tipos.ts` — o contrato (`ItemExtraido`, `Veredito`, `Faixa`,
+  `ItemConciliado`, `ResultadoConciliacao`). Os nomes de `Veredito` são os
+  mesmos gravados em `ItemImportado.veredito`; o comentário do schema foi
+  alinhado, porque dois vocabulários para o mesmo fato é como um deles
+  envelhece sozinho.
+- `importacao-data.ts` — `resolverAnoDaFatura` e `lerDiaMes`. Virada de
+  dezembro passa (competência `2027-01` + `"12/12"` → `2026-12-12`), `29/02`
+  resolve em bissexto e vira ambígua fora dele, e cada ambiguidade carrega o
+  motivo em texto nomeando os anos e a janela (D-14).
+- `importacao.ts` — `chaveDeduplicacao` e `conciliarFatura`: quatro destinos,
+  três níveis de match, afinidade por sobreposição de token (nunca
+  Levenshtein), atribuição 1-para-1 gulosa em dois passes, faixa derivada por
+  função pura, totais por sinal para conferir contra o impresso (D-13).
+- `parcelamento.ts` — `gerarParcelas` passa a honrar `parcelaInicial` (dívida
+  que a I1 deixou), com o aviso da §15.3 no docblock sobre o significado de
+  `valorTotalCents` num parcelamento parcialmente conhecido.
+
+**A guarda do R1 é teste, não comentário:** linha que casa com `CustoFixo`
+produz `CASA_CUSTO_FIXO` e nunca um veredito de criação, e duas linhas com o
+valor do aluguel não casam ambas com o mesmo custo fixo — a segunda aparece
+como gasto para o dono decidir, em vez de sumir por "já casou".
+
+Verificado: 1161 testes verdes, `typecheck` limpo, greps de auditoria limpos
+(`grep -c "function normalizar" src/domain/finance/` segue devolvendo 1 —
+`normalizarDescricao` é reusada de `analise.ts`, não reescrita).
+
+**Dívida da I1, quitada na I2:** `gerarParcelas`
+(`domain/finance/parcelamento.ts`) ignorava `parcelaInicial`. A coluna nasce
 com `@default(1)`, então o comportamento de hoje está correto para todo parcelamento
 existente; o deslocamento da §15.3 (gerar só de `parcelaInicial` até `numParcelas`,
 com o rateio incidindo sobre o total das parcelas IMPORTADAS) é mudança de função
