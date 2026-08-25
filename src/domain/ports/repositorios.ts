@@ -70,6 +70,23 @@ export class RestricaoDeIntegridadeError extends Error {
 }
 
 /**
+ * Sinaliza que a violação de unicidade do banco em `Transacao.itemImportadoId`
+ * (Prisma P2002) impediu a criação: o item da fatura JÁ virou uma transação.
+ * Segunda tentativa de gravar a mesma linha (duplo clique, retry de rede,
+ * duas abas) é o caminho ESPERADO, não uma falha — camada 2 da idempotência
+ * da importação (`TASKS-IMPORTACAO.md` §11). O adapter Prisma traduz o erro
+ * nativo do driver para esta classe, pura e sem dependência de
+ * infraestrutura; `confirmarItemImportado` a reconhece e trata como
+ * já-gravado, em vez de propagar falha para o dono.
+ */
+export class ItemImportadoJaGravadoError extends Error {
+  constructor(public readonly itemImportadoId: string) {
+    super(`O item de importação ${itemImportadoId} já foi gravado como transação.`);
+    this.name = 'ItemImportadoJaGravadoError';
+  }
+}
+
+/**
  * Rastreamento de "custo fixo pago no ciclo". Marcar/desmarcar precisa ser
  * idempotente: chamar duas vezes `marcarPago` para o mesmo (custoFixoId,
  * cicloId) nunca duplica nem lança erro (a unicidade do schema garante isso

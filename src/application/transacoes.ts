@@ -7,7 +7,7 @@
  */
 import type { Deps } from './deps';
 import { exigirEscrita } from '@/domain/auth/permissoes';
-import type { Transacao } from '@/domain/model/entidades';
+import type { Transacao, OrigemTransacao } from '@/domain/model/entidades';
 import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
 import type { AjusteConta, AjusteProvisao } from '@/domain/ports/repositorios';
 import { gerarParcelas } from '@/domain/finance';
@@ -39,6 +39,14 @@ export interface TransacaoInput {
    * operação é recusada com `CicloFechadoError`.
    */
   confirmarRetroativo?: boolean;
+  /**
+   * Procedência do lançamento (I3 do `TASKS-IMPORTACAO.md`). Default
+   * `'MANUAL'` — só a confirmação de uma linha de fatura importada
+   * (`confirmarItemImportado`) passa `'IMPORTACAO'`.
+   */
+  origem?: OrigemTransacao;
+  /** FK `@unique` para o item de importação que originou este lançamento. */
+  itemImportadoId?: string | null;
 }
 
 export interface ParcelamentoInput {
@@ -49,6 +57,26 @@ export interface ParcelamentoInput {
   categoriaId?: string | null;
   contaId?: string | null;
   metodo?: MetodoPagamento | null;
+  /**
+   * De qual parcela este parcelamento passa a existir no app (D-17c, I3 do
+   * `TASKS-IMPORTACAO.md`). Default `1` — todo parcelamento criado à mão.
+   * Um valor maior importa uma compra a partir de uma parcela intermediária
+   * (ex.: "3/12"): as parcelas 1 e 2 NUNCA são geradas, mesmo que caiam em
+   * ciclo aberto — o app só passou a conhecer a compra na 3ª.
+   *
+   * 🔴 Quando `parcelaInicial > 1`, `valorTotalCents` deixa de ser o valor da
+   * compra inteira — é a soma só das parcelas EFETIVAMENTE GERADAS. Ver o
+   * docblock de `gerarParcelas` (`domain/finance/parcelamento.ts`).
+   */
+  parcelaInicial?: number;
+  /**
+   * FK `@unique` para o item de importação que originou este parcelamento
+   * (I3 §11 camada 2). Só a transação da parcela `parcelaInicial` a carrega
+   * — é a única parcela que corresponde LITERALMENTE à linha que o dono
+   * confirmou na fatura; as parcelas seguintes são consequência de confirmar
+   * essa linha, não a linha em si, e a coluna é `@unique` de qualquer forma.
+   */
+  itemImportadoId?: string | null;
 }
 
 /**
@@ -178,6 +206,8 @@ export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise
     estornoDeId: null,
     cicloId,
     pagoEm: null,
+    origem: input.origem ?? 'MANUAL',
+    itemImportadoId: input.itemImportadoId ?? null,
   });
 
   await aplicarEfeitoSaldo(deps, t, +1);
@@ -196,6 +226,7 @@ export async function criarParcelamento(deps: Deps, input: ParcelamentoInput): P
   await validarCategoriaVariavel(deps, input.categoriaId ?? null);
 
   const dataCompra = input.dataCompra ?? deps.relogio.hoje();
+  const parcelaInicial = input.parcelaInicial ?? 1;
 
   const parcelamento = await deps.parcelamentos.criar({
     id: '',
@@ -205,13 +236,17 @@ export async function criarParcelamento(deps: Deps, input: ParcelamentoInput): P
     dataCompra,
     categoriaId: input.categoriaId ?? null,
     encerradoEm: null,
+    parcelaInicial,
   });
 
   const parcelas = gerarParcelas({
     valorTotalCents: input.valorTotalCents,
     numParcelas: input.numParcelas,
     dataCompra,
+    parcelaInicial,
   });
+
+  const origem: OrigemTransacao = input.itemImportadoId ? 'IMPORTACAO' : 'MANUAL';
 
   const transacoes: Transacao[] = [];
   for (const p of parcelas) {
@@ -231,6 +266,10 @@ export async function criarParcelamento(deps: Deps, input: ParcelamentoInput): P
       estornoDeId: null,
       cicloId: await resolverCicloId(deps, p.data),
       pagoEm: null,
+      origem,
+      // Só a transação da parcela `parcelaInicial` carrega o vínculo — ver
+      // o docblock de `ParcelamentoInput.itemImportadoId` acima.
+      itemImportadoId: p.parcelaNum === parcelaInicial ? (input.itemImportadoId ?? null) : null,
     });
   }
   return deps.transacoes.criarVarias(transacoes);

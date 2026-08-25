@@ -20,6 +20,7 @@ import type {
 } from '@/domain/model/entidades';
 import {
   RestricaoDeIntegridadeError,
+  ItemImportadoJaGravadoError,
   type ConfigRepository,
   type ContaRepository,
   type CategoriaRepository,
@@ -459,19 +460,32 @@ export class PrismaTransacaoRepository implements TransacaoRepository {
   }
 
   async criar(transacao: Transacao): Promise<Transacao> {
-    const r = await this.db.transacao.create({
-      data: semIdVazio(dadosTransacao(transacao, this.donoId)),
-    });
-    return toTransacao(r);
+    try {
+      const r = await this.db.transacao.create({
+        data: semIdVazio(dadosTransacao(transacao, this.donoId)),
+      });
+      return toTransacao(r);
+    } catch (erro) {
+      throw traduzirColisaoDeItemImportado(erro, transacao.itemImportadoId);
+    }
   }
 
   async criarVarias(transacoes: readonly Transacao[]): Promise<Transacao[]> {
-    const criadas = await this.db.$transaction(
-      transacoes.map((t) =>
-        this.db.transacao.create({ data: semIdVazio(dadosTransacao(t, this.donoId)) }),
-      ),
-    );
-    return criadas.map(toTransacao);
+    try {
+      const criadas = await this.db.$transaction(
+        transacoes.map((t) =>
+          this.db.transacao.create({ data: semIdVazio(dadosTransacao(t, this.donoId)) }),
+        ),
+      );
+      return criadas.map(toTransacao);
+    } catch (erro) {
+      // Só UMA transação do lote pode carregar `itemImportadoId` (é `@unique`
+      // no banco) — ver o comentário em `ParcelamentoInput.itemImportadoId`
+      // em `application/transacoes.ts`. Se o P2002 for dela, é ela quem
+      // identifica a colisão no erro traduzido.
+      const itemImportadoId = transacoes.find((t) => t.itemImportadoId)?.itemImportadoId;
+      throw traduzirColisaoDeItemImportado(erro, itemImportadoId);
+    }
   }
 
   async atualizar(id: string, patch: Partial<Transacao>): Promise<Transacao> {
@@ -596,7 +610,28 @@ function dadosTransacao(t: Transacao, donoId: string) {
     estornoDeId: t.estornoDeId,
     cicloId: t.cicloId,
     pagoEm: t.pagoEm,
+    // `origem`/`itemImportadoId` opcionais na entidade (ver `entidades.ts`):
+    // quem monta uma `Transacao` só para cálculo não os declara. Default
+    // aqui espelha o `@default("MANUAL")` do schema.
+    origem: t.origem ?? 'MANUAL',
+    itemImportadoId: t.itemImportadoId ?? null,
   };
+}
+
+/**
+ * Traduz o P2002 da FK `@unique` `Transacao.itemImportadoId` (I3 §11 camada
+ * 2) para `ItemImportadoJaGravadoError`. Qualquer outra falha (inclusive
+ * P2002 sem `itemImportadoId` conhecido) sobe intacta — só este caso tem
+ * tradução, os demais já tinham comportamento definido antes desta mudança.
+ */
+function traduzirColisaoDeItemImportado(
+  erro: unknown,
+  itemImportadoId: string | null | undefined,
+): unknown {
+  if (itemImportadoId && ehViolacaoDeUnicidade(erro)) {
+    return new ItemImportadoJaGravadoError(itemImportadoId);
+  }
+  return erro;
 }
 
 export class PrismaParcelamentoRepository implements ParcelamentoRepository {
@@ -616,6 +651,9 @@ export class PrismaParcelamentoRepository implements ParcelamentoRepository {
         dataCompra: p.dataCompra,
         categoriaId: p.categoriaId,
         encerradoEm: p.encerradoEm,
+        // Opcional na entidade (ver `entidades.ts`): default espelha o
+        // `@default(1)` do schema — parcelamento criado à mão nasce na 1ª.
+        parcelaInicial: p.parcelaInicial ?? 1,
       }),
     });
     return toParcelamento(r);

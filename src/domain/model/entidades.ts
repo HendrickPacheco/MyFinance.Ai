@@ -106,6 +106,14 @@ export interface Categoria {
   ordem: number;
 }
 
+/**
+ * Procedência do lançamento (I1/I3 do `TASKS-IMPORTACAO.md`). "MANUAL" é o
+ * padrão do schema (`@default("MANUAL")`) — dono na tela ou copiloto
+ * confirmando uma proposta. "IMPORTACAO" é o que nasceu de uma linha de
+ * fatura confirmada por `confirmarItemImportado`.
+ */
+export type OrigemTransacao = 'MANUAL' | 'IMPORTACAO';
+
 export interface Transacao {
   id: string;
   data: DataCivil;
@@ -123,6 +131,19 @@ export interface Transacao {
   cicloId: string | null;
   /** Marcação de "parcela paga" (rastreamento — nunca abate a verba). `null` = não paga. */
   pagoEm: DataCivil | null;
+  /**
+   * Opcional na INTERFACE de propósito: código que monta uma `Transacao` só
+   * para cálculo (nunca persistida) não precisa declarar procedência. Quem
+   * grava (`PrismaTransacaoRepository`/`FakeTransacaoRepo`) default para
+   * `'MANUAL'` quando omitido, espelhando o `@default` do schema.
+   */
+  origem?: OrigemTransacao;
+  /**
+   * FK `@unique` (no banco) para a linha da fatura que originou esta
+   * transação (I3 §11 camada 2 do `TASKS-IMPORTACAO.md`). `undefined`/`null`
+   * = lançamento manual, ou o rascunho de origem foi descartado depois.
+   */
+  itemImportadoId?: string | null;
 }
 
 export interface Parcelamento {
@@ -139,6 +160,14 @@ export interface Parcelamento {
    * passadas seguem vivas. `null` = em andamento.
    */
   encerradoEm: DataCivil | null;
+  /**
+   * De qual parcela este registro passou a existir no app (D-17c). `1` é
+   * todo parcelamento criado à mão; um valor maior é uma compra importada a
+   * partir de uma parcela intermediária — ver o docblock de `gerarParcelas`.
+   * Opcional na INTERFACE pelo mesmo motivo de `Transacao.origem`: quem grava
+   * default para `1` quando omitido, espelhando o `@default` do schema.
+   */
+  parcelaInicial?: number;
 }
 
 export interface Ciclo {

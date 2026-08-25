@@ -58,7 +58,17 @@ export type SinalLinhaFatura = (typeof SINAL_LINHA_FATURA)[number];
 export const CONFIANCA_TRANSCRICAO = ['ALTA', 'MEDIA', 'BAIXA'] as const;
 export type ConfiancaTranscricao = (typeof CONFIANCA_TRANSCRICAO)[number];
 
-/** Os nomes gravados em `ItemImportado.veredito`. Ver `Veredito` no motor. */
+/**
+ * Os nomes gravados em `ItemImportado.veredito`.
+ *
+ * É um SUPERCONJUNTO do que a conciliação pura emite (`Veredito` em
+ * `domain/finance/importacao.ts`): `REJEITADA` não é veredito de casamento,
+ * é o destino da linha que a função pura se RECUSOU a interpretar (valor
+ * não-inteiro, data irresolúvel). Ela precisa de nome próprio no banco —
+ * dobrá-la em `AMBIGUA` faria "quantas linhas ficaram ambíguas?" somar
+ * ambiguidade de casamento com linha ilegível, que são problemas diferentes
+ * e têm conserto diferente (uma o dono escolhe, a outra o extrator errou).
+ */
 export const TIPO_VEREDITO = [
   'CASA_PARCELA',
   'CASA_VARIAVEL',
@@ -67,6 +77,7 @@ export const TIPO_VEREDITO = [
   'NOVA_PARCELA_ORFA',
   'AMBIGUA',
   'IGNORAR',
+  'REJEITADA',
 ] as const;
 export type TipoVeredito = (typeof TIPO_VEREDITO)[number];
 

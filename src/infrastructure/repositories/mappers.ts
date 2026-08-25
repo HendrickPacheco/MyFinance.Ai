@@ -34,6 +34,7 @@ import type {
   MensagemConversa,
   PapelMensagemConversa,
   Proveniencia,
+  OrigemTransacao,
 } from '@/domain/model/entidades';
 import type {
   TipoConta,
@@ -134,6 +135,8 @@ export function toTransacao(r: PTransacao): Transacao {
     estornoDeId: r.estornoDeId,
     cicloId: r.cicloId,
     pagoEm: r.pagoEm,
+    origem: r.origem as OrigemTransacao,
+    itemImportadoId: r.itemImportadoId,
   };
 }
 
@@ -146,6 +149,7 @@ export function toParcelamento(r: PParcelamento): Parcelamento {
     dataCompra: r.dataCompra,
     categoriaId: r.categoriaId,
     encerradoEm: r.encerradoEm,
+    parcelaInicial: r.parcelaInicial,
   };
 }
 

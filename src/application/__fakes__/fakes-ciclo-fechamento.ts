@@ -8,6 +8,7 @@
 import type { RelogioPort } from '@/domain/ports/relogio';
 import {
   RestricaoDeIntegridadeError,
+  ItemImportadoJaGravadoError,
   type ConfigRepository,
   type ContaRepository,
   type CategoriaRepository,
@@ -501,9 +502,25 @@ export class FakeTransacaoRepo implements TransacaoRepository {
       .map(clone);
   }
 
+  /**
+   * Espelha `dadosTransacao` do adapter Prisma (I3): `origem`/`itemImportadoId`
+   * são opcionais na entidade, e quem grava default para `'MANUAL'`/`null` —
+   * senão o fake devolveria `undefined` onde o banco real nunca devolveria.
+   */
   async criar(transacao: Transacao): Promise<Transacao> {
     this.seq += 1;
-    const nova: Transacao = { ...clone(transacao), id: `tx-${this.seq}` };
+    if (
+      transacao.itemImportadoId &&
+      this.itens.some((t) => t.itemImportadoId === transacao.itemImportadoId)
+    ) {
+      throw new ItemImportadoJaGravadoError(transacao.itemImportadoId);
+    }
+    const nova: Transacao = {
+      ...clone(transacao),
+      id: `tx-${this.seq}`,
+      origem: transacao.origem ?? 'MANUAL',
+      itemImportadoId: transacao.itemImportadoId ?? null,
+    };
     this.itens.push(nova);
     return clone(nova);
   }
@@ -553,9 +570,14 @@ export class FakeParcelamentoRepo implements ParcelamentoRepository {
   private seq = 0;
   constructor(public itens: Parcelamento[] = []) {}
 
+  /** Espelha `PrismaParcelamentoRepository.criar`: `parcelaInicial` default `1`. */
   async criar(parcelamento: Parcelamento): Promise<Parcelamento> {
     this.seq += 1;
-    const novo: Parcelamento = { ...clone(parcelamento), id: `parc-${this.seq}` };
+    const novo: Parcelamento = {
+      ...clone(parcelamento),
+      id: `parc-${this.seq}`,
+      parcelaInicial: parcelamento.parcelaInicial ?? 1,
+    };
     this.itens.push(novo);
     return clone(novo);
   }
@@ -1204,6 +1226,8 @@ export function transacaoFake(patch: Partial<Transacao> = {}): Transacao {
     estornoDeId: null,
     cicloId: 'ciclo-x',
     pagoEm: null,
+    origem: 'MANUAL',
+    itemImportadoId: null,
     ...patch,
   };
 }

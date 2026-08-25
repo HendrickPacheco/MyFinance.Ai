@@ -109,16 +109,23 @@ export type Veredito =
 export type TipoVeredito = Veredito['tipo'];
 
 /**
- * Trava de compilação: os nomes do tipo discriminado acima e a união gravada
- * em `ItemImportado.veredito` (`domain/model/enums.ts`) têm que ser
- * EXATAMENTE os mesmos, nos dois sentidos. Acrescentar um veredito aqui e
- * esquecer de acrescentá-lo lá (ou o contrário) para de compilar neste
- * ponto, em vez de virar uma linha impossível de gravar em produção.
+ * Trava de compilação: TODO veredito que a conciliação emite tem que existir
+ * na união gravada em `ItemImportado.veredito` (`domain/model/enums.ts`).
+ * Acrescentar um veredito aqui e esquecer de acrescentá-lo lá para de
+ * compilar neste ponto, em vez de virar uma linha impossível de gravar em
+ * produção.
+ *
+ * A checagem é de UMA direção só, de propósito: o vocabulário persistido é um
+ * SUPERCONJUNTO. Ele carrega estados que nascem fora da conciliação —
+ * `REJEITADA` é a linha que a função pura se recusou a interpretar, e ela
+ * nunca sai de `conciliarFatura` como veredito. Exigir igualdade nos dois
+ * sentidos forçaria ou um veredito falso no motor, ou (foi o que aconteceu
+ * numa primeira tentativa) dobrar linha ilegível em `AMBIGUA` e perder a
+ * distinção entre "o dono escolhe" e "o extrator errou".
  */
-type _VocabularioDeVereditoNaoDivergiu = [
-  TipoVeredito extends TipoVereditoPersistido ? true : never,
-  TipoVereditoPersistido extends TipoVeredito ? true : never,
-];
+type _TodoVereditoDoMotorEhPersistivel = TipoVeredito extends TipoVereditoPersistido
+  ? true
+  : never;
 
 /**
  * Como a linha é apresentada ao dono (§9.2, revista pela §15.7).
