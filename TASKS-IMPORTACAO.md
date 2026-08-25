@@ -738,6 +738,52 @@ Verificado: 1161 testes verdes, `typecheck` limpo, greps de auditoria limpos
 (`grep -c "function normalizar" src/domain/finance/` segue devolvendo 1 —
 `normalizarDescricao` é reusada de `analise.ts`, não reescrita).
 
+**I3 ✅ concluída em 25/08/2026**, em três ondas de subagentes com integração
+revisada entre elas:
+
+- **Onda 1** — porta + adapter Prisma de `Importacao` (todo acesso por
+  `findFirst({ id, donoId })`, escrita por `updateMany` com o par);
+  `completarComSchema` restaurado na porta de IA; `extrairItensDaFatura` em
+  blocos de 20 linhas; `unpdf` + normalização estável + sha256 do TEXTO.
+- **Onda 2** — `conciliarImportacao` (reconhece o documento pelo hash antes de
+  gastar token) e `confirmarItemImportado` (grava UMA linha por vez, D-18
+  revista), com idempotência na aplicação e no banco.
+- **Onda 3** — rota `app/api/importacao` com as três guardas do backup, server
+  actions, ferramentas `conciliar_importacao`/`propor_importacao`, e a UI de
+  anexo + cartão por faixa com confirmação linha a linha.
+
+**Três correções na integração que nenhum agente podia enxergar sozinho** —
+todas da mesma família, vocabulário ou regra duplicada em dois lugares:
+
+1. `sinal`/`confiança`/`veredito` nasceram duas vezes (persistência e motor).
+   Fonte única em `model/enums.ts`, com trava de compilação.
+2. `REJEITADA` ganhou nome próprio: a linha ilegível estava sendo gravada como
+   `AMBIGUA`, o que faria "quantas ficaram ambíguas?" somar ambiguidade de
+   casamento com falha do extrator.
+3. A ferramenta de IA replicou o switch veredito → faixa; passou a reusar o
+   canônico exportado por `conciliar.ts`.
+
+**Um furo real corrigido:** o clamp de fim de mês não é reversível, então a
+âncora reconstruída de uma parcela órfã pode devolver uma data alguns dias
+antes da impressa — e com `diaRecebimento` alto isso atravessa a borda do
+ciclo. O bloqueio de ciclo fechado passou a olhar a data que vai realmente ser
+gravada, com teste de regressão.
+
+**Lacunas conhecidas, para a I4/I5:**
+
+- `ItemImportado` não guarda os `candidatos` de uma linha `AMBIGUA` (só o
+  motivo em texto), então a UI não tem como oferecer a escolha lado a lado —
+  a §7.4 pede exatamente isso ("mostrar a candidata lado a lado").
+- Não há editor inline de ajustes (categoria/data/conta) no cartão: a linha
+  que precisa de um dado faltante mostra o erro do servidor, mas o dono não
+  consegue supri-lo dali.
+- `CUSTO_FIXO_RECONHECIDO` exibe a descrição da FATURA, não o nome do custo
+  fixo cadastrado.
+- `retroativa` não é persistida em `ItemImportado`: ao reabrir um rascunho, a
+  faixa é rederivada sem a promoção por ciclo fechado.
+- Dívida antiga que esta fase pressiona: `UsoIA` não tem `donoId`, então o teto
+  diário de IA é global entre donos (§13, R9).
+
 **Dívida da I1, quitada na I2:** `gerarParcelas`
 (`domain/finance/parcelamento.ts`) ignorava `parcelaInicial`. A coluna nasce
 com `@default(1)`, então o comportamento de hoje está correto para todo parcelamento
