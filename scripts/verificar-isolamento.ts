@@ -539,11 +539,115 @@ async function main(): Promise<void> {
       (await repoA.transacoes.obter(criadasPeloB[0]?.id ?? '')) === null,
   );
 
+  // ── Importação de fatura (I1) ─────────────────────────────────────────────
+  // Tabelas novas, sem repositório ainda: a prova aqui é sobre o BANCO. Duas
+  // coisas que a regra de ouro exige e que só o Postgres real responde: a
+  // unicidade do hash é COMPOSTA com donoId (a fatura de um dono não pode
+  // bloquear a do outro), e alcançar a linha alheia por id devolve vazio.
+  console.log('\nIMPORTAÇÃO — rascunho e itens não cruzam donos:');
+  const HASH_IGUAL = 'sha256-fatura-identica-nos-dois-donos';
+  const impA = await prisma.importacao.create({
+    data: {
+      donoId: a.id,
+      origem: 'TEXTO_COLADO',
+      hashConteudo: HASH_IGUAL,
+      competenciaRef: '2026-09',
+      status: 'RASCUNHO',
+      itens: {
+        create: [
+          {
+            donoId: a.id,
+            ordem: 0,
+            descricaoOriginal: 'FATURA SECRETA DO DONO A',
+            valorCents: 12_345,
+            sinal: 'COMPRA',
+            data: '2026-09-03',
+            dataOriginalTexto: '03/09',
+            confianca: 'ALTA',
+            veredito: 'NOVA_AVULSA',
+            vereditoMotivo: 'não casou com nada registrado',
+            chaveDedup: 'a|2026-09-03|12345',
+          },
+        ],
+      },
+    },
+    include: { itens: true },
+  });
+
+  const mesmoHashNoB = await prisma.importacao
+    .create({
+      data: {
+        donoId: b.id,
+        origem: 'PDF',
+        nomeArquivo: 'fatura-do-b.pdf',
+        hashConteudo: HASH_IGUAL,
+        competenciaRef: '2026-09',
+        status: 'CONFIRMADA',
+        confirmadaEm: new Date(),
+      },
+    })
+    .then(
+      (imp) => imp,
+      () => null,
+    );
+  checar(
+    'o mesmo hash de documento é aceito nos DOIS donos (unicidade composta)',
+    mesmoHashNoB !== null,
+  );
+  await esperaErro('e reenviar o mesmo documento para o MESMO dono é recusado', () =>
+    prisma.importacao.create({
+      data: {
+        donoId: b.id,
+        origem: 'PDF',
+        hashConteudo: HASH_IGUAL,
+        competenciaRef: '2026-09',
+      },
+    }),
+  );
+
+  checar(
+    'a importação do A não é alcançável pelo id com o donoId do B',
+    (await prisma.importacao.findFirst({ where: { id: impA.id, donoId: b.id } })) === null,
+  );
+  const itemA = impA.itens[0];
+  if (!itemA) throw new Error('item de importação do A não foi criado');
+  checar(
+    'o item importado do A não é alcançável pelo id com o donoId do B',
+    (await prisma.itemImportado.findFirst({ where: { id: itemA.id, donoId: b.id } })) === null,
+  );
+  const tentativaDeAprovar = await prisma.itemImportado.updateMany({
+    where: { id: itemA.id, donoId: b.id },
+    data: { decisao: 'APROVADA' },
+  });
+  checar(
+    'aprovar o item do A escopado no B afeta ZERO linhas',
+    tentativaDeAprovar.count === 0 &&
+      (await prisma.itemImportado.findFirst({ where: { id: itemA.id } }))?.decisao === 'PENDENTE',
+  );
+
+  const rascunhoDoB = await prisma.importacao.create({
+    data: {
+      donoId: b.id,
+      origem: 'TEXTO_COLADO',
+      hashConteudo: 'sha256-rascunho-nao-confirmado-do-b',
+      competenciaRef: '2026-09',
+      status: 'RASCUNHO',
+    },
+  });
+
   console.log('\nBACKUP — o export do B não contém dados do A:');
   const dumpB = JSON.stringify(await exportarTudo(prisma, b.id));
   checar('o dump do B não cita a transação do A', !dumpB.includes(txA.id));
   checar('o dump do B não cita a descrição secreta do A', !dumpB.includes('segredo do dono A'));
   checar('o dump do B não cita a memória do A', !dumpB.includes('plano secreto do dono A'));
+  checar('o dump do B não cita a importação do A', !dumpB.includes(impA.id));
+  checar('o dump do B não cita a linha de fatura do A', !dumpB.includes('FATURA SECRETA DO DONO A'));
+  // Decisão de 25/08/2026: só importação CONFIRMADA viaja no backup.
+  checar(
+    'o dump do B leva a importação CONFIRMADA dele',
+    mesmoHashNoB !== null && dumpB.includes(mesmoHashNoB.id),
+  );
+  checar('e NÃO leva o rascunho não confirmado dele', !dumpB.includes(rascunhoDoB.id));
   checar('o dump do B não carrega donoId nenhum', !dumpB.includes('donoId'));
 
   console.log('\nCONFIG — uma por dono:');
