@@ -769,7 +769,18 @@ antes da impressa — e com `diaRecebimento` alto isso atravessa a borda do
 ciclo. O bloqueio de ciclo fechado passou a olhar a data que vai realmente ser
 gravada, com teste de regressão.
 
-**Lacunas conhecidas, para a I4/I5:**
+**I4 ✅ e I5 ✅ concluídas em 25/08/2026.** `desfazerImportacao` reverte pelo
+caminho que criou (avulsa por `excluirTransacao`, parcelamento apagando as N
+parcelas antes do cadastro, custo fixo por `desmarcarCustoFixoPago` — que
+nunca teve transação para apagar). Reversão é parcial por desenho: linha
+travada por ciclo fechado continua gravada e é reportada com o motivo, e um
+parcelamento é tudo-ou-nada. Transação editada à mão depois de importada é
+apagada mesmo assim — não há campo que registre edição, e o diálogo avisa.
+O README registra o que a D-16 aprovou, incluindo um fato que o plano não
+previa: o fatiamento manda TODAS as linhas do documento, não só as de gasto.
+Auditoria D7 limpa.
+
+**Lacunas conhecidas, ainda em aberto:**
 
 - `ItemImportado` não guarda os `candidatos` de uma linha `AMBIGUA` (só o
   motivo em texto), então a UI não tem como oferecer a escolha lado a lado —
