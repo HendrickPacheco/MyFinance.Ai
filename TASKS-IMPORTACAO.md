@@ -692,6 +692,147 @@ requisito**, não ele.
 **Nada mais bloqueia o início.** D-16, D-17 e D-18 estão decididas; o único pré-requisito
 externo é a G0 do `TASKS-GRAFO.md`.
 
+**I1 ✅ concluída em 25/08/2026.** Entregue: migração
+`20260825120000_importacao_rascunho_e_origem` (escrita à mão, `db execute` +
+`migrate resolve`, `migrate diff` limpo tirando o falso positivo do HNSW) com
+`Importacao`, `ItemImportado`, `Transacao.origem`/`itemImportadoId @unique`,
+`Parcelamento.parcelaInicial` e o anexo em `MensagemConversa`
+(`anexoNome` + FK `importacaoId`, zero bytes); `BACKUP_VERSION` 4; sete testes
+novos de backup; cinco verificações novas de isolamento. Verificado no banco real:
+62 transações antes e depois, todas `origem = 'MANUAL'`, 13 parcelamentos com
+`parcelaInicial = 1`.
+
+**Decisão de backup (§14, premissa 5), fechada com o dono em 25/08/2026: só as
+importações CONFIRMADAS viajam.** Rascunho e descartada são estado de tela, não
+fato financeiro. As confirmadas precisam viajar porque `Transacao.itemImportadoId`
+aponta para dentro delas — sem os itens no arquivo, ou a FK quebraria o import, ou
+o desfazer da I4 morreria no primeiro restore.
+
+**I2 ✅ concluída em 25/08/2026.** Três funções puras novas em
+`src/domain/finance/`, todas sem `await`, sem `new Date(` e sem import de
+`infrastructure/`:
+
+- `importacao-tipos.ts` — o contrato (`ItemExtraido`, `Veredito`, `Faixa`,
+  `ItemConciliado`, `ResultadoConciliacao`). Os nomes de `Veredito` são os
+  mesmos gravados em `ItemImportado.veredito`; o comentário do schema foi
+  alinhado, porque dois vocabulários para o mesmo fato é como um deles
+  envelhece sozinho.
+- `importacao-data.ts` — `resolverAnoDaFatura` e `lerDiaMes`. Virada de
+  dezembro passa (competência `2027-01` + `"12/12"` → `2026-12-12`), `29/02`
+  resolve em bissexto e vira ambígua fora dele, e cada ambiguidade carrega o
+  motivo em texto nomeando os anos e a janela (D-14).
+- `importacao.ts` — `chaveDeduplicacao` e `conciliarFatura`: quatro destinos,
+  três níveis de match, afinidade por sobreposição de token (nunca
+  Levenshtein), atribuição 1-para-1 gulosa em dois passes, faixa derivada por
+  função pura, totais por sinal para conferir contra o impresso (D-13).
+- `parcelamento.ts` — `gerarParcelas` passa a honrar `parcelaInicial` (dívida
+  que a I1 deixou), com o aviso da §15.3 no docblock sobre o significado de
+  `valorTotalCents` num parcelamento parcialmente conhecido.
+
+**A guarda do R1 é teste, não comentário:** linha que casa com `CustoFixo`
+produz `CASA_CUSTO_FIXO` e nunca um veredito de criação, e duas linhas com o
+valor do aluguel não casam ambas com o mesmo custo fixo — a segunda aparece
+como gasto para o dono decidir, em vez de sumir por "já casou".
+
+Verificado: 1161 testes verdes, `typecheck` limpo, greps de auditoria limpos
+(`grep -c "function normalizar" src/domain/finance/` segue devolvendo 1 —
+`normalizarDescricao` é reusada de `analise.ts`, não reescrita).
+
+**I3 ✅ concluída em 25/08/2026**, em três ondas de subagentes com integração
+revisada entre elas:
+
+- **Onda 1** — porta + adapter Prisma de `Importacao` (todo acesso por
+  `findFirst({ id, donoId })`, escrita por `updateMany` com o par);
+  `completarComSchema` restaurado na porta de IA; `extrairItensDaFatura` em
+  blocos de 20 linhas; `unpdf` + normalização estável + sha256 do TEXTO.
+- **Onda 2** — `conciliarImportacao` (reconhece o documento pelo hash antes de
+  gastar token) e `confirmarItemImportado` (grava UMA linha por vez, D-18
+  revista), com idempotência na aplicação e no banco.
+- **Onda 3** — rota `app/api/importacao` com as três guardas do backup, server
+  actions, ferramentas `conciliar_importacao`/`propor_importacao`, e a UI de
+  anexo + cartão por faixa com confirmação linha a linha.
+
+**Três correções na integração que nenhum agente podia enxergar sozinho** —
+todas da mesma família, vocabulário ou regra duplicada em dois lugares:
+
+1. `sinal`/`confiança`/`veredito` nasceram duas vezes (persistência e motor).
+   Fonte única em `model/enums.ts`, com trava de compilação.
+2. `REJEITADA` ganhou nome próprio: a linha ilegível estava sendo gravada como
+   `AMBIGUA`, o que faria "quantas ficaram ambíguas?" somar ambiguidade de
+   casamento com falha do extrator.
+3. A ferramenta de IA replicou o switch veredito → faixa; passou a reusar o
+   canônico exportado por `conciliar.ts`.
+
+**Um furo real corrigido:** o clamp de fim de mês não é reversível, então a
+âncora reconstruída de uma parcela órfã pode devolver uma data alguns dias
+antes da impressa — e com `diaRecebimento` alto isso atravessa a borda do
+ciclo. O bloqueio de ciclo fechado passou a olhar a data que vai realmente ser
+gravada, com teste de regressão.
+
+**I4 ✅ e I5 ✅ concluídas em 25/08/2026.** `desfazerImportacao` reverte pelo
+caminho que criou (avulsa por `excluirTransacao`, parcelamento apagando as N
+parcelas antes do cadastro, custo fixo por `desmarcarCustoFixoPago` — que
+nunca teve transação para apagar). Reversão é parcial por desenho: linha
+travada por ciclo fechado continua gravada e é reportada com o motivo, e um
+parcelamento é tudo-ou-nada. Transação editada à mão depois de importada é
+apagada mesmo assim — não há campo que registre edição, e o diálogo avisa.
+O README registra o que a D-16 aprovou, incluindo um fato que o plano não
+previa: o fatiamento manda TODAS as linhas do documento, não só as de gasto.
+Auditoria D7 limpa.
+
+**Lacunas conhecidas, ainda em aberto:**
+
+- `ItemImportado` não guarda os `candidatos` de uma linha `AMBIGUA` (só o
+  motivo em texto), então a UI não tem como oferecer a escolha lado a lado —
+  a §7.4 pede exatamente isso ("mostrar a candidata lado a lado").
+- Não há editor inline de ajustes (categoria/data/conta) no cartão: a linha
+  que precisa de um dado faltante mostra o erro do servidor, mas o dono não
+  consegue supri-lo dali.
+- `CUSTO_FIXO_RECONHECIDO` exibe a descrição da FATURA, não o nome do custo
+  fixo cadastrado.
+- `retroativa` não é persistida em `ItemImportado`: ao reabrir um rascunho, a
+  faixa é rederivada sem a promoção por ciclo fechado.
+- Dívida antiga que esta fase pressiona: `UsoIA` não tem `donoId`, então o teto
+  diário de IA é global entre donos (§13, R9).
+
+**Dívida da I1, quitada na I2:** `gerarParcelas`
+(`domain/finance/parcelamento.ts`) ignorava `parcelaInicial`. A coluna nasce
+com `@default(1)`, então o comportamento de hoje está correto para todo parcelamento
+existente; o deslocamento da §15.3 (gerar só de `parcelaInicial` até `numParcelas`,
+com o rateio incidindo sobre o total das parcelas IMPORTADAS) é mudança de função
+pura e entra com os testes dela na I2.
+
+### 15.7 D-18 revista — confirmação linha a linha do que é NOVO (25/08/2026)
+
+O dono corrigiu a §15.1 no momento de começar a I1. Literal: *"ele pode importar
+todas, porém ele deve me pedir para confirmar manualmente uma por uma, qual é minha
+e qual não é. As que já casam com o que já existe no nosso lado não é necessário
+confirmação, só pular"*.
+
+**O que muda:** a faixa 3 da §9.2 ("novos sem ambiguidade") **deixa de ser aprovável
+em bloco**. Toda linha que vai VIRAR lançamento é confirmada individualmente. O
+ganho de tempo vem do outro lado: o que **já casa** com transação, parcela ou custo
+fixo registrado não pede nada — é pulado, não confirmado.
+
+| Faixa | Antes (§9.2) | Agora |
+|---|---|---|
+| 1 — já registrado | nada a confirmar | **inalterado**: pula em silêncio, colapsado |
+| 2 — custo fixo reconhecido | bloco | **inalterado**: não cria `Transacao`, é rastreamento |
+| 3 — novos sem ambiguidade | bloco "Lançar os N · R$ X" | **uma a uma** |
+| 4 — precisa de você | uma a uma | **inalterado** |
+| 5 — ignorados | nada | **inalterado** |
+
+**O risco da §15.4 desaparece junto:** o erro de transcrição não é mais gravado
+"junto" num clique — cada linha nova passa pelos olhos do dono antes de existir. O
+**desfazer em bloco (I4) continua no escopo** mesmo assim: ele deixa de ser a rede
+de segurança do clique único e vira a saída para "importei a fatura errada".
+
+Segue valendo integralmente: a proposta continua sendo **uma só**, com as N linhas
+dentro (o passo 5 da §15.1); o que é por linha é a **decisão**, não a proposta.
+Nada com campo decisório inferido pelo modelo entra com palpite (§15.2/§9.3).
+
+---
+
 ### 15.6 D-16 aceita — o que passa a sair da máquina
 
 O dono aceitou. Registro do que muda, para o README (fase I5) e para não virar surpresa depois:

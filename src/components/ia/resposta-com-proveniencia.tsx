@@ -21,6 +21,15 @@
  * `CartaoProposta`. Os dois compartilham `CorpoResposta` para o texto, o
  * alerta de valor não rastreado e os chips de ferramenta nunca divergirem
  * visualmente entre o chat ao vivo e o histórico.
+ *
+ * ─── EXCEÇÃO: PROPOSTA DE IMPORTAÇÃO (I3, §15.7) ───
+ *
+ * Uma proposta `tipo: 'IMPORTACAO'` nunca vira `CartaoProposta`/
+ * `CartaoPropostaInerte` — vira `CartaoImportacao` em AMBAS as variantes
+ * (vivo e histórico). Ver o docblock de `cartao-importacao.tsx` para o
+ * porquê de ela continuar interativa mesmo reaberta: cada linha tem
+ * identidade própria e `confirmarItemImportado` já é idempotente por
+ * `ItemImportado.id`, ao contrário de LANÇAMENTO/PARCELAMENTO/MEMÓRIA.
  */
 import * as React from 'react';
 import { AlertTriangle, MessageCircle, Wrench } from 'lucide-react';
@@ -28,8 +37,44 @@ import { Badge } from '@/components/ui';
 import { semMarkdown } from '@/shared/texto';
 import type { RespostaCopiloto } from '@/application/ia/copiloto';
 import type { Proveniencia as ProvenienciaDominio } from '@/domain/model/entidades';
+import { propostaImportacaoSchema, type PropostaExibivel } from '@/application/ia/propostas';
 import { CartaoProposta } from './cartao-proposta';
 import { CartaoPropostaInerte } from './cartao-proposta-inerte';
+import { CartaoImportacao } from './cartao-importacao';
+
+/** Escolhe o cartão certo para UMA proposta viva (`Proposta` já tipado). */
+function CartaoDaPropostaViva({ item }: { item: PropostaExibivel }) {
+  if (item.proposta.tipo === 'IMPORTACAO') {
+    return <CartaoImportacao proposta={item.proposta} />;
+  }
+  return <CartaoProposta item={item} />;
+}
+
+/**
+ * Escolhe o cartão certo para UMA proposta histórica. `item.proposta` chega
+ * como `Record<string, unknown>` (persistência nunca revalida — ver
+ * `montarProveniencia` em `actions/ia.ts`), então uma proposta IMPORTACAO
+ * precisa ser reconferida contra o schema antes de virar `CartaoImportacao`.
+ * Se a forma persistida não bater mais com o schema atual (migração futura,
+ * dado antigo), cai no cartão inerte genérico em vez de quebrar a tela.
+ */
+function CartaoDaPropostaHistorica({
+  resumo,
+  detalhes,
+  proposta,
+}: {
+  resumo: string;
+  detalhes: { rotulo: string; valor: string }[];
+  proposta: Record<string, unknown>;
+}) {
+  if (proposta.tipo === 'IMPORTACAO') {
+    const validado = propostaImportacaoSchema.safeParse(proposta);
+    if (validado.success) {
+      return <CartaoImportacao proposta={validado.data} />;
+    }
+  }
+  return <CartaoPropostaInerte resumo={resumo} detalhes={detalhes} />;
+}
 
 /** Realça os valores que vieram de ferramenta, para o olho achar o número. */
 function TextoComValores({ texto: bruto, valores }: { texto: string; valores: readonly string[] }) {
@@ -179,7 +224,7 @@ export function RespostaComProveniencia({ resposta }: { resposta: RespostaCopilo
       incompleta={resposta.incompleta}
       ferramentasUsadas={resposta.ferramentasUsadas}
       propostas={resposta.propostas.map((item, i) => (
-        <CartaoProposta key={i} item={item} />
+        <CartaoDaPropostaViva key={i} item={item} />
       ))}
     />
   );
@@ -213,7 +258,7 @@ export function RespostaHistorico({
       incompleta={proveniencia.incompleta}
       ferramentasUsadas={proveniencia.ferramentasUsadas}
       propostas={proveniencia.propostas.map((item, i) => (
-        <CartaoPropostaInerte key={i} resumo={item.resumo} detalhes={item.detalhes} />
+        <CartaoDaPropostaHistorica key={i} resumo={item.resumo} detalhes={item.detalhes} proposta={item.proposta} />
       ))}
     />
   );

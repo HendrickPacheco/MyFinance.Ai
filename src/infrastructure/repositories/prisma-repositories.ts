@@ -20,6 +20,7 @@ import type {
 } from '@/domain/model/entidades';
 import {
   RestricaoDeIntegridadeError,
+  ItemImportadoJaGravadoError,
   type ConfigRepository,
   type ContaRepository,
   type CategoriaRepository,
@@ -458,20 +459,41 @@ export class PrismaTransacaoRepository implements TransacaoRepository {
     return rows.map(toTransacao);
   }
 
-  async criar(transacao: Transacao): Promise<Transacao> {
-    const r = await this.db.transacao.create({
-      data: semIdVazio(dadosTransacao(transacao, this.donoId)),
+  async listarPorItensImportados(itemImportadoIds: readonly string[]): Promise<Transacao[]> {
+    if (itemImportadoIds.length === 0) return [];
+    const rows = await this.db.transacao.findMany({
+      where: { donoId: this.donoId, itemImportadoId: { in: [...itemImportadoIds] } },
     });
-    return toTransacao(r);
+    return rows.map(toTransacao);
+  }
+
+  async criar(transacao: Transacao): Promise<Transacao> {
+    try {
+      const r = await this.db.transacao.create({
+        data: semIdVazio(dadosTransacao(transacao, this.donoId)),
+      });
+      return toTransacao(r);
+    } catch (erro) {
+      throw traduzirColisaoDeItemImportado(erro, transacao.itemImportadoId);
+    }
   }
 
   async criarVarias(transacoes: readonly Transacao[]): Promise<Transacao[]> {
-    const criadas = await this.db.$transaction(
-      transacoes.map((t) =>
-        this.db.transacao.create({ data: semIdVazio(dadosTransacao(t, this.donoId)) }),
-      ),
-    );
-    return criadas.map(toTransacao);
+    try {
+      const criadas = await this.db.$transaction(
+        transacoes.map((t) =>
+          this.db.transacao.create({ data: semIdVazio(dadosTransacao(t, this.donoId)) }),
+        ),
+      );
+      return criadas.map(toTransacao);
+    } catch (erro) {
+      // Só UMA transação do lote pode carregar `itemImportadoId` (é `@unique`
+      // no banco) — ver o comentário em `ParcelamentoInput.itemImportadoId`
+      // em `application/transacoes.ts`. Se o P2002 for dela, é ela quem
+      // identifica a colisão no erro traduzido.
+      const itemImportadoId = transacoes.find((t) => t.itemImportadoId)?.itemImportadoId;
+      throw traduzirColisaoDeItemImportado(erro, itemImportadoId);
+    }
   }
 
   async atualizar(id: string, patch: Partial<Transacao>): Promise<Transacao> {
@@ -596,7 +618,28 @@ function dadosTransacao(t: Transacao, donoId: string) {
     estornoDeId: t.estornoDeId,
     cicloId: t.cicloId,
     pagoEm: t.pagoEm,
+    // `origem`/`itemImportadoId` opcionais na entidade (ver `entidades.ts`):
+    // quem monta uma `Transacao` só para cálculo não os declara. Default
+    // aqui espelha o `@default("MANUAL")` do schema.
+    origem: t.origem ?? 'MANUAL',
+    itemImportadoId: t.itemImportadoId ?? null,
   };
+}
+
+/**
+ * Traduz o P2002 da FK `@unique` `Transacao.itemImportadoId` (I3 §11 camada
+ * 2) para `ItemImportadoJaGravadoError`. Qualquer outra falha (inclusive
+ * P2002 sem `itemImportadoId` conhecido) sobe intacta — só este caso tem
+ * tradução, os demais já tinham comportamento definido antes desta mudança.
+ */
+function traduzirColisaoDeItemImportado(
+  erro: unknown,
+  itemImportadoId: string | null | undefined,
+): unknown {
+  if (itemImportadoId && ehViolacaoDeUnicidade(erro)) {
+    return new ItemImportadoJaGravadoError(itemImportadoId);
+  }
+  return erro;
 }
 
 export class PrismaParcelamentoRepository implements ParcelamentoRepository {
@@ -616,6 +659,9 @@ export class PrismaParcelamentoRepository implements ParcelamentoRepository {
         dataCompra: p.dataCompra,
         categoriaId: p.categoriaId,
         encerradoEm: p.encerradoEm,
+        // Opcional na entidade (ver `entidades.ts`): default espelha o
+        // `@default(1)` do schema — parcelamento criado à mão nasce na 1ª.
+        parcelaInicial: p.parcelaInicial ?? 1,
       }),
     });
     return toParcelamento(r);
@@ -655,6 +701,20 @@ export class PrismaParcelamentoRepository implements ParcelamentoRepository {
       where: { id, donoId: this.donoId },
     });
     return toParcelamento(r);
+  }
+
+  /**
+   * `deleteMany`, não `delete`: id de outro dono apaga zero linhas em vez de
+   * apagar o cadastro alheio. A FK `Transacao.parcelamentoId` é `Restrict` —
+   * o Postgres recusa esta chamada enquanto sobrar qualquer parcela viva;
+   * quem chama (`desfazerImportacao`) já apagou todas antes, via
+   * `transacoes.aplicarLote`.
+   */
+  async excluir(id: string): Promise<void> {
+    const { count } = await this.db.parcelamento.deleteMany({
+      where: { id, donoId: this.donoId },
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Parcelamento');
   }
 }
 

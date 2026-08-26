@@ -197,6 +197,24 @@ model Transacao {
   ciclo     Ciclo?   @relation(fields: [cicloId], references: [id])
   createdAt DateTime @default(now())
 
+  // Procedência do lançamento (I1 da importação de fatura). "MANUAL" é todo
+  // lançamento feito pelo dono na tela ou pelo copiloto; "IMPORTACAO" é o que
+  // nasceu de uma fatura confirmada. Não é enfeite de auditoria: é o caminho de
+  // volta que torna uma importação inteira reversível em bloco (I4) — se a
+  // confirmação é de N linhas de uma vez, o arrependimento também tem que ser.
+  origem String @default("MANUAL") // MANUAL | IMPORTACAO
+
+  // FK para a linha da fatura que originou esta transação. `@unique` no BANCO é
+  // a garantia de que um item NUNCA vira duas transações — cobre duplo clique,
+  // retry de rede e duas abas, coisas que um índice sobre hash não cobre
+  // (TASKS-IMPORTACAO §11, camada 2).
+  //
+  // `SetNull` pela mesma razão do estorno: descartar o rascunho de uma
+  // importação não pode falhar nem apagar dinheiro já lançado — a transação
+  // sobrevive, só perde o rastro de onde veio.
+  itemImportadoId String?        @unique
+  itemImportado   ItemImportado? @relation(fields: [itemImportadoId], references: [id], onDelete: SetNull)
+
   // Marcação de "parcela paga" (coluna "Pago?" da planilha, aplicada à
   // parcela). RASTREAMENTO — a parcela já é uma Transacao que consome verba;
   // marcar como paga não abate nada de novo. `null` = ainda não paga.
@@ -221,6 +239,14 @@ model Parcelamento {
   categoriaId     String?
   categoria       Categoria? @relation(fields: [categoriaId], references: [id])
 
+  // De qual parcela este registro começa a existir no app (D-17, opção c).
+  // Uma compra de 12x importada de uma fatura que já está na 3ª grava
+  // `numParcelas: 12` e `parcelaInicial: 3`: o registro fica HONESTO (foi 12x,
+  // o app conheceu a partir da 3ª), a projeção enxerga as 9 futuras, e nenhuma
+  // Transacao nasce em ciclo fechado. `1` = compra registrada desde o começo,
+  // que é todo parcelamento criado à mão.
+  parcelaInicial Int @default(1)
+
   // Cancelamento antecipado: as parcelas FUTURAS foram apagadas, as já pagas
   // (e as de ciclo fechado) permanecem. Não é delete do parcelamento — a FK
   // Transacao.parcelamentoId é Restrict e as parcelas passadas seguem vivas.
@@ -235,18 +261,18 @@ model Parcelamento {
 
 // Snapshot dos parâmetros no início do ciclo — CONGELADO (SPEC 5.2).
 model Ciclo {
-  id                    String          @id @default(cuid())
-  donoId                String
-  dono                  Usuario         @relation(fields: [donoId], references: [id], onDelete: Cascade)
-  dataInicio            String
-  dataFim               String
-  rendaPrevistaCents    Int
-  rendaRealizadaCents   Int? // preenchido no fechamento (input do usuário)
-  poupancaAlvoCents     Int
-  fixosCents            Int // soma congelada
-  provisaoMensalCents   Int // soma congelada
-  verbaVariavelCents    Int // derivado e congelado
-  rolloverRecebidoCents Int             @default(0) // sobra (±) herdada do ciclo anterior (destino=ROLLOVER)
+  id                              String          @id @default(cuid())
+  donoId                          String
+  dono                            Usuario         @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  dataInicio                      String
+  dataFim                         String
+  rendaPrevistaCents              Int
+  rendaRealizadaCents             Int? // preenchido no fechamento (input do usuário)
+  poupancaAlvoCents               Int
+  fixosCents                      Int // soma congelada
+  provisaoMensalCents             Int // soma congelada
+  verbaVariavelCents              Int // derivado e congelado
+  rolloverRecebidoCents           Int             @default(0) // sobra (±) herdada do ciclo anterior (destino=ROLLOVER)
   // Quanto do que foi puxado da RESERVA neste ciclo NÃO é explicado pela renda
   // dele (saída (b) do modo recuperação, SPEC 5.4). Acumulativo — `puxarDaReserva`
   // pode ser chamado mais de uma vez.
@@ -263,13 +289,13 @@ model Ciclo {
   // transferido da conta de reserva para a variável — e por isso ganha bloco
   // próprio em "Para onde vai a renda", como o rollover, em vez de virar
   // "diferença não explicada" negativa.
-  puxadoDaReservaForaDaRendaCents Int @default(0)
-  fechado               Boolean         @default(false)
-  fechadoEm             String?
-  sobraCents            Int?
-  observacao            String?
-  transacoes            Transacao[]
-  pagamentosFixos       PagamentoFixo[]
+  puxadoDaReservaForaDaRendaCents Int             @default(0)
+  fechado                         Boolean         @default(false)
+  fechadoEm                       String?
+  sobraCents                      Int?
+  observacao                      String?
+  transacoes                      Transacao[]
+  pagamentosFixos                 PagamentoFixo[]
 
   // Cadeia de rollover (G0): o ciclo imediatamente anterior DO MESMO DONO, por
   // `dataInicio`. `rolloverRecebidoCents` já diz QUANTO veio herdado; esta
@@ -360,6 +386,8 @@ model Usuario {
   memorias          Memoria[]
   conversas         Conversa[]
   mensagensConversa MensagemConversa[]
+  importacoes       Importacao[]
+  itensImportados   ItemImportado[]
 }
 
 model Sessao {
@@ -468,7 +496,113 @@ model MensagemConversa {
   papel        String // 'usuario' | 'assistente'
   conteudo     String
   proveniencia Json?
-  criadaEm     DateTime @default(now())
+
+  // Anexo da mensagem (I1 da importação de fatura). Os BYTES DO DOCUMENTO NÃO
+  // SÃO PERSISTIDOS EM LUGAR NENHUM — nem aqui, nem em ./data (§15.6, guarda 1).
+  // O que fica é o nome, para a bolha da mensagem se redesenhar depois de um
+  // reload, e a FK para o rascunho já extraído e conciliado, que é o caminho de
+  // volta ao conteúdo. `SetNull`: descartar a importação não pode apagar a
+  // mensagem que o dono escreveu.
+  anexoNome    String?
+  importacaoId String?
+  importacao   Importacao? @relation(fields: [importacaoId], references: [id], onDelete: SetNull)
+
+  criadaEm DateTime @default(now())
 
   @@index([donoId, conversaId, criadaEm])
+  @@index([importacaoId])
+}
+
+/// Um documento de gastos que o dono anexou (fatura de cartão, extrato colado)
+/// e que virou uma lista de linhas transcritas — o RASCUNHO da importação.
+///
+/// Existe como tabela, e não como objeto efêmero na conversa, por dois motivos:
+/// perder uma extração que custou tokens e ~40 segundos num reload é caro, e a
+/// idempotência forte (`@@unique([donoId, hashConteudo])`) precisa de um lugar
+/// onde o documento já visto fique registrado — reenviar a mesma fatura reabre
+/// o rascunho em vez de re-extrair (TASKS-IMPORTACAO §11, camada 1).
+///
+/// 🔴 OS BYTES DO DOCUMENTO NÃO SÃO GUARDADOS. Nem aqui, nem em ./data — que é
+/// reservado ao snapshot de salvaguarda do backup. Guarda-se o hash (para
+/// reconhecer o mesmo arquivo), o nome (para a UI) e os itens transcritos.
+///
+/// `competenciaRef` é "YYYY-MM" informado pelo dono no upload, e não uma data
+/// civil: é o mês da FATURA, e é ele que elimina a ambiguidade de ano das
+/// linhas "12/03" sem nenhum `new Date()` (§10).
+model Importacao {
+  id     String  @id @default(cuid())
+  donoId String
+  dono   Usuario @relation(fields: [donoId], references: [id], onDelete: Cascade)
+
+  origem         String // TEXTO_COLADO | PDF
+  nomeArquivo    String?
+  hashConteudo   String // sha256 do texto normalizado — nunca os bytes
+  competenciaRef String // "YYYY-MM", informado pelo dono no upload
+  status         String  @default("RASCUNHO") // RASCUNHO | CONFIRMADA | DESCARTADA
+
+  // Custo da transcrição, para o mesmo painel que já mede o copiloto (UsoIA).
+  tokensEntrada Int @default(0)
+  tokensSaida   Int @default(0)
+
+  criadaEm     DateTime  @default(now())
+  confirmadaEm DateTime?
+
+  itens     ItemImportado[]
+  mensagens MensagemConversa[]
+
+  // Idempotência forte, COMPOSTA COM donoId (regra de ouro do multi-tenant):
+  // sem o donoId, a fatura de um dono bloquearia o hash do outro.
+  @@unique([donoId, hashConteudo])
+  @@index([donoId, criadaEm])
+}
+
+/// Uma linha transcrita da fatura, com o veredito da conciliação ao lado.
+///
+/// `descricaoOriginal` e `dataOriginalTexto` são IMUTÁVEIS: são o texto cru que
+/// permite conferir depois se o extrator leu certo (R8). O que o dono edita
+/// mora em campo separado, nunca por cima destes.
+///
+/// `confianca` é enum em texto, nunca `Float` — float não é auditável, não é
+/// estável entre modelos, e abriria o primeiro `Float` de dinheiro-adjacente do
+/// repo. `valorCents` é sempre POSITIVO; o sentido da linha vem de `sinal`,
+/// mesma disciplina de `Transacao.valorCents`.
+///
+/// `vereditoMotivo` nunca é vazio (D-14): linha que não dá para decidir diz por
+/// quê, senão quem lê inventa a causa.
+model ItemImportado {
+  id           String     @id @default(cuid())
+  donoId       String
+  dono         Usuario    @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  importacaoId String
+  importacao   Importacao @relation(fields: [importacaoId], references: [id], onDelete: Cascade)
+
+  ordem             Int // posição na fatura — estabiliza a UI
+  descricaoOriginal String
+  valorCents        Int // sempre positivo; o sinal vem de `sinal`
+  sinal             String // COMPRA | ESTORNO | TARIFA | PAGAMENTO_FATURA
+  data              String? // YYYY-MM-DD resolvida; null = ambígua, nunca chutada
+  dataOriginalTexto String
+  parcelaAtual      Int?
+  parcelaTotal      Int?
+  confianca         String // ALTA | MEDIA | BAIXA
+
+  // Saída da conciliação (função pura da I2).
+  // Os nomes são exatamente os do tipo `Veredito` em
+  // `domain/finance/importacao-tipos.ts` — divergir aqui criaria dois
+  // vocabulários para o mesmo fato, que é como um deles envelhece sozinho.
+  // `REJEITADA` só existe aqui: é a linha que a conciliação se RECUSOU a
+  // interpretar (valor não-inteiro, data irresolúvel). Não é veredito de
+  // casamento, e por isso não sai de `conciliarFatura`.
+  veredito       String // CASA_PARCELA | CASA_VARIAVEL | CASA_CUSTO_FIXO | NOVA_AVULSA | NOVA_PARCELA_ORFA | AMBIGUA | IGNORAR | REJEITADA
+  vereditoMotivo String // D-14: sempre preenchido
+  alvoTipo       String? // TRANSACAO | CUSTO_FIXO — com o que casou
+  alvoId         String?
+  decisao        String  @default("PENDENTE") // PENDENTE | APROVADA | DESCARTADA | GRAVADA
+  chaveDedup     String
+
+  transacao Transacao?
+
+  @@unique([donoId, importacaoId, ordem])
+  @@index([donoId, chaveDedup])
+  @@index([importacaoId])
 }

@@ -5,3 +5,4 @@
 - [Lançamento painel pattern](pattern_lancamento_painel.md) — keyboard-first money-entry form, digit-accumulation input (no parseBRL on free text), global "N" shortcut, sticky-field-after-save UX.
 - [Collapsible sidebar pattern](pattern_collapsible_sidebar.md) — CSS-driven width via pre-paint inline script + `data-sidebar` attr on `<html>` (`suppressHydrationWarning` needed), `TooltipPortal` primitive for icon-only tooltips (fixed-position, avoids nav's overflow clipping), why tooltip/hooks can't live inside `.map()`.
 - [Lote transacional](pattern_lote_transacional.md) — `TransacaoRepository.aplicarLote` + `somarEfeitos` para escrita atômica multi-tabela; por que não virou Unit-of-Work e como provar isolamento (`deleteMany` não lança).
+- [Importação de fatura](pattern_importacao_fatura.md) — anexar no chat reaproveita o loop de IA existente (`propor_importacao`), cartão por faixa nunca fica inerte ao reabrir (confirmarItemImportado já é idempotente por linha).

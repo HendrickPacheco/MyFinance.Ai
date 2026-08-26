@@ -25,7 +25,9 @@ import { Button, Card, CardContent, EmptyState, Input } from '@/components/ui';
 import { perguntarCopiloto } from '@/actions/ia';
 import type { RespostaCopiloto } from '@/application/ia/copiloto';
 import type { MensagemConversa } from '@/domain/model/entidades';
+import type { ResultadoImportacaoConciliada } from '@/application/importacao/conciliar';
 import { RespostaComProveniencia, RespostaHistorico } from './resposta-com-proveniencia';
+import { AnexarFatura } from './anexar-fatura';
 
 /**
  * Perguntas de exemplo. São perguntas REAIS que o catálogo de ferramentas
@@ -39,11 +41,17 @@ const EXEMPLOS = [
   'O que ainda falta pagar este mês?',
 ];
 
-interface Turno {
-  pergunta: string;
-  resposta: RespostaCopiloto | null;
-  erro: string | null;
-}
+/**
+ * `PERGUNTA` é o turno de sempre: pergunta do dono → resposta do modelo (ou
+ * erro). `AVISO` é um turno LOCAL, que nunca passa pelo loop de IA — usado só
+ * para o caso "esta fatura já foi importada antes" (`tipo: 'JA_CONFIRMADA'`
+ * em `ResultadoImportacaoConciliada`), onde o app já sabe a resposta sem
+ * gastar um turno de modelo para relatar o óbvio (defesa de custo, ver
+ * docblock de `actions/ia.ts`).
+ */
+type Turno =
+  | { tipo: 'PERGUNTA'; pergunta: string; resposta: RespostaCopiloto | null; erro: string | null }
+  | { tipo: 'AVISO'; texto: string };
 
 /**
  * Agrupa as mensagens carregadas do banco em pares pergunta/resposta. A
@@ -112,13 +120,13 @@ export function CopilotoChat({ conversaIdInicial, mensagensIniciais, onTurnoConc
 
       setPergunta('');
       setPendente(true);
-      setTurnos((atuais) => [...atuais, { pergunta: limpo, resposta: null, erro: null }]);
+      setTurnos((atuais) => [...atuais, { tipo: 'PERGUNTA', pergunta: limpo, resposta: null, erro: null }]);
 
       const resultado = await perguntarCopiloto({ conversaId: conversaIdRef.current, pergunta: limpo });
 
       setTurnos((atuais) =>
         atuais.map((turno, i) =>
-          i === atuais.length - 1
+          i === atuais.length - 1 && turno.tipo === 'PERGUNTA'
             ? {
                 ...turno,
                 resposta: resultado.ok ? resultado.data.resposta : null,
@@ -135,6 +143,32 @@ export function CopilotoChat({ conversaIdInicial, mensagensIniciais, onTurnoConc
       }
     },
     [pendente, onTurnoConcluido],
+  );
+
+  /**
+   * Chamado por `AnexarFatura` depois que a extração+conciliação terminou
+   * (fora do loop de IA — ver docblock do componente). Dois destinos:
+   *
+   *  - `JA_CONFIRMADA`: nada para o copiloto narrar, ele nem tem ferramenta
+   *    para isto — vira um turno `AVISO` local, sem gastar um turno de IA.
+   *  - `RASCUNHO`: manda uma pergunta normal ao copiloto com o id do
+   *    rascunho, para ele chamar `conciliar_importacao`/`propor_importacao`
+   *    (catálogo de ferramentas) e narrar + propor as linhas — reaproveita
+   *    o `enviar` de sempre, então esta importação também fica salva no
+   *    histórico da conversa como qualquer outro turno.
+   */
+  const aoExtrairFatura = React.useCallback(
+    (resultado: ResultadoImportacaoConciliada, contexto: { competenciaRef: string }) => {
+      if (resultado.tipo === 'JA_CONFIRMADA') {
+        setTurnos((atuais) => [...atuais, { tipo: 'AVISO', texto: resultado.mensagem }]);
+        return;
+      }
+      void enviar(
+        `Anexei a fatura de competência ${contexto.competenciaRef}. Id da importação: ${resultado.importacaoId}. ` +
+          'Mostra as linhas para eu revisar.',
+      );
+    },
+    [enviar],
   );
 
   const semNadaNaTela = turnosHistoricos.length === 0 && turnos.length === 0;
@@ -187,29 +221,39 @@ export function CopilotoChat({ conversaIdInicial, mensagensIniciais, onTurnoConc
             </div>
           ))}
 
-          {turnos.map((turno, i) => (
-            <div key={i} className="space-y-3">
-              <p className="text-sm font-medium text-muted">{turno.pergunta}</p>
+          {turnos.map((turno, i) =>
+            turno.tipo === 'AVISO' ? (
+              <p key={i} className="text-sm text-muted">
+                {turno.texto}
+              </p>
+            ) : (
+              <div key={i} className="space-y-3">
+                <p className="text-sm font-medium text-muted">{turno.pergunta}</p>
 
-              <Card>
-                <CardContent className="py-4">
-                  {turno.resposta ? (
-                    <RespostaComProveniencia resposta={turno.resposta} />
-                  ) : turno.erro ? (
-                    <p className="text-sm text-negativo">{turno.erro}</p>
-                  ) : (
-                    <p className="flex items-center gap-2 text-sm text-muted">
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
-                      Consultando os seus dados…
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          ))}
+                <Card>
+                  <CardContent className="py-4">
+                    {turno.resposta ? (
+                      <RespostaComProveniencia resposta={turno.resposta} />
+                    ) : turno.erro ? (
+                      <p className="text-sm text-negativo">{turno.erro}</p>
+                    ) : (
+                      <p className="flex items-center gap-2 text-sm text-muted">
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Consultando os seus dados…
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            ),
+          )}
           <div ref={fimDaLista} />
         </div>
       )}
+
+      <div className="flex justify-start">
+        <AnexarFatura onExtraido={aoExtrairFatura} disabled={pendente} />
+      </div>
 
       <form
         onSubmit={(e) => {

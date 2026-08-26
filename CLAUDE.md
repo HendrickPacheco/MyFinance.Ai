@@ -141,6 +141,22 @@ Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçad
   Cuidado com rótulo ambíguo: "antes de descontar parcela" foi lido como "nada foi
   descontado ainda". O erro que isso causa é **dupla contagem** — separar a meta
   outra vez a partir da verba livre.
+- **Dinheiro sai por três caminhos, e só dois criam `Transacao`** (importação de
+  fatura, 25/08/2026 — espelho da §11.2 do `TASKS-GRAFO.md` do lado da despesa):
+
+  | Dinheiro sai por | Cria `Transacao`? | Já foi descontado da verba? |
+  |---|---|---|
+  | Gasto variável / parcela | **sim** | não — a `Transacao` é que consome o teto |
+  | **Custo fixo** | **não** | **sim** — congelado em `Ciclo.fixosCents` quando o ciclo nasce |
+  | Gasto de provisão | sim, com `provisaoId` | sim — abate `ProvisaoAnual`, e o motor exclui `provisaoId != null` |
+
+  Quem só conhece a primeira linha desta tabela **conta o custo fixo duas vezes**.
+  É o risco R1 do `TASKS-IMPORTACAO.md`: uma linha de fatura que casa com custo
+  fixo vira `marcarCustoFixoPago` (rastreamento puro), **nunca** `criarTransacao` —
+  fazer isso duplicaria R$ 4.884/mês e derrubaria o teto diário. A guarda é teste,
+  não comentário (`domain/finance/importacao.test.ts` e
+  `application/importacao/confirmar.test.ts`).
+
 - **Parcela NÃO é deduzida da verba** (decisão D-11, 04/08/2026). Cada parcela é uma
   `Transacao` DESPESA de grupo `VARIAVEL` e **consome** o teto diário como qualquer
   outro gasto. Quem subtrair parcela dentro de `verbaVariavelCents` a conta duas vezes.

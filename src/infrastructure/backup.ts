@@ -24,6 +24,15 @@ import type { PrismaClient } from '@prisma/client';
  *       volta sem embedding — continua listada, editável e no prompt de
  *       sistema; só sai da busca semântica até ser reindexada (há um botão
  *       para isso na tela de memória).
+ *   4 — adiciona `dados.importacoes` (importação de fatura, I1), cada uma com
+ *       os `itens` transcritos dentro. Aditiva. **Só viajam as importações com
+ *       `status = "CONFIRMADA"`**: rascunho e descartada são estado de tela, não
+ *       fato financeiro, e não sobrevivem a um restore. As confirmadas viajam
+ *       porque `Transacao.itemImportadoId` aponta para elas — sem os itens no
+ *       arquivo, ou a FK quebraria o import, ou o caminho de volta que torna uma
+ *       importação reversível (I4) morreria no primeiro restore.
+ *       Os BYTES do documento continuam não existindo em lugar nenhum: o que
+ *       viaja é o hash e as linhas transcritas.
  *
  * Por a mudança ser aditiva, um backup versão 1 continua importável na v2:
  * `dados.pagamentosFixos` é opcional no schema Zod e vira lista vazia quando
@@ -36,7 +45,7 @@ import type { PrismaClient } from '@prisma/client';
  * removido, ou de shape diferente) — nesse caso, sim, backups abaixo do
  * piso devem ser recusados por `BackupVersaoIncompativelError`.
  */
-export const BACKUP_VERSION = 3;
+export const BACKUP_VERSION = 4;
 const MIN_BACKUP_VERSION_COMPATIVEL = 1;
 
 const BACKUP_DIR = path.resolve(process.cwd(), 'data');
@@ -102,6 +111,7 @@ export async function exportarTudo(db: PrismaClient, donoId: string): Promise<un
     transacoes,
     snapshots,
     memorias,
+    importacoes,
   ] = await Promise.all([
     db.config.findUnique({ where: { donoId } }),
     db.conta.findMany({ where: doDono }),
@@ -116,6 +126,12 @@ export async function exportarTudo(db: PrismaClient, donoId: string): Promise<un
     // `embedding` é `Unsupported` no schema, então o Prisma Client não o lê e
     // ele fica de fora por construção — não é preciso removê-lo à mão.
     db.memoria.findMany({ where: doDono }),
+    // Só as CONFIRMADAS (decisão de 25/08/2026, §14 premissa 5 do
+    // TASKS-IMPORTACAO): rascunho e descartada são estado de tela.
+    db.importacao.findMany({
+      where: { ...doDono, status: 'CONFIRMADA' },
+      include: { itens: { orderBy: { ordem: 'asc' } } },
+    }),
   ]);
 
   return {
@@ -133,6 +149,10 @@ export async function exportarTudo(db: PrismaClient, donoId: string): Promise<un
       transacoes: transacoes.map(semDono),
       snapshots: snapshots.map(semDono),
       memorias: memorias.map(semDono),
+      importacoes: importacoes.map(({ itens, ...imp }) => ({
+        ...semDono(imp),
+        itens: itens.map(semDono),
+      })),
     },
   };
 }
@@ -319,6 +339,9 @@ const transacaoSchema = z
     cicloId: z.string().nullish(),
     createdAt: carimboISO.optional(),
     pagoEm: dataCivil.nullish(),
+    /** Ausente em backup anterior à I1 = lançamento feito à mão, que é o padrão. */
+    origem: z.string().optional(),
+    itemImportadoId: z.string().nullish(),
   })
   .strict();
 
@@ -365,6 +388,58 @@ const memoriaSchema = z
   })
   .strict();
 
+/**
+ * Uma linha transcrita da fatura. Viaja junto da importação que a contém —
+ * nunca solta, porque um item sem importação não tem como ser reaberto nem
+ * desfeito.
+ *
+ * `valorCents` é `Int` e sempre positivo (o sentido está em `sinal`), e `data`
+ * é data civil "YYYY-MM-DD" ou `null` quando a fatura era ambígua e ninguém
+ * chutou. `confianca` é enum em texto — nunca Float.
+ */
+const itemImportadoSchema = z
+  .object({
+    id: z.string(),
+    importacaoId: z.string(),
+    ordem: z.number().int(),
+    descricaoOriginal: z.string(),
+    valorCents: z.number().int(),
+    sinal: z.string(),
+    data: dataCivil.nullish(),
+    dataOriginalTexto: z.string(),
+    parcelaAtual: z.number().int().nullish(),
+    parcelaTotal: z.number().int().nullish(),
+    confianca: z.string(),
+    veredito: z.string(),
+    vereditoMotivo: z.string(),
+    alvoTipo: z.string().nullish(),
+    alvoId: z.string().nullish(),
+    decisao: z.string().optional(),
+    chaveDedup: z.string(),
+  })
+  .strict();
+
+/**
+ * Importação de fatura já CONFIRMADA. Sem os bytes do documento — eles nunca
+ * existiram em disco (ver o histórico de versões no topo). `competenciaRef` é
+ * "YYYY-MM" (o mês da fatura), não data civil, por isso não usa `dataCivil`.
+ */
+const importacaoSchema = z
+  .object({
+    id: z.string(),
+    origem: z.string(),
+    nomeArquivo: z.string().nullish(),
+    hashConteudo: z.string(),
+    competenciaRef: z.string().regex(/^\d{4}-\d{2}$/, 'competência deve ser "YYYY-MM"'),
+    status: z.string().optional(),
+    tokensEntrada: z.number().int().optional(),
+    tokensSaida: z.number().int().optional(),
+    criadaEm: carimboISO.optional(),
+    confirmadaEm: carimboISO.nullish(),
+    itens: z.array(itemImportadoSchema).default([]),
+  })
+  .strict();
+
 const backupSchema = z.object({
   version: z.number().int(),
   dados: z.object({
@@ -384,6 +459,9 @@ const backupSchema = z.object({
     // Mesma razão de `pagamentosFixos`: backups versão 1 e 2 não têm esta
     // chave, e recusá-los deixaria o dono sem restaurar o próprio arquivo.
     memorias: z.array(memoriaSchema).default([]),
+    // Mesma razão de `pagamentosFixos` e `memorias`: backups anteriores à
+    // versão 4 não têm esta chave, e recusá-los seria o pior desfecho.
+    importacoes: z.array(importacaoSchema).default([]),
   }),
 });
 
@@ -439,6 +517,13 @@ type DadosBackup = z.infer<typeof backupSchema>['dados'];
  *  - `cicloAnteriorId` exige `alvo.dataInicio < registro.dataInicio` — o
  *    invariante que DEFINE o campo, e que de quebra mata auto-referência e
  *    inversão de ordem de uma vez. Data civil compara como string (regra 2).
+ *
+ * `Transacao.itemImportadoId` tem uma exigência a mais que "o alvo está no
+ * arquivo": ele é `@unique` no banco (§11, camada 2), então duas transações
+ * apontando para o mesmo item — o que um arquivo editado à mão pode conter —
+ * abortariam o import inteiro DEPOIS de apagar os dados atuais. A segunda em
+ * diante perde a referência e sobrevive como lançamento solto, que é o mesmo
+ * desfecho degradado (nunca destrutivo) das outras arestas.
  */
 function sanearArestas(d: DadosBackup): DadosBackup {
   const idsDe = (registros: readonly { id: string }[]) => new Set(registros.map((r) => r.id));
@@ -449,6 +534,7 @@ function sanearArestas(d: DadosBackup): DadosBackup {
   const ciclos = idsDe(d.ciclos);
   const custosFixos = idsDe(d.custosFixos);
   const transacoes = idsDe(d.transacoes);
+  const itensImportados = new Set(d.importacoes.flatMap((i) => i.itens.map((it) => it.id)));
 
   const em =
     (conhecidos: ReadonlySet<string>) =>
@@ -474,6 +560,19 @@ function sanearArestas(d: DadosBackup): DadosBackup {
     const inicioDoAlvo = inicioPorCiclo.get(candidato);
     if (inicioDoAlvo === undefined || inicioDoAlvo >= registro.dataInicio) return null;
     return candidato;
+  };
+
+  /**
+   * `itemImportadoId` é `@unique`: o primeiro que reivindica um item fica com
+   * ele, os seguintes viram `null`. `origem` NÃO é mexida junto — a transação
+   * de fato nasceu de uma importação, e reescrever isso para "MANUAL" seria
+   * trocar o rastro perdido por um fato falso (D-13/D-14/D-15).
+   */
+  const itensJaUsados = new Set<string>();
+  const itemImportadoUnico = (id: string | null | undefined): string | null => {
+    if (id == null || !itensImportados.has(id) || itensJaUsados.has(id)) return null;
+    itensJaUsados.add(id);
+    return id;
   };
 
   /** Uma transação não pode estornar a si mesma. */
@@ -507,6 +606,7 @@ function sanearArestas(d: DadosBackup): DadosBackup {
       parcelamentoId: emParcelamento(t.parcelamentoId),
       estornoDeId: originalEstornada(t),
       cicloId: emCiclo(t.cicloId),
+      itemImportadoId: itemImportadoUnico(t.itemImportadoId),
     })),
     snapshots: d.snapshots.map((s) => ({
       ...s,
@@ -557,6 +657,15 @@ export async function importarTudo(
     await tx.config.deleteMany({ where: { donoId } });
     // Memoria não é referenciada por ninguém: a ordem dela é indiferente.
     await tx.memoria.deleteMany({ where: { donoId } });
+    // Importação some DEPOIS das transações, que a referenciam por item. O
+    // item é apagado EXPLICITAMENTE, antes do cabeçalho: o banco faria isso
+    // por cascade, mas depender de cascade aqui deixaria a ordem correta
+    // invisível para quem lê — e é a ordem que este bloco inteiro documenta.
+    // `MensagemConversa.importacaoId` é SetNull: a conversa não é dado
+    // financeiro, não é apagada por um restore, e sobrevive com o anexo
+    // desligado do rascunho que sumiu.
+    await tx.itemImportado.deleteMany({ where: { donoId } });
+    await tx.importacao.deleteMany({ where: { donoId } });
 
     // Ordem de criação respeita as FKs: entidades sem dependência primeiro,
     // depois as que referenciam (config -> conta; custoFixo -> conta +
@@ -589,6 +698,20 @@ export async function importarTudo(
     if (d.memorias.length) await tx.memoria.createMany({ data: comDono(d.memorias) });
     if (d.pagamentosFixos.length)
       await tx.pagamentoFixo.createMany({ data: comDono(d.pagamentosFixos) });
+    // Importações ANTES das transações: `Transacao.itemImportadoId` aponta para
+    // um item, e a FK precisa do alvo já gravado.
+    for (const imp of d.importacoes) {
+      const { itens, ...cabecalho } = imp;
+      await tx.importacao.create({ data: { ...cabecalho, donoId } });
+      if (itens.length) {
+        // `importacaoId` é recarimbado a partir do PAI, não lido do item: num
+        // arquivo editado à mão ele poderia apontar para outra importação (ou
+        // para a de outro dono), e aqui a aresta nasce da estrutura do JSON.
+        await tx.itemImportado.createMany({
+          data: itens.map((it) => ({ ...it, importacaoId: cabecalho.id, donoId })),
+        });
+      }
+    }
     if (d.transacoes.length) {
       // Transacao.estornoDeId referencia outra Transacao: insere primeiro as
       // que não são estorno (originais), depois as estornadoras, senão a FK

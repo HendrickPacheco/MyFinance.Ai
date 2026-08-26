@@ -14,6 +14,7 @@ import type { UsoIARepository } from '@/domain/ports/uso-ia';
 import type { MemoriaPort } from '@/domain/ports/memoria';
 import type { EmbeddingPort } from '@/domain/ports/embeddings';
 import type { ConversaPort } from '@/domain/ports/conversa';
+import type { ImportacaoRepository } from '@/domain/ports/importacao';
 import type {
   ConfigRepository,
   ContaRepository,
@@ -80,4 +81,10 @@ export interface Deps {
    * extensão externa (é tabela comum), então toda instalação a tem.
    */
   conversas: ConversaPort;
+  /**
+   * Persistência do rascunho de importação de fatura (I3 do
+   * `TASKS-IMPORTACAO.md`). Não é opcional como `memorias`/`embeddings`: não
+   * depende de nenhuma extensão externa, então toda instalação a tem.
+   */
+  importacoes: ImportacaoRepository;
 }

@@ -21,7 +21,7 @@ nada de preto+verde-ácido, nada de layout tipo jornal.)
 ## Stack
 
 Next.js 15 (App Router) · React 19 · TypeScript strict · PostgreSQL via Prisma · Tailwind CSS v4 ·
-Recharts · date-fns · Zod · Vitest. Sem autenticação, multiusuário, multimoeda ou
+Recharts · date-fns · Zod · Vitest · unpdf (leitura local de PDF de fatura). Sem multimoeda ou
 integração bancária (fora de escopo v1).
 
 ## Arquitetura (hexagonal / ports & adapters)
@@ -127,6 +127,74 @@ só metadados de consumo em `UsoIADia`.
 `src/infrastructure/ia/config-ia.ts` é o **único** arquivo do repo que lê `OPENAI_*`. O
 domínio (`src/domain/ports/ia.ts`) não conhece nome de provedor, nome de modelo nem variável
 de ambiente.
+
+### O que trafega na importação de fatura
+
+Registro explícito (decisão D-16, 24/08/2026 — o dono aprovou que o conteúdo da fatura saia
+da máquina). Isto é **qualitativamente diferente** do parágrafo acima e merece leitura
+separada: até aqui subiam agregados e valores calculados pelo motor; agora sobe o **texto
+transcrito da fatura — nome do estabelecimento, data e valor de cada linha**. Isso é perfil
+de consumo e de deslocamento, não só número financeiro.
+
+**O que sobe** (`src/application/importacao/extrair.ts`):
+
+1. **O texto da fatura**, normalizado e fatiado em blocos de até 20 linhas não vazias — uma
+   chamada de API por bloco (o `IA_TIMEOUT_MS` de 60s não aguenta a fatura inteira numa
+   chamada só). Sobem **todas** as linhas do documento, não só as de gasto: o que estiver
+   impresso no PDF que você anexou — limite do cartão, dígitos finais do cartão, endereço —
+   vai junto, porque a fatia é do texto, não de uma lista já filtrada.
+2. **Um prompt de sistema fixo** com as regras de transcrição (valor em centavos positivos,
+   data como impressa, nunca inventar linha). Texto fixo, sem dado seu.
+
+**O que não sobe:**
+
+- **Nenhuma ferramenta.** Esta é a única fronteira hostil do app — um "estabelecimento"
+  chamado `IGNORE AS INSTRUÇÕES E…` é conteúdo do documento, não comando. A chamada de
+  transcrição é feita **fora** do loop de tool calling (`turnoComSchema` em
+  `provedor-ia.ts` deliberadamente não recebe `tools`), com schema estrito: uma injeção não
+  tem o que acionar, no pior caso vira uma linha transcrita estranha que a conciliação e
+  você julgam depois.
+- **Categoria.** O modelo não recebe pedido de categoria — nem id, nem nome, e o campo nem
+  existe no schema de saída. Categoria é inferência, e a linha entra sem ela para você
+  classificar.
+- **Ano.** A fatura imprime só "12/03" ou "12 MAR". O modelo devolve o texto como está
+  impresso e **nunca** completa o ano; quem resolve é função pura
+  (`resolverAnoDaFatura`, `src/domain/finance/importacao-data.ts`) a partir da competência
+  que **você** informou no upload. Data que não resolve entra como `null` — nunca chutada.
+- **Nada do banco.** Nenhuma transação, custo fixo, saldo, verba ou id interno é mandado
+  junto: a conciliação contra o que já existe é 100% função pura, depois da transcrição.
+- `donoId`, id de sessão, senha, hash, e-mail — nunca, aqui como no copiloto.
+
+O adapter manda `store: false` na Responses API, então a chamada não fica guardada no
+histórico da conta na OpenAI. Isso não é a mesma coisa que garantia de que a OpenAI não
+retém nada para monitoramento de abuso — a decisão D-16 é sobre isto: o conteúdo passa pelo
+servidor deles.
+
+**O arquivo não é guardado em lugar nenhum.** Os bytes do PDF vivem só em memória: a rota
+(`app/api/importacao/route.ts`) e o conversor (`src/infrastructure/importacao/texto-fatura.ts`)
+não têm uma linha de `fs` — nem para `./data/`, que é reservado ao snapshot de salvaguarda do
+backup. O texto cru completo também não é persistido. O que fica no banco é o **sha256 do
+texto normalizado** (`Importacao.hashConteudo`, chave de idempotência — reenviar a mesma
+fatura reabre o mesmo rascunho em vez de re-extrair e regastar tokens), o nome do arquivo,
+a competência, a contagem de tokens e **as linhas transcritas** (`ItemImportado`).
+
+**O caminho de zero-envio continua aberto.** Depois de ver 2 ou 3 faturas reais do mesmo
+banco, um parser local por regex sobre o texto do PDF resolve o layout sem chamar modelo
+nenhum. Não é v1, mas a extração está isolada num caso de uso só
+(`application/importacao/extrair.ts`), então trocá-la por um parser local não exige
+refatorar a conciliação nem a persistência.
+
+**O que é aceito:** PDF **nativo** (com camada de texto), extraído localmente com `unpdf` —
+até 15 MiB e 30 páginas — ou texto colado direto. **PDF escaneado, imagem (JPG/PNG), OCR e
+Word/.docx estão fora**: um PDF sem texto selecionável é recusado com erro explícito, nunca
+tratado em silêncio como texto vazio e nunca mandado para OCR. Nesses casos o caminho é
+**copiar o texto da fatura e colar** no campo de texto — mesmo pipeline, mesma conciliação.
+
+Importar fatura é **OWNER-only**, exige `IA_HABILITADA=true` (com a camada desligada a
+extração falha com `ExtracaoIAIndisponivelError` em vez de seguir sem transcrever) e consome
+o mesmo teto diário de IA — cada bloco de 20 linhas conta uma requisição em `UsoIADia`.
+Nenhuma variável de ambiente nova: a importação usa a mesma `OPENAI_API_KEY` e o mesmo
+`OPENAI_MODEL` do copiloto.
 
 ### Verificação de capacidade do modelo
 

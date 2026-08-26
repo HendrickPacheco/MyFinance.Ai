@@ -38,7 +38,7 @@ vi.mock('@/application/ia/conversas', () => ({
   excluirConversa: vi.fn(),
 }));
 
-const { perguntarCopiloto } = await import('./ia');
+const { perguntarCopiloto, confirmarProposta } = await import('./ia');
 
 const RESPOSTA: RespostaCopiloto = {
   texto: 'ok',
@@ -184,6 +184,31 @@ describe('validação de entrada', () => {
     expect(resultado.ok).toBe(false);
     expect(obterConversaDoDonoMock).not.toHaveBeenCalled();
     expect(criarConversaMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('confirmarProposta — proposta IMPORTACAO', () => {
+  it('recusa gravar em bloco — a confirmação da importação é por linha (D-18 revista, §15.7)', async () => {
+    const resultado = await confirmarProposta({
+      tipo: 'IMPORTACAO',
+      importacaoId: 'importacao-1',
+      competenciaRef: '2026-07',
+      totalGeralCents: 1_200,
+      itens: [
+        {
+          itemId: 'item-1',
+          ordem: 1,
+          faixa: 'NOVO',
+          descricao: 'Padaria do Zé',
+          data: '2026-07-11',
+          valorCents: 1_200,
+          vereditoMotivo: null,
+        },
+      ],
+    });
+
+    expect(resultado.ok).toBe(false);
+    expect(resultado.ok === false && resultado.erro).toMatch(/não é confirmada em bloco|por linha/i);
   });
 });
 

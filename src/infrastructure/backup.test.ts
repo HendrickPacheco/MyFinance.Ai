@@ -52,6 +52,9 @@ const NOMES_TABELAS = [
   'itemPatrimonio',
   // Memória do copiloto (Fase E, BACKUP_VERSION 3). Sem FK própria.
   'memoria',
+  // Importação de fatura (I1, BACKUP_VERSION 4).
+  'importacao',
+  'itemImportado',
 ] as const;
 
 type NomeTabela = (typeof NOMES_TABELAS)[number];
@@ -102,6 +105,10 @@ const FKS: ReadonlyArray<{ tabela: NomeTabela; campo: string; pai: NomeTabela; r
   { tabela: 'transacao', campo: 'estornoDeId', pai: 'transacao', restrict: false },
   { tabela: 'transacao', campo: 'cicloId', pai: 'ciclo', restrict: false },
   { tabela: 'itemPatrimonio', campo: 'snapshotId', pai: 'snapshotPatrimonio', restrict: false },
+  // I1: a transação aponta para a linha da fatura que a originou (SET NULL), e
+  // o item aponta para a importação que o contém (CASCADE). Nenhuma é RESTRICT.
+  { tabela: 'itemImportado', campo: 'importacaoId', pai: 'importacao', restrict: false },
+  { tabela: 'transacao', campo: 'itemImportadoId', pai: 'itemImportado', restrict: false },
 ];
 
 class ViolacaoDeChaveEstrangeiraSimulada extends Error {}
@@ -120,6 +127,8 @@ function criarFakePrisma(): FakePrisma {
     snapshotPatrimonio: [],
     itemPatrimonio: [],
     memoria: [],
+    importacao: [],
+    itemImportado: [],
   };
   const estado = { transacoesAbertas: 0, ordemInsercaoTransacao: [] as string[] };
 
@@ -165,14 +174,32 @@ function criarFakePrisma(): FakePrisma {
 
   function delegate(nome: NomeTabela) {
     return {
-      findMany: async (args?: { include?: { itens?: boolean } }): Promise<Linha[]> => {
-        const linhas = tabelas[nome].map((l) => ({ ...l }));
+      findMany: async (args?: {
+        where?: Record<string, unknown>;
+        include?: { itens?: unknown };
+      }): Promise<Linha[]> => {
+        // O `where` passou a ser APLICADO (antes era ignorado): o export de
+        // importações filtra por `status: 'CONFIRMADA'`, e um fake que devolve
+        // tudo faria o teste dessa regra passar sem ela existir. Só igualdade
+        // escalar — é tudo que o backup usa.
+        const casa = (linha: Linha): boolean =>
+          Object.entries(args?.where ?? {}).every(([campo, valor]) => linha[campo] === valor);
+        const linhas = tabelas[nome].filter(casa).map((l) => ({ ...l }));
         if (nome === 'snapshotPatrimonio' && args?.include?.itens) {
           return linhas.map((s) => ({
             ...s,
             itens: tabelas.itemPatrimonio
               .filter((i) => i.snapshotId === s.id)
               .map((i) => ({ ...i })),
+          }));
+        }
+        if (nome === 'importacao' && args?.include?.itens) {
+          return linhas.map((imp) => ({
+            ...imp,
+            itens: tabelas.itemImportado
+              .filter((i) => i.importacaoId === imp.id)
+              .map((i) => ({ ...i }))
+              .sort((x, y) => Number(x.ordem) - Number(y.ordem)),
           }));
         }
         return linhas;
@@ -335,6 +362,8 @@ function semear(tabelas: Tabelas): void {
       estornoDeId: null,
       cicloId: 'ciclo-julho',
       pagoEm: '2026-07-31',
+      origem: 'MANUAL',
+      itemImportadoId: null,
     },
     {
       id: 'tx-estorno',
@@ -352,6 +381,8 @@ function semear(tabelas: Tabelas): void {
       estornoDeId: 'tx-original',
       cicloId: 'ciclo-julho',
       pagoEm: null,
+      origem: 'MANUAL',
+      itemImportadoId: null,
     },
   );
   tabelas.snapshotPatrimonio.push({ id: 'snap-1', data: '2026-08-05', totalCents: 1_234_568 });
@@ -388,6 +419,41 @@ function semear(tabelas: Tabelas): void {
       ativo: false,
     },
   );
+
+  // Importação de fatura já CONFIRMADA (I1). Só as confirmadas viajam no
+  // backup — rascunho é estado de tela, não fato financeiro. Os BYTES do
+  // documento não existem em lugar nenhum: só o hash e as linhas transcritas.
+  tabelas.importacao.push({
+    id: 'imp-confirmada',
+    origem: 'PDF',
+    nomeArquivo: 'fatura-agosto.pdf',
+    hashConteudo: 'sha256-fatura-agosto',
+    competenciaRef: '2026-08',
+    status: 'CONFIRMADA',
+    tokensEntrada: 1_200,
+    tokensSaida: 300,
+    criadaEm: '2026-08-06T10:00:00.000Z',
+    confirmadaEm: '2026-08-06T10:05:00.000Z',
+  });
+  tabelas.itemImportado.push({
+    id: 'item-imp-1',
+    importacaoId: 'imp-confirmada',
+    ordem: 0,
+    descricaoOriginal: 'MERCADO XYZ 03/08',
+    valorCents: 4_599,
+    sinal: 'COMPRA',
+    data: '2026-08-03',
+    dataOriginalTexto: '03/08',
+    parcelaAtual: null,
+    parcelaTotal: null,
+    confianca: 'ALTA',
+    veredito: 'NOVA_AVULSA',
+    vereditoMotivo: 'não casou com nenhum lançamento do período',
+    alvoTipo: null,
+    alvoId: null,
+    decisao: 'GRAVADA',
+    chaveDedup: '2026-08-03|mercado xyz|4599',
+  });
 
   carimbarDono();
 }
@@ -433,6 +499,7 @@ describe('exportarTudo', () => {
         'provisoes',
         'snapshots',
         'transacoes',
+        'importacoes',
       ].sort(),
     );
   });
@@ -1160,5 +1227,192 @@ describe('memória do copiloto (BACKUP_VERSION 3)', () => {
     const destino = criarFakePrisma();
     await expect(importarTudo(destino.client, antigo, DONO_TESTE)).resolves.toBeDefined();
     expect(destino.tabelas.memoria).toHaveLength(0);
+  });
+});
+
+/**
+ * Importação de fatura (I1, BACKUP_VERSION 4).
+ *
+ * A decisão de 25/08/2026 (§14 premissa 5 do TASKS-IMPORTACAO) é que **só a
+ * importação CONFIRMADA viaja**: rascunho e descartada são estado de tela, não
+ * fato financeiro. Ela viaja porque `Transacao.itemImportadoId` aponta para
+ * dentro dela — sem os itens no arquivo, ou a FK quebraria o import, ou o
+ * caminho de volta que torna uma importação reversível morreria no restore.
+ */
+describe('importação de fatura no backup (BACKUP_VERSION 4)', () => {
+  /** Uma transação que nasceu da linha `item-imp-1` semeada por `semear`. */
+  function transacaoImportada(): Linha {
+    return {
+      id: 'tx-importada',
+      donoId: DONO_TESTE,
+      data: '2026-08-03',
+      valorCents: 4_599,
+      tipo: 'DESPESA',
+      descricao: 'MERCADO XYZ',
+      metodo: 'CREDITO',
+      categoriaId: 'cat-mercado',
+      contaId: 'conta-var',
+      contaDestinoId: null,
+      provisaoId: null,
+      parcelamentoId: null,
+      parcelaNum: null,
+      estornoDeId: null,
+      cicloId: 'ciclo-julho',
+      pagoEm: null,
+      origem: 'IMPORTACAO',
+      itemImportadoId: 'item-imp-1',
+    };
+  }
+
+  it('exporta a importação confirmada com os itens dentro', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+
+    const payload = (await exportarTudo(db.client, DONO_TESTE)) as {
+      dados: { importacoes: { id: string; itens: Linha[] }[] };
+    };
+
+    expect(payload.dados.importacoes).toHaveLength(1);
+    const [imp] = payload.dados.importacoes;
+    expect(imp?.id).toBe('imp-confirmada');
+    expect(imp?.itens).toHaveLength(1);
+    expect(imp?.itens[0]?.descricaoOriginal).toBe('MERCADO XYZ 03/08');
+    // O dono não viaja em NENHUM nível — nem no cabeçalho, nem no item.
+    expect(JSON.stringify(payload.dados.importacoes)).not.toContain('donoId');
+  });
+
+  it('NÃO exporta rascunho nem importação descartada', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    db.tabelas.importacao.push(
+      {
+        id: 'imp-rascunho',
+        donoId: DONO_TESTE,
+        origem: 'TEXTO_COLADO',
+        nomeArquivo: null,
+        hashConteudo: 'sha256-rascunho',
+        competenciaRef: '2026-08',
+        status: 'RASCUNHO',
+        tokensEntrada: 0,
+        tokensSaida: 0,
+        criadaEm: '2026-08-07T09:00:00.000Z',
+        confirmadaEm: null,
+      },
+      {
+        id: 'imp-descartada',
+        donoId: DONO_TESTE,
+        origem: 'PDF',
+        nomeArquivo: 'errada.pdf',
+        hashConteudo: 'sha256-descartada',
+        competenciaRef: '2026-07',
+        status: 'DESCARTADA',
+        tokensEntrada: 10,
+        tokensSaida: 2,
+        criadaEm: '2026-07-07T09:00:00.000Z',
+        confirmadaEm: null,
+      },
+    );
+
+    const dump = JSON.stringify(await exportarTudo(db.client, DONO_TESTE));
+
+    expect(dump).toContain('imp-confirmada');
+    expect(dump).not.toContain('imp-rascunho');
+    expect(dump).not.toContain('imp-descartada');
+  });
+
+  it('round-trip preserva origem, itemImportadoId e o item que a originou', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    db.tabelas.transacao.push(transacaoImportada());
+
+    const payload = await exportarTudo(db.client, DONO_TESTE);
+    zerar(db.tabelas);
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
+
+    const restaurada = db.tabelas.transacao.find((t) => t.id === 'tx-importada');
+    expect(restaurada?.origem).toBe('IMPORTACAO');
+    expect(restaurada?.itemImportadoId).toBe('item-imp-1');
+    // O item existe DE VERDADE do outro lado — a FK não sobreviveu por acaso.
+    expect(db.tabelas.itemImportado.map((i) => i.id)).toEqual(['item-imp-1']);
+    expect(db.tabelas.itemImportado[0]?.importacaoId).toBe('imp-confirmada');
+    // E todo mundo nasceu carimbado com o dono de quem importou.
+    expect(db.tabelas.importacao[0]?.donoId).toBe(DONO_TESTE);
+    expect(db.tabelas.itemImportado[0]?.donoId).toBe(DONO_TESTE);
+  });
+
+  it('duas transações reivindicando o mesmo item: a segunda perde a referência, não o dinheiro', async () => {
+    // `Transacao.itemImportadoId` é @unique no banco (§11, camada 2): duas
+    // linhas apontando para o mesmo item abortariam o import DEPOIS de apagar
+    // os dados atuais. `sanearArestas` degrada a segunda em vez de explodir.
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    db.tabelas.transacao.push(transacaoImportada(), {
+      ...transacaoImportada(),
+      id: 'tx-importada-duplicada',
+      valorCents: 1_111,
+    });
+
+    const payload = await exportarTudo(db.client, DONO_TESTE);
+    zerar(db.tabelas);
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
+
+    const comItem = db.tabelas.transacao.filter((t) => t.itemImportadoId === 'item-imp-1');
+    expect(comItem).toHaveLength(1);
+    const segunda = db.tabelas.transacao.find((t) => t.id === 'tx-importada-duplicada');
+    expect(segunda?.itemImportadoId).toBeNull();
+    // Perdeu o rastro, NÃO o dinheiro — e continua dizendo que veio de import.
+    expect(segunda?.valorCents).toBe(1_111);
+    expect(segunda?.origem).toBe('IMPORTACAO');
+  });
+
+  it('transação que aponta para um item ausente do arquivo importa sem a referência', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    db.tabelas.transacao.push({ ...transacaoImportada(), itemImportadoId: 'item-de-outro-dono' });
+
+    const payload = await exportarTudo(db.client, DONO_TESTE);
+    zerar(db.tabelas);
+    await expect(
+      importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE),
+    ).resolves.toBeDefined();
+
+    expect(db.tabelas.transacao.find((t) => t.id === 'tx-importada')?.itemImportadoId).toBeNull();
+  });
+
+  it('recarimba o importacaoId do item a partir do PAI, ignorando o que o arquivo disser', async () => {
+    // Num arquivo editado à mão, o item pode dizer que pertence a outra
+    // importação (ou à de outro dono). A aresta nasce da estrutura do JSON.
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    const payload = (await exportarTudo(db.client, DONO_TESTE)) as {
+      version: number;
+      dados: { importacoes: { itens: Linha[] }[] };
+    };
+    const adulterado = JSON.parse(JSON.stringify(payload)) as typeof payload;
+    const item = adulterado.dados.importacoes[0]?.itens[0];
+    if (!item) throw new Error('item de importação ausente no payload');
+    item.importacaoId = 'imp-de-outro-dono';
+
+    zerar(db.tabelas);
+    await importarTudo(db.client, adulterado, DONO_TESTE);
+
+    expect(db.tabelas.itemImportado[0]?.importacaoId).toBe('imp-confirmada');
+  });
+
+  it('importa backup versão 3 (sem a chave importacoes) sem quebrar', async () => {
+    const origem = criarFakePrisma();
+    semear(origem.tabelas);
+    const payload = (await exportarTudo(origem.client, DONO_TESTE)) as {
+      version: number;
+      dados: Record<string, unknown>;
+    };
+
+    const antigo = { ...payload, version: 3, dados: { ...payload.dados } };
+    delete antigo.dados.importacoes;
+
+    const destino = criarFakePrisma();
+    await expect(importarTudo(destino.client, antigo, DONO_TESTE)).resolves.toBeDefined();
+    expect(destino.tabelas.importacao).toHaveLength(0);
+    expect(destino.tabelas.itemImportado).toHaveLength(0);
   });
 });

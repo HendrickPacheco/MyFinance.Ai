@@ -144,3 +144,56 @@ describe('FakeProvedorIA', () => {
     await expect(perguntar(provedor, 'de novo')).rejects.toThrow(/fila vazia/);
   });
 });
+
+describe('FakeProvedorIA.completarComSchema', () => {
+  const SCHEMA = z.object({ itens: z.array(z.string()) });
+
+  function extrair(provedor: ProvedorIAPort) {
+    return provedor.completarComSchema({
+      mensagens: [{ papel: 'usuario', conteudo: 'transcreva' }],
+      schema: SCHEMA,
+      nomeDoSchema: 'itens_da_fatura',
+    });
+  }
+
+  it('devolve os dados programados, já validados pelo schema', async () => {
+    const provedor: ProvedorIAPort = new FakeProvedorIA([], [{ tipo: 'DADOS', dados: { itens: ['a', 'b'] } }]);
+
+    const { dados } = await extrair(provedor);
+
+    expect(dados).toEqual({ itens: ['a', 'b'] });
+  });
+
+  it('rejeita dados programados que não batem com o schema', async () => {
+    const provedor = new FakeProvedorIA([], [{ tipo: 'DADOS', dados: { itens: [1, 2] } }]);
+
+    await expect(extrair(provedor)).rejects.toMatchObject({ motivo: 'SCHEMA_INVALIDO' });
+  });
+
+  it('programa falha do provedor com motivo tipado', async () => {
+    const provedor = new FakeProvedorIA([], [{ tipo: 'ERRO', motivo: 'INDISPONIVEL' }]);
+
+    await expect(extrair(provedor)).rejects.toBeInstanceOf(ErroProvedorIA);
+  });
+
+  it('registra mensagens e nome do schema de cada chamada', async () => {
+    const provedor = new FakeProvedorIA([], [{ tipo: 'DADOS', dados: { itens: [] } }]);
+
+    await extrair(provedor);
+
+    expect(provedor.chamadasDeSchema).toHaveLength(1);
+    expect(provedor.chamadasDeSchema[0]?.nomeDoSchema).toBe('itens_da_fatura');
+  });
+
+  it('não consome a fila de completarComTools', async () => {
+    const provedor = new FakeProvedorIA(
+      [{ tipo: 'TEXTO', texto: 'pronto' }],
+      [{ tipo: 'DADOS', dados: { itens: [] } }],
+    );
+
+    await extrair(provedor);
+
+    expect(provedor.turnosRestantes).toBe(1);
+    expect(provedor.turnosDeSchemaRestantes).toBe(0);
+  });
+});

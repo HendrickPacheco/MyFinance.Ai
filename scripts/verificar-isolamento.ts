@@ -27,6 +27,7 @@ import {
 } from '../src/infrastructure/repositories/prisma-repositories';
 import { PrismaMemoriaRepository } from '../src/infrastructure/repositories/prisma-memoria';
 import { PrismaConversaRepository } from '../src/infrastructure/repositories/prisma-conversa';
+import { PrismaImportacaoRepository } from '../src/infrastructure/repositories/prisma-importacao';
 import { semearWorkspace } from '../src/infrastructure/onboarding';
 import { exportarTudo } from '../src/infrastructure/backup';
 import { validarCategoriaDeCustoFixo } from '../src/application/categoria-custo-fixo';
@@ -539,11 +540,223 @@ async function main(): Promise<void> {
       (await repoA.transacoes.obter(criadasPeloB[0]?.id ?? '')) === null,
   );
 
+  // ── Importação de fatura (I1) ─────────────────────────────────────────────
+  // Tabelas novas, sem repositório ainda: a prova aqui é sobre o BANCO. Duas
+  // coisas que a regra de ouro exige e que só o Postgres real responde: a
+  // unicidade do hash é COMPOSTA com donoId (a fatura de um dono não pode
+  // bloquear a do outro), e alcançar a linha alheia por id devolve vazio.
+  console.log('\nIMPORTAÇÃO — rascunho e itens não cruzam donos:');
+  const HASH_IGUAL = 'sha256-fatura-identica-nos-dois-donos';
+  const impA = await prisma.importacao.create({
+    data: {
+      donoId: a.id,
+      origem: 'TEXTO_COLADO',
+      hashConteudo: HASH_IGUAL,
+      competenciaRef: '2026-09',
+      status: 'RASCUNHO',
+      itens: {
+        create: [
+          {
+            donoId: a.id,
+            ordem: 0,
+            descricaoOriginal: 'FATURA SECRETA DO DONO A',
+            valorCents: 12_345,
+            sinal: 'COMPRA',
+            data: '2026-09-03',
+            dataOriginalTexto: '03/09',
+            confianca: 'ALTA',
+            veredito: 'NOVA_AVULSA',
+            vereditoMotivo: 'não casou com nada registrado',
+            chaveDedup: 'a|2026-09-03|12345',
+          },
+        ],
+      },
+    },
+    include: { itens: true },
+  });
+
+  const mesmoHashNoB = await prisma.importacao
+    .create({
+      data: {
+        donoId: b.id,
+        origem: 'PDF',
+        nomeArquivo: 'fatura-do-b.pdf',
+        hashConteudo: HASH_IGUAL,
+        competenciaRef: '2026-09',
+        status: 'CONFIRMADA',
+        confirmadaEm: new Date(),
+      },
+    })
+    .then(
+      (imp) => imp,
+      () => null,
+    );
+  checar(
+    'o mesmo hash de documento é aceito nos DOIS donos (unicidade composta)',
+    mesmoHashNoB !== null,
+  );
+  await esperaErro('e reenviar o mesmo documento para o MESMO dono é recusado', () =>
+    prisma.importacao.create({
+      data: {
+        donoId: b.id,
+        origem: 'PDF',
+        hashConteudo: HASH_IGUAL,
+        competenciaRef: '2026-09',
+      },
+    }),
+  );
+
+  checar(
+    'a importação do A não é alcançável pelo id com o donoId do B',
+    (await prisma.importacao.findFirst({ where: { id: impA.id, donoId: b.id } })) === null,
+  );
+  const itemA = impA.itens[0];
+  if (!itemA) throw new Error('item de importação do A não foi criado');
+  checar(
+    'o item importado do A não é alcançável pelo id com o donoId do B',
+    (await prisma.itemImportado.findFirst({ where: { id: itemA.id, donoId: b.id } })) === null,
+  );
+  const tentativaDeAprovar = await prisma.itemImportado.updateMany({
+    where: { id: itemA.id, donoId: b.id },
+    data: { decisao: 'APROVADA' },
+  });
+  checar(
+    'aprovar o item do A escopado no B afeta ZERO linhas',
+    tentativaDeAprovar.count === 0 &&
+      (await prisma.itemImportado.findFirst({ where: { id: itemA.id } }))?.decisao === 'PENDENTE',
+  );
+
+  const rascunhoDoB = await prisma.importacao.create({
+    data: {
+      donoId: b.id,
+      origem: 'TEXTO_COLADO',
+      hashConteudo: 'sha256-rascunho-nao-confirmado-do-b',
+      competenciaRef: '2026-09',
+      status: 'RASCUNHO',
+    },
+  });
+
+  // ── Importação — repositório (I3) ─────────────────────────────────────────
+  // O bloco acima prova o BANCO com Prisma cru. Este prova o mesmo através do
+  // adapter que os casos de uso realmente chamam — sem isto, um `where`
+  // esquecido dentro de `PrismaImportacaoRepository` passaria despercebido
+  // mesmo com o schema/constraints corretos.
+  console.log('\nIMPORTAÇÃO — repositório não cruza donos:');
+  const importacoesA = new PrismaImportacaoRepository(prisma, a.id);
+  const importacoesB = new PrismaImportacaoRepository(prisma, b.id);
+
+  checar(
+    'obter(id do A) pelo repositório do B devolve null',
+    (await importacoesB.obter(impA.id)) === null,
+  );
+  checar(
+    'obter(id do A) pelo repositório do A enxerga o rascunho',
+    (await importacoesA.obter(impA.id))?.importacao.id === impA.id,
+  );
+  checar(
+    'obterPorHash do B não enxerga o rascunho do A com o MESMO hash',
+    (await importacoesB.obterPorHash(HASH_IGUAL))?.importacao.id !== impA.id,
+  );
+  checar(
+    'obterPorHash do A enxerga o próprio rascunho pelo hash',
+    (await importacoesA.obterPorHash(HASH_IGUAL))?.importacao.id === impA.id,
+  );
+
+  await esperaErro(
+    'registrarDecisao num item do A a partir do repositório do B é recusado (zero linhas afetadas)',
+    () => importacoesB.registrarDecisao(itemA.id, 'APROVADA'),
+  );
+  checar(
+    'e o item do A continua PENDENTE',
+    (await prisma.itemImportado.findFirst({ where: { id: itemA.id } }))?.decisao === 'PENDENTE',
+  );
+
+  // `reabrirItem` (I4 — desfazer de importação): a contraparte de
+  // `registrarDecisao`, mesma disciplina de `updateMany({ id, donoId })`.
+  await esperaErro(
+    'reabrirItem num item do A a partir do repositório do B é recusado (zero linhas afetadas)',
+    () => importacoesB.reabrirItem(itemA.id),
+  );
+  checar(
+    'e o item do A continua PENDENTE (reabrirItem do B não o tocou)',
+    (await prisma.itemImportado.findFirst({ where: { id: itemA.id } }))?.decisao === 'PENDENTE',
+  );
+
+  // `listarPorItensImportados`/`ParcelamentoRepository.excluir` (I4 —
+  // desfazer de importação): os dois métodos novos que `desfazerImportacao`
+  // usa para achar e apagar o que a importação gravou. Sem `donoId` no
+  // `where`, o B enxergaria (ou apagaria) o rastro da importação do A.
+  console.log('\nIMPORTAÇÃO — transações/parcelamentos do desfazer (I4) não cruzam donos:');
+  const txDaFaturaDoA = await repoA.transacoes.criar({
+    id: '',
+    data: '2026-09-10',
+    valorCents: 5_000,
+    tipo: 'DESPESA',
+    descricao: 'Linha de fatura do A',
+    metodo: null,
+    categoriaId: null,
+    contaId: null,
+    contaDestinoId: null,
+    provisaoId: null,
+    parcelamentoId: null,
+    parcelaNum: null,
+    estornoDeId: null,
+    cicloId: null,
+    pagoEm: null,
+    origem: 'IMPORTACAO',
+    itemImportadoId: itemA.id,
+  });
+  checar(
+    'listarPorItensImportados(item do A) pelo B vem vazio',
+    (await repoB.transacoes.listarPorItensImportados([itemA.id])).length === 0,
+  );
+  checar(
+    'listarPorItensImportados(item do A) pelo A enxerga a transação âncora',
+    (await repoA.transacoes.listarPorItensImportados([itemA.id]))[0]?.id === txDaFaturaDoA.id,
+  );
+
+  await esperaErro('excluir(parcelamento do A) pelo B é recusado (zero linhas afetadas)', () =>
+    repoB.parcelamentos.excluir(parcelamentoA.id),
+  );
+  checar(
+    'o parcelamento do A segue existindo depois da tentativa do B',
+    (await repoA.parcelamentos.obter(parcelamentoA.id)) !== null,
+  );
+  await repoA.transacoes.excluir(txDaFaturaDoA.id);
+  await repoA.parcelamentos.excluir(parcelamentoA.id);
+  checar(
+    'excluir(parcelamento do A) pelo próprio dono remove de fato',
+    (await repoA.parcelamentos.obter(parcelamentoA.id)) === null,
+  );
+
+  await esperaErro(
+    'e marcarConfirmada de importação alheia (B tentando confirmar a do A) lança',
+    () => importacoesB.marcarConfirmada(impA.id),
+  );
+  checar(
+    'a importação do A continua RASCUNHO depois da tentativa do B',
+    (await prisma.importacao.findFirst({ where: { id: impA.id } }))?.status === 'RASCUNHO',
+  );
+
+  await importacoesA.marcarConfirmada(impA.id);
+  checar(
+    'marcarConfirmada pelo dono certo (A) muda o status para CONFIRMADA',
+    (await prisma.importacao.findFirst({ where: { id: impA.id } }))?.status === 'CONFIRMADA',
+  );
+
   console.log('\nBACKUP — o export do B não contém dados do A:');
   const dumpB = JSON.stringify(await exportarTudo(prisma, b.id));
   checar('o dump do B não cita a transação do A', !dumpB.includes(txA.id));
   checar('o dump do B não cita a descrição secreta do A', !dumpB.includes('segredo do dono A'));
   checar('o dump do B não cita a memória do A', !dumpB.includes('plano secreto do dono A'));
+  checar('o dump do B não cita a importação do A', !dumpB.includes(impA.id));
+  checar('o dump do B não cita a linha de fatura do A', !dumpB.includes('FATURA SECRETA DO DONO A'));
+  // Decisão de 25/08/2026: só importação CONFIRMADA viaja no backup.
+  checar(
+    'o dump do B leva a importação CONFIRMADA dele',
+    mesmoHashNoB !== null && dumpB.includes(mesmoHashNoB.id),
+  );
+  checar('e NÃO leva o rascunho não confirmado dele', !dumpB.includes(rascunhoDoB.id));
   checar('o dump do B não carrega donoId nenhum', !dumpB.includes('donoId'));
 
   console.log('\nCONFIG — uma por dono:');

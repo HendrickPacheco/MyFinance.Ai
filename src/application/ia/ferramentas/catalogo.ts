@@ -384,6 +384,41 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
     bloqueio: null,
     observacao: 'NÃO grava. Quem grava é a action confirmarProposta, por clique do dono.',
   },
+
+  // ─── Importação de fatura (I3, TASKS-IMPORTACAO.md §15) ─────────────────
+
+  {
+    nome: 'conciliar_importacao',
+    descricao:
+      'Lê um rascunho de importação de fatura JÁ EXISTENTE (extraído e conciliado quando o dono anexou o documento) e devolve o resumo por faixa: quantas linhas já estão registradas, quantas são custo fixo reconhecido, quantas são novas, quantas precisam de decisão do dono e quantas foram ignoradas, com o total geral. Use logo depois de um documento ser anexado, para narrar em texto "Li N lançamentos, R$ X no total..." antes de propor. NÃO extrai e NÃO concilia nada novo — só lê.',
+    argumentos: z.object({
+      importacaoId: z
+        .string()
+        .min(1)
+        .describe('Id do rascunho de importação, devolvido pela extração ao anexar o documento no chat.'),
+    }),
+    origem:
+      'application/ia/ferramentas/importacao.ts: conciliarImportacaoFerramenta (leitura de ImportacaoRepository.obter)',
+    comoFoiCalculado: 'application/ia/ferramentas/importacao.ts: conciliarImportacaoFerramenta',
+    bloqueio: null,
+  },
+  {
+    nome: 'propor_importacao',
+    descricao:
+      'Prepara a lista COMPLETA de linhas de uma fatura importada para o usuário revisar. NÃO grava nada. Diferente de propor_lancamento/propor_parcelamento, esta proposta NÃO é confirmada com um clique único: cada linha nova ou que precisa de atenção tem seu próprio botão, e é confirmada uma de cada vez pelo usuário — o que já está registrado ou é custo fixo reconhecido não pede nada. Use depois de conciliar_importacao, quando o usuário disser algo como "pode registrar" ou "quero ver as linhas". Nunca diga que a importação inteira foi lançada de uma vez.',
+    argumentos: z.object({
+      importacaoId: z
+        .string()
+        .min(1)
+        .describe('Id do rascunho de importação — o mesmo usado em conciliar_importacao.'),
+    }),
+    origem:
+      'application/ia/propostas.ts → (na confirmação de CADA linha) application/importacao/confirmar.ts: confirmarItemImportado',
+    comoFoiCalculado: 'application/ia/ferramentas/importacao.ts: proporImportacao',
+    bloqueio: null,
+    observacao:
+      'NÃO grava. Quem grava é confirmarItemImportado, chamado uma vez por linha — nunca em bloco (D-18 revista, §15.7).',
+  },
 ];
 
 /**
@@ -395,6 +430,7 @@ export const FERRAMENTAS_DE_PROPOSTA = [
   'propor_lancamento',
   'propor_parcelamento',
   'propor_memoria',
+  'propor_importacao',
 ] as const;
 
 /**
