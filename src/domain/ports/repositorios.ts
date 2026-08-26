@@ -174,6 +174,19 @@ export interface TransacaoRepository {
    * podem cair no mesmo dia, e um adapter novo não pode virar bug de dinheiro.
    */
   listarPorParcelamento(parcelamentoId: string): Promise<Transacao[]>;
+  /**
+   * As transações-âncora de um conjunto de linhas de importação (I4 do
+   * `TASKS-IMPORTACAO.md`) — a aresta de volta `Transacao.itemImportadoId`,
+   * que é `@unique`, então no máximo uma transação volta por id de item.
+   *
+   * "Âncora" porque, para `NOVA_PARCELA_ORFA`, só a parcela `parcelaInicial`
+   * carrega o vínculo (ver `ParcelamentoInput.itemImportadoId` em
+   * `application/transacoes.ts`) — quem chama ainda precisa
+   * `listarPorParcelamento(ancora.parcelamentoId)` para alcançar as demais.
+   * Ids de item sem transação vinculada (ex.: `CASA_CUSTO_FIXO`, que nunca
+   * cria `Transacao`) simplesmente não aparecem no resultado.
+   */
+  listarPorItensImportados(itemImportadoIds: readonly string[]): Promise<Transacao[]>;
   criar(transacao: Transacao): Promise<Transacao>;
   criarVarias(transacoes: readonly Transacao[]): Promise<Transacao[]>;
   atualizar(id: string, patch: Partial<Transacao>): Promise<Transacao>;
@@ -211,6 +224,18 @@ export interface ParcelamentoRepository {
    * preservar as pagas e as de ciclo fechado.
    */
   atualizar(id: string, patch: Partial<Parcelamento>): Promise<Parcelamento>;
+  /**
+   * Remove o CADASTRO. Só pode ser chamada depois que TODAS as parcelas
+   * (`Transacao.parcelamentoId`) já foram apagadas — a FK é `Restrict`, e o
+   * banco recusa a exclusão enquanto sobrar qualquer parcela viva, inclusive
+   * paga ou de ciclo fechado. Diferente de `encerrarParcelamento`
+   * (`application/parcelamentos.ts`), que preserva o histórico: esta é a
+   * exclusão total usada pelo desfazer de importação (I4), quando o
+   * parcelamento inteiro nasceu de uma linha de fatura que o dono quer
+   * apagar por completo. Id de outro dono simplesmente não casa (zero
+   * linhas afetadas), como todo `deleteMany` deste repositório.
+   */
+  excluir(id: string): Promise<void>;
 }
 
 export interface CicloRepository {

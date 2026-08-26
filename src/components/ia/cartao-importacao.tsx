@@ -42,11 +42,17 @@
  */
 import * as React from 'react';
 import { AlertTriangle, Check, ChevronDown, Loader2, Undo2, X } from 'lucide-react';
-import { Button } from '@/components/ui';
-import { confirmarItemImportadoAction, descartarItemImportadoAction, finalizarImportacaoAction } from '@/actions/importacao';
+import { Button, ConfirmDialog } from '@/components/ui';
+import {
+  confirmarItemImportadoAction,
+  descartarItemImportadoAction,
+  desfazerImportacaoAction,
+  finalizarImportacaoAction,
+} from '@/actions/importacao';
 import { formatarDataCurta } from '@/shared/data';
 import { formatBRL } from '@/shared/dinheiro';
 import type { PropostaImportacao, ItemPropostaImportacao, FAIXAS_PROPONIVEIS } from '@/application/ia/propostas';
+import type { ResultadoDesfazerImportacao } from '@/application/importacao/desfazer';
 
 type Faixa = (typeof FAIXAS_PROPONIVEIS)[number];
 
@@ -297,14 +303,147 @@ function FaixaColapsada({
   );
 }
 
+/**
+ * Estado do desfazer da importação inteira (§15.4/I4). `RELATORIO` cobre
+ * tanto o sucesso completo quanto o parcial (algumas linhas ficaram
+ * `GRAVADA` por esbarrar em ciclo fechado) — o relatório distingue os dois
+ * em texto, nunca só em cor (o botão "confirmar também" só aparece quando
+ * `linhasNaoRevertidas` não está vazio).
+ */
+type EstadoDesfazer =
+  | { tipo: 'FECHADO' }
+  | { tipo: 'CONFIRMANDO' }
+  | { tipo: 'ENVIANDO' }
+  | { tipo: 'RELATORIO'; resultado: ResultadoDesfazerImportacao }
+  | { tipo: 'ERRO'; mensagem: string };
+
+/**
+ * Diálogo de "desfazer importação inteira" (I4): pede confirmação explícita
+ * (é destrutivo — reverte transação, apaga parcelamento, desmarca custo
+ * fixo pago) e, depois da chamada, mostra o relatório honesto de quantas
+ * linhas voltaram e quais não puderam, com o motivo — nunca só uma cor.
+ */
+function DesfazerImportacaoDialog({
+  estado,
+  competenciaRef,
+  onConfirmar,
+  onFechar,
+}: {
+  estado: EstadoDesfazer;
+  competenciaRef: string;
+  onConfirmar: (confirmarRetroativo: boolean) => void;
+  onFechar: () => void;
+}) {
+  if (estado.tipo === 'FECHADO') return null;
+
+  if (estado.tipo === 'RELATORIO' || estado.tipo === 'ERRO') {
+    const bloqueadasPorCiclo = estado.tipo === 'RELATORIO' ? estado.resultado.linhasNaoRevertidas : [];
+    return (
+      <ConfirmDialog
+        open
+        tone={estado.tipo === 'ERRO' || bloqueadasPorCiclo.length > 0 ? 'negativo' : 'neutral'}
+        titulo={
+          estado.tipo === 'ERRO'
+            ? 'Não foi possível desfazer a importação.'
+            : `Fatura ${competenciaRef}: importação desfeita.`
+        }
+        consequencia={
+          estado.tipo === 'ERRO' ? (
+            <p role="alert">{estado.mensagem}</p>
+          ) : (
+            <>
+              <p>
+                {estado.resultado.linhasRevertidas} linha
+                {estado.resultado.linhasRevertidas === 1 ? '' : 's'} revertida
+                {estado.resultado.linhasRevertidas === 1 ? '' : 's'} — voltaram a pendente.
+              </p>
+              {bloqueadasPorCiclo.length > 0 ? (
+                <>
+                  <p className="text-atencao">
+                    {bloqueadasPorCiclo.length} linha{bloqueadasPorCiclo.length === 1 ? '' : 's'} não{' '}
+                    {bloqueadasPorCiclo.length === 1 ? 'pôde' : 'puderam'} ser revertida
+                    {bloqueadasPorCiclo.length === 1 ? '' : 's'} — continua{bloqueadasPorCiclo.length === 1 ? '' : 'm'} lançada
+                    {bloqueadasPorCiclo.length === 1 ? '' : 's'}:
+                  </p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs">
+                    {bloqueadasPorCiclo.map((l) => (
+                      <li key={l.itemId}>{l.motivo}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </>
+          )
+        }
+        confirmLabel={
+          bloqueadasPorCiclo.length > 0
+            ? `Confirmar também as ${bloqueadasPorCiclo.length} de ciclo fechado`
+            : 'Entendi'
+        }
+        cancelLabel={bloqueadasPorCiclo.length > 0 ? 'Deixar assim' : undefined}
+        onConfirm={() => (bloqueadasPorCiclo.length > 0 ? onConfirmar(true) : onFechar())}
+        onCancel={onFechar}
+      />
+    );
+  }
+
+  return (
+    <ConfirmDialog
+      open
+      tone="negativo"
+      titulo={`Desfazer a importação da fatura ${competenciaRef}?`}
+      consequencia={
+        <>
+          <p>
+            Cada linha já lançada é revertida pelo caminho que a criou: transação avulsa é
+            excluída (com o saldo devolvido), parcelamento importado é apagado por completo, e
+            custo fixo reconhecido é desmarcado como pago.
+          </p>
+          <p>
+            Uma transação editada depois de importada é apagada do mesmo jeito que qualquer outra
+            exclusão manual — a importação não distingue.
+          </p>
+          <p className="text-xs text-faint">Não dá para desfazer o desfazer.</p>
+        </>
+      }
+      confirmLabel="Desfazer importação"
+      cancelLabel="Voltar"
+      pendente={estado.tipo === 'ENVIANDO'}
+      onConfirm={() => onConfirmar(false)}
+      onCancel={onFechar}
+    />
+  );
+}
+
 export function CartaoImportacao({ proposta }: { proposta: PropostaImportacao }) {
   const [estados, setEstados] = React.useState<Record<string, EstadoLinha>>({});
   const [finalizando, setFinalizando] = React.useState(false);
   const [avisoFinalizacao, setAvisoFinalizacao] = React.useState<string | null>(null);
+  const [estadoDesfazer, setEstadoDesfazer] = React.useState<EstadoDesfazer>({ tipo: 'FECHADO' });
 
   const mudarEstado = React.useCallback((itemId: string, proximo: EstadoLinha) => {
     setEstados((atual) => ({ ...atual, [itemId]: proximo }));
   }, []);
+
+  const desfazer = React.useCallback(
+    async (confirmarRetroativo: boolean) => {
+      setEstadoDesfazer({ tipo: 'ENVIANDO' });
+      const resultado = await desfazerImportacaoAction({
+        importacaoId: proposta.importacaoId,
+        confirmarRetroativo,
+      });
+      if (!resultado.ok) {
+        setEstadoDesfazer({ tipo: 'ERRO', mensagem: resultado.erro });
+        return;
+      }
+      // As linhas revertidas voltaram a PENDENTE no servidor — o estado local
+      // de cada uma (CONFIRMADA/DESCARTADA/...) deixaria de bater com o
+      // banco se não fosse limpo aqui.
+      setEstados({});
+      setEstadoDesfazer({ tipo: 'RELATORIO', resultado: resultado.data });
+    },
+    [proposta.importacaoId],
+  );
 
   const grupos = React.useMemo(() => agruparPorFaixa(proposta.itens), [proposta.itens]);
 
@@ -417,7 +556,26 @@ export function CartaoImportacao({ proposta }: { proposta: PropostaImportacao })
           Finalizar importação
         </Button>
         {avisoFinalizacao ? <p className="text-xs text-muted">{avisoFinalizacao}</p> : null}
+
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="ml-auto"
+          onClick={() => setEstadoDesfazer({ tipo: 'CONFIRMANDO' })}
+          disabled={estadoDesfazer.tipo === 'ENVIANDO'}
+        >
+          <Undo2 className="size-3.5" aria-hidden />
+          Desfazer importação
+        </Button>
       </div>
+
+      <DesfazerImportacaoDialog
+        estado={estadoDesfazer}
+        competenciaRef={proposta.competenciaRef}
+        onConfirmar={(confirmarRetroativo) => void desfazer(confirmarRetroativo)}
+        onFechar={() => setEstadoDesfazer({ tipo: 'FECHADO' })}
+      />
     </div>
   );
 }

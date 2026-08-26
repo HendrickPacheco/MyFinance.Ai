@@ -459,6 +459,14 @@ export class PrismaTransacaoRepository implements TransacaoRepository {
     return rows.map(toTransacao);
   }
 
+  async listarPorItensImportados(itemImportadoIds: readonly string[]): Promise<Transacao[]> {
+    if (itemImportadoIds.length === 0) return [];
+    const rows = await this.db.transacao.findMany({
+      where: { donoId: this.donoId, itemImportadoId: { in: [...itemImportadoIds] } },
+    });
+    return rows.map(toTransacao);
+  }
+
   async criar(transacao: Transacao): Promise<Transacao> {
     try {
       const r = await this.db.transacao.create({
@@ -693,6 +701,20 @@ export class PrismaParcelamentoRepository implements ParcelamentoRepository {
       where: { id, donoId: this.donoId },
     });
     return toParcelamento(r);
+  }
+
+  /**
+   * `deleteMany`, não `delete`: id de outro dono apaga zero linhas em vez de
+   * apagar o cadastro alheio. A FK `Transacao.parcelamentoId` é `Restrict` —
+   * o Postgres recusa esta chamada enquanto sobrar qualquer parcela viva;
+   * quem chama (`desfazerImportacao`) já apagou todas antes, via
+   * `transacoes.aplicarLote`.
+   */
+  async excluir(id: string): Promise<void> {
+    const { count } = await this.db.parcelamento.deleteMany({
+      where: { id, donoId: this.donoId },
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Parcelamento');
   }
 }
 

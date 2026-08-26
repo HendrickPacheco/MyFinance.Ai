@@ -502,6 +502,11 @@ export class FakeTransacaoRepo implements TransacaoRepository {
       .map(clone);
   }
 
+  async listarPorItensImportados(itemImportadoIds: readonly string[]): Promise<Transacao[]> {
+    const conjunto = new Set(itemImportadoIds);
+    return this.itens.filter((t) => t.itemImportadoId && conjunto.has(t.itemImportadoId)).map(clone);
+  }
+
   /**
    * Espelha `dadosTransacao` do adapter Prisma (I3): `origem`/`itemImportadoId`
    * são opcionais na entidade, e quem grava default para `'MANUAL'`/`null` —
@@ -605,6 +610,12 @@ export class FakeParcelamentoRepo implements ParcelamentoRepository {
     const atualizado: Parcelamento = { ...alvo, ...dados };
     this.itens[i] = atualizado;
     return clone(atualizado);
+  }
+
+  async excluir(id: string): Promise<void> {
+    const antes = this.itens.length;
+    this.itens = this.itens.filter((p) => p.id !== id);
+    if (this.itens.length === antes) throw new Error(`parcelamento inexistente: ${id}`);
   }
 }
 
@@ -1122,6 +1133,12 @@ export class FakeImportacaoRepo implements ImportacaoRepository {
     const importacao = this.importacoes.find((i) => i.id === id);
     if (!importacao) throw new Error(`Importação ${id} não encontrada.`);
     importacao.status = 'DESCARTADA';
+  }
+
+  async reabrirItem(itemId: string): Promise<void> {
+    const item = this.itens.find((i) => i.id === itemId);
+    if (!item) throw new Error(`Item de importação ${itemId} não encontrado.`);
+    item.decisao = 'PENDENTE';
   }
 }
 

@@ -33,6 +33,10 @@ import {
   type ResultadoConfirmacao,
   type ResultadoFinalizacao,
 } from '@/application/importacao/confirmar';
+import {
+  desfazerImportacao,
+  type ResultadoDesfazerImportacao,
+} from '@/application/importacao/desfazer';
 
 /** "YYYY-MM" — competência da fatura, sempre informada pelo dono. */
 const competenciaRefSchema = z
@@ -162,5 +166,36 @@ export async function finalizarImportacaoAction(
     const validado = finalizarImportacaoSchema.parse(entrada);
     const deps = await criarDeps();
     return finalizarImportacao(deps, validado.importacaoId);
+  });
+}
+
+const desfazerImportacaoSchema = z.object({
+  importacaoId: idNaoVazioSchema,
+  confirmarRetroativo: z.boolean().optional(),
+});
+
+/**
+ * Desfaz uma importação inteira (I4 — "importei a fatura errada"): cada
+ * linha `GRAVADA`/`APROVADA` é revertida pelo caminho que a criou
+ * (`excluirTransacao`, exclusão do parcelamento completo, ou
+ * `desmarcarCustoFixoPago`), e a importação é marcada `DESCARTADA`. Pode
+ * mudar saldo de conta, acumulado de provisão e sobra de ciclo fechado — as
+ * mesmas telas que `confirmarItemImportadoAction` revalida.
+ */
+export async function desfazerImportacaoAction(
+  entrada: unknown,
+): Promise<Resultado<ResultadoDesfazerImportacao>> {
+  return executar(async () => {
+    const validado = desfazerImportacaoSchema.parse(entrada);
+    const deps = await criarDeps();
+
+    const resultado = await desfazerImportacao(
+      deps,
+      validado.importacaoId,
+      validado.confirmarRetroativo ?? false,
+    );
+    revalidatePath('/');
+    revalidatePath('/ciclo');
+    return resultado;
   });
 }

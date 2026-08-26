@@ -101,4 +101,16 @@ export interface ImportacaoRepository {
 
   /** Marca o rascunho como descartado. */
   marcarDescartada(id: string): Promise<void>;
+
+  /**
+   * Reabre uma linha já decidida, devolvendo-a a `PENDENTE` — a contraparte
+   * de `registrarDecisao`, que de propósito nunca aceita `PENDENTE` como
+   * destino (comentário de `DecisaoRegistravel` acima): aquele é o caminho
+   * FORWARD de uma decisão nova, este é o único caminho de "desdecidir".
+   * Existe só para o desfazer de importação inteira (I4,
+   * `TASKS-IMPORTACAO.md` §15.4): depois que o efeito financeiro da linha
+   * (se houve algum) já foi revertido em outra tabela, a linha volta ao
+   * estado de nascença.
+   */
+  reabrirItem(itemId: string): Promise<void>;
 }

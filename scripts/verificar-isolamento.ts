@@ -671,6 +671,64 @@ async function main(): Promise<void> {
     (await prisma.itemImportado.findFirst({ where: { id: itemA.id } }))?.decisao === 'PENDENTE',
   );
 
+  // `reabrirItem` (I4 — desfazer de importação): a contraparte de
+  // `registrarDecisao`, mesma disciplina de `updateMany({ id, donoId })`.
+  await esperaErro(
+    'reabrirItem num item do A a partir do repositório do B é recusado (zero linhas afetadas)',
+    () => importacoesB.reabrirItem(itemA.id),
+  );
+  checar(
+    'e o item do A continua PENDENTE (reabrirItem do B não o tocou)',
+    (await prisma.itemImportado.findFirst({ where: { id: itemA.id } }))?.decisao === 'PENDENTE',
+  );
+
+  // `listarPorItensImportados`/`ParcelamentoRepository.excluir` (I4 —
+  // desfazer de importação): os dois métodos novos que `desfazerImportacao`
+  // usa para achar e apagar o que a importação gravou. Sem `donoId` no
+  // `where`, o B enxergaria (ou apagaria) o rastro da importação do A.
+  console.log('\nIMPORTAÇÃO — transações/parcelamentos do desfazer (I4) não cruzam donos:');
+  const txDaFaturaDoA = await repoA.transacoes.criar({
+    id: '',
+    data: '2026-09-10',
+    valorCents: 5_000,
+    tipo: 'DESPESA',
+    descricao: 'Linha de fatura do A',
+    metodo: null,
+    categoriaId: null,
+    contaId: null,
+    contaDestinoId: null,
+    provisaoId: null,
+    parcelamentoId: null,
+    parcelaNum: null,
+    estornoDeId: null,
+    cicloId: null,
+    pagoEm: null,
+    origem: 'IMPORTACAO',
+    itemImportadoId: itemA.id,
+  });
+  checar(
+    'listarPorItensImportados(item do A) pelo B vem vazio',
+    (await repoB.transacoes.listarPorItensImportados([itemA.id])).length === 0,
+  );
+  checar(
+    'listarPorItensImportados(item do A) pelo A enxerga a transação âncora',
+    (await repoA.transacoes.listarPorItensImportados([itemA.id]))[0]?.id === txDaFaturaDoA.id,
+  );
+
+  await esperaErro('excluir(parcelamento do A) pelo B é recusado (zero linhas afetadas)', () =>
+    repoB.parcelamentos.excluir(parcelamentoA.id),
+  );
+  checar(
+    'o parcelamento do A segue existindo depois da tentativa do B',
+    (await repoA.parcelamentos.obter(parcelamentoA.id)) !== null,
+  );
+  await repoA.transacoes.excluir(txDaFaturaDoA.id);
+  await repoA.parcelamentos.excluir(parcelamentoA.id);
+  checar(
+    'excluir(parcelamento do A) pelo próprio dono remove de fato',
+    (await repoA.parcelamentos.obter(parcelamentoA.id)) === null,
+  );
+
   await esperaErro(
     'e marcarConfirmada de importação alheia (B tentando confirmar a do A) lança',
     () => importacoesB.marcarConfirmada(impA.id),

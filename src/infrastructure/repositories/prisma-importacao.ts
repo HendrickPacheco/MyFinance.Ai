@@ -194,4 +194,13 @@ export class PrismaImportacaoRepository implements ImportacaoRepository {
     });
     if (count === 0) throw new RecursoNaoEncontradoError('Importação');
   }
+
+  /** `updateMany` com `{ id: itemId, donoId }`: id de item de outro dono afeta zero linhas. */
+  async reabrirItem(itemId: string): Promise<void> {
+    const { count } = await this.db.itemImportado.updateMany({
+      where: { id: itemId, donoId: this.donoId },
+      data: { decisao: 'PENDENTE' },
+    });
+    if (count === 0) throw new RecursoNaoEncontradoError('Item de importação');
+  }
 }
