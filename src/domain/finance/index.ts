@@ -25,5 +25,6 @@ export * from './destino-da-renda';
 export * from './patrimonio';
 export * from './sugestoes';
 export * from './agregacoes';
+export * from './historico';
 export * from './pagamentos';
 export * from './categorias';

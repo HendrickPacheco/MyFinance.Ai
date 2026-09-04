@@ -10,6 +10,7 @@ import {
   Scissors,
   TrendingUp,
   BarChart3,
+  History,
   Settings,
   CheckCircle2,
   Plus,
@@ -43,6 +44,7 @@ const ITENS: readonly ItemSidebar[] = [
   { href: '/projecao', label: 'Projeção', icon: BarChart3 },
   { href: '/patrimonio', label: 'Patrimônio', icon: TrendingUp },
   { href: '/analise', label: 'Análise', icon: Scissors },
+  { href: '/historico', label: 'Histórico', icon: History },
   { href: '/fechar-ciclo', label: 'Fechar ciclo', icon: CheckCircle2 },
   { href: '/config', label: 'Ajustes', icon: Settings },
 ];
