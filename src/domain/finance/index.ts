@@ -22,6 +22,7 @@ export * from './importacao';
 export * from './analise';
 export * from './sem-categoria';
 export * from './destino-da-renda';
+export * from './divergencia-congelado';
 export * from './patrimonio';
 export * from './sugestoes';
 export * from './agregacoes';
