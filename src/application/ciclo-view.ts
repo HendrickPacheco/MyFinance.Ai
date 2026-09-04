@@ -31,6 +31,12 @@ export async function obterEstadoCicloSomenteLeitura(deps: Deps): Promise<Estado
   return resolvido ? montar(deps, resolvido) : null;
 }
 
+/** Estado da tela de Ciclo para um ciclo QUALQUER (inclusive fechado), por id. */
+export async function obterEstadoCicloPorId(deps: Deps, cicloId: string): Promise<EstadoCiclo | null> {
+  const ciclo = await deps.ciclos.obter(cicloId);
+  return ciclo ? montar(deps, { ciclo, pendenciaFechamento: null }) : null;
+}
+
 async function montar(deps: Deps, { ciclo }: CicloResolvido): Promise<EstadoCiclo> {
   const hoje = deps.relogio.hoje();
 
