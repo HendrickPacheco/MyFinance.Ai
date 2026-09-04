@@ -57,8 +57,10 @@ export function PainelDesktop({ estado }: { estado: EstadoPainel }) {
         <ComprometidoLista
           custosFixos={estado.custosFixos}
           fixosTotalCents={estado.fixosTotalCents}
+          divergenciaFixos={estado.divergenciaFixos}
           provisoes={estado.provisoes}
           provisaoMensalTotalCents={estado.provisaoMensalTotalCents}
+          divergenciaProvisao={estado.divergenciaProvisao}
         />
         <ParceladosLista
           parcelados={estado.parcelados}

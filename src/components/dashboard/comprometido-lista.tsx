@@ -17,17 +17,47 @@ import { formatBRL } from '@/shared/dinheiro';
 import { marcarCustoFixoPago } from '@/actions/pagamentos';
 import type { LinhaCustoFixo } from '@/application/dashboard-tipos';
 import type { ProvisaoAnual } from '@/domain/model/entidades';
+import type { DivergenciaCongelado } from '@/domain/finance';
+
+/**
+ * Linha "cadastro de hoje · diferença" abaixo do total congelado, visível só
+ * quando os dois divergem (custo/provisão criado, alterado ou desativado no
+ * meio do ciclo). Some no caso comum — SPEC regra 3, aparência intacta.
+ */
+function NotaDivergencia({ divergencia }: { divergencia: DivergenciaCongelado }) {
+  if (divergencia.diferencaCents === 0) return null;
+
+  const sinal = divergencia.diferencaCents > 0 ? '+' : '−';
+  const diferencaAbs = formatBRL(Math.abs(divergencia.diferencaCents));
+
+  return (
+    <p
+      className="tnum mt-1 text-xs text-muted"
+      title={divergencia.motivoDiferenca ?? undefined}
+    >
+      Cadastro de hoje: {formatBRL(divergencia.cadastradoHojeCents)} · {sinal}
+      {diferencaAbs} que só entra no{' '}
+      <Link href="/ciclo" className="underline underline-offset-2">
+        próximo ciclo (ou recalcule o atual)
+      </Link>
+    </p>
+  );
+}
 
 export function ComprometidoLista({
   custosFixos,
   fixosTotalCents,
+  divergenciaFixos,
   provisoes,
   provisaoMensalTotalCents,
+  divergenciaProvisao,
 }: {
   custosFixos: LinhaCustoFixo[];
   fixosTotalCents: number;
+  divergenciaFixos: DivergenciaCongelado;
   provisoes: ProvisaoAnual[];
   provisaoMensalTotalCents: number;
+  divergenciaProvisao: DivergenciaCongelado;
 }) {
   const provisoesAtivas = provisoes.filter((p) => p.ativo);
 
@@ -90,11 +120,15 @@ export function ComprometidoLista({
               ))}
             </ul>
             <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
-              <span className="text-sm font-medium text-fg">Total fixos</span>
+              <span className="text-sm font-medium text-fg">
+                Total fixos
+                {divergenciaFixos.diferencaCents !== 0 ? ' · congelado neste ciclo' : ''}
+              </span>
               <span className="tnum text-lg font-semibold text-fg">
                 {formatBRL(fixosTotalCents)}
               </span>
             </div>
+            <NotaDivergencia divergencia={divergenciaFixos} />
             <p className="tnum mt-1 text-xs text-muted">
               {pagos} de {custosFixos.length} pagos no ciclo
             </p>
@@ -115,11 +149,15 @@ export function ComprometidoLista({
               ))}
             </ul>
             <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
-              <span className="text-sm font-medium text-fg">Provisão mensal</span>
+              <span className="text-sm font-medium text-fg">
+                Provisão mensal
+                {divergenciaProvisao.diferencaCents !== 0 ? ' · congelado neste ciclo' : ''}
+              </span>
               <span className="tnum text-lg font-semibold text-fg">
                 {formatBRL(provisaoMensalTotalCents)}
               </span>
             </div>
+            <NotaDivergencia divergencia={divergenciaProvisao} />
           </div>
         ) : null}
       </CardContent>

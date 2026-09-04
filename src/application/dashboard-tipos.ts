@@ -11,6 +11,7 @@
  */
 import type { MetodoPagamento, ClassePatrimonio } from '@/domain/model/enums';
 import type { Ciclo, CustoFixo, ProvisaoAnual } from '@/domain/model/entidades';
+import type { DivergenciaCongelado } from '@/domain/finance';
 import type { DataCivil } from '@/shared/data';
 
 /** Faixa de destaque do topo do painel. Nada aqui mistura fixo com variável. */
@@ -188,10 +189,14 @@ export interface EstadoPainel {
   metodos: FatiaMetodo[];
   custosFixos: LinhaCustoFixo[];
   fixosTotalCents: number;
+  /** Congelado do ciclo (`fixosTotalCents`) vs. cadastro de hoje — ver `divergenciaCongelado`. */
+  divergenciaFixos: DivergenciaCongelado;
   parcelados: LinhaParcelada[];
   parceladosTotalCents: number;
   provisoes: ProvisaoAnual[];
   provisaoMensalTotalCents: number;
+  /** Congelado do ciclo (`provisaoMensalTotalCents`) vs. cadastro de hoje — ver `divergenciaCongelado`. */
+  divergenciaProvisao: DivergenciaCongelado;
   /**
    * Categorias para o formulário de lançamento do painel, VARIAVEL primeiro e
    * ordenadas por frequência real de uso no ciclo (as mais usadas na frente).

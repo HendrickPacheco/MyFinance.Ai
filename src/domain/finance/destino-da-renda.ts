@@ -42,6 +42,7 @@ import { assertCentavos } from '@/shared/dinheiro';
 import { contaComoVerbaVariavel } from './teto';
 import { gastoVariavelSemParcelasCents, somarParceladosCents } from './agregacoes';
 import { SEM_CATEGORIA_ID } from './sem-categoria';
+import { divergenciaCongelado } from './divergencia-congelado';
 import type { TransacaoCalc } from './tipos';
 
 export type ChaveBlocoDaRenda =
@@ -281,11 +282,6 @@ const MOTIVO_BASE_NEGATIVA =
   'o que é legítimo em modo recuperação). Um percentual sobre base negativa sai com o ' +
   'sinal trocado e faz um valor grande parecer pequeno.';
 
-const MOTIVO_CUSTOS_FIXOS_DIVERGENTES =
-  'O bloco vale o valor CONGELADO quando o ciclo nasceu (regra 3); o detalhamento por ' +
-  'categoria vale o cadastro de hoje. A diferença é custo fixo criado, alterado ou ' +
-  'desativado no meio do ciclo — o ciclo em curso não é recalculado por isso.';
-
 /**
  * `parteCents` como percentual de `baseCents`, uma casa decimal.
  *
@@ -458,13 +454,13 @@ function resumirCustosFixos(entrada: EntradaDestinoDaRenda): ResumoCustosFixos {
     (total, c) => total + assertCentavos(c.valorCents, 'custoFixo.valorCents'),
     0,
   );
-  const diferencaCents = cadastradosHojeCents - entrada.fixosCents;
+  const divergencia = divergenciaCongelado(entrada.fixosCents, cadastradosHojeCents, 'CUSTO_FIXO');
 
   return {
-    congeladoNoCicloCents: entrada.fixosCents,
-    cadastradosHojeCents,
-    diferencaCents,
-    motivoDiferenca: diferencaCents === 0 ? null : MOTIVO_CUSTOS_FIXOS_DIVERGENTES,
+    congeladoNoCicloCents: divergencia.congeladoNoCicloCents,
+    cadastradosHojeCents: divergencia.cadastradoHojeCents,
+    diferencaCents: divergencia.diferencaCents,
+    motivoDiferenca: divergencia.motivoDiferenca,
     quantidadeCadastrada: entrada.custosFixos.length,
     semCategoria: {
       quantidade: semCategoria.length,
