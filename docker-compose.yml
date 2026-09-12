@@ -1,0 +1,42 @@
+# Deploy do MyFinance.Ai. Ver /root/SERVIDOR.md para o padrao do servidor.
+#
+# REGRA DE OURO: a porta do app e publicada em 127.0.0.1, nunca em 0.0.0.0 —
+# o Docker escreve direto no iptables e contorna o UFW. Quem expoe para a
+# internet e o nginx, com HTTPS.
+
+services:
+  db:
+    # pgvector/pgvector ja traz a extensao `vector` compilada. A imagem
+    # postgres:16 padrao NAO tem, e a migration da memoria do copiloto falha.
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    # SEM `ports:` — o banco so e alcancavel pela rede interna do compose.
+    environment:
+      POSTGRES_USER: myfinance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: myfinance
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myfinance -d myfinance"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Sobrescreve o DATABASE_URL do .env: dentro da rede do compose o host do
+      # banco e `db`, nao localhost.
+      DATABASE_URL: postgresql://myfinance:${POSTGRES_PASSWORD}@db:5432/myfinance?schema=public
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  dbdata:
