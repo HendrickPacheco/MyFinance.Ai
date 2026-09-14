@@ -3,8 +3,9 @@
  * Linha inteira é link para `/historico/[cicloId]` (drill-down).
  *
  * "Gasto total" = fixos + parcelas + variável (os três caminhos que gastam
- * dinheiro, tabela do CLAUDE.md). "Poupança" é dinheiro RESERVADO, nunca
- * gasto — fica em coluna separada com esse rótulo explícito, nunca somada ao
+ * dinheiro, tabela do CLAUDE.md). "Meta" é o ALVO daquele ciclo, não dinheiro
+ * reservado (D-16): o que foi de fato poupado é a coluna "Sobra". As duas ficam
+ * lado a lado de propósito — meta vs. realizado —, e nenhuma delas entra no
  * gasto total (regra 5).
  */
 import Link from 'next/link';
@@ -68,7 +69,7 @@ export function TabelaHistorico({ estado }: { estado: EstadoHistorico }) {
 
   return (
     <Table
-      legenda={`Histórico mês a mês, ${String(totais.meses)} ciclos fechados, com renda, fixos, parcelas, gasto variável, gasto total, poupança-alvo, sobra e patrimônio.`}
+      legenda={`Histórico mês a mês, ${String(totais.meses)} ciclos fechados, com renda, fixos, parcelas, gasto variável, gasto total, meta de poupança, sobra realizada e patrimônio.`}
       className="min-w-[64rem]"
     >
       <THead>
@@ -79,10 +80,12 @@ export function TabelaHistorico({ estado }: { estado: EstadoHistorico }) {
           <Th numerico>Parcelas</Th>
           <Th numerico>Variável</Th>
           <Th numerico>Gasto total</Th>
-          <Th numerico title="Dinheiro reservado, não gasto">
-            Poupança (meta)
+          <Th numerico title="A meta daquele ciclo — alvo, não dinheiro reservado">
+            Meta
           </Th>
-          <Th numerico>Sobra</Th>
+          <Th numerico title="O que sobrou da verba — a poupança que aconteceu de fato">
+            Sobra
+          </Th>
           <Th numerico>Patrimônio</Th>
         </Tr>
       </THead>

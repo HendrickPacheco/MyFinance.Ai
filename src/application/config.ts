@@ -67,7 +67,6 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
   });
   const verbaPrevistaCents = verbaVariavelCents({
     rendaPrevistaCents: config.rendaBaseCents,
-    poupancaAlvoCents: poupancaPrevistaCents,
     fixosCents: fixosTotalCents,
     provisaoMensalCents,
   });
@@ -75,6 +74,7 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
 
   const avisoMetaIrreal = verificarMetaIrreal({
     verbaVariavelCents: verbaPrevistaCents,
+    poupancaAlvoCents: poupancaPrevistaCents,
     diasCiclo: diasCicloPrevisto,
     pisoDiarioCents: config.pisoDiarioVerbaCents,
   });

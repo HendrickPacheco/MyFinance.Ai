@@ -86,9 +86,13 @@ export function distribuirProvisaoMensalCents(valoresAnuaisCents: readonly numbe
 }
 
 /**
- * Poupança-alvo do ciclo. Se `metaPoupancaPercent` está preenchida, ela tem
- * precedência e incide sobre a renda daquele mês (decisão item 2). Percentual
- * expresso em 0–100 (ex.: 20 = 20%).
+ * Poupança-alvo do ciclo — a META, não uma dedução (decisão D-16, 14/09/2026).
+ * NÃO entra em `verbaVariavelCents`: o dono decide quanto poupar gastando
+ * menos que a verba, e o que sobra no fechamento é o aporte real. Quem
+ * subtrair este número da verba volta a tratar meta como gasto certo.
+ *
+ * Se `metaPoupancaPercent` está preenchida, ela tem precedência e incide sobre
+ * a renda daquele mês (decisão item 2). Percentual em 0–100 (ex.: 20 = 20%).
  */
 export function poupancaAlvoCents(params: {
   rendaPrevistaCents: number;
@@ -109,13 +113,18 @@ export function poupancaAlvoCents(params: {
 
 /**
  * Verba variável do ciclo:
- *   renda − poupança − fixos − provisão (+ rollover herdado).
+ *   renda − fixos − provisão (+ rollover herdado).
+ *
+ * A meta de poupança NÃO entra aqui (D-16). Ela é objetivo, não obrigação: a
+ * poupança do ciclo é o que SOBRAR da verba no fechamento. Tratá-la como
+ * dedução transformava um alvo em gasto certo e derrubava o teto diário mesmo
+ * em mês que o dono nunca teve intenção de bater a meta.
+ *
  * Pode ser negativa (renda insuficiente / rollover negativo) — quem trata
  * isso é o modo recuperação, não este cálculo.
  */
 export function verbaVariavelCents(params: ParametrosVerba): number {
   assertCentavos(params.rendaPrevistaCents, 'rendaPrevistaCents');
-  assertCentavos(params.poupancaAlvoCents, 'poupancaAlvoCents');
   assertCentavos(params.fixosCents, 'fixosCents');
   assertCentavos(params.provisaoMensalCents, 'provisaoMensalCents');
   const rollover = params.rolloverRecebidoCents ?? 0;
@@ -123,7 +132,6 @@ export function verbaVariavelCents(params: ParametrosVerba): number {
 
   return (
     params.rendaPrevistaCents -
-    params.poupancaAlvoCents -
     params.fixosCents -
     params.provisaoMensalCents +
     rollover

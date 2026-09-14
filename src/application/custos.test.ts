@@ -136,14 +136,14 @@ describe('desativarCustoFixo', () => {
  */
 describe('reativarCustoFixo', () => {
   // Ciclo coerente com o custo DESATIVADO: fixos zerados e verba cheia
-  // (800.000 renda − 100.000 poupança).
+  // (800.000 de renda — D-16: a meta de poupança não é descontada da verba).
   const CICLO_SEM_O_CUSTO = cicloFake({
     id: 'c1',
     dataInicio: '2026-07-05',
     dataFim: '2026-08-04',
     fechado: false,
     fixosCents: 0,
-    verbaVariavelCents: 700_000,
+    verbaVariavelCents: 800_000,
   });
   const CUSTO_INATIVO = custoFixoFake({ valorCents: 15_000, ativo: false });
 
@@ -173,10 +173,10 @@ describe('reativarCustoFixo', () => {
 
     expect(efeito.recalculou).toBe(true);
     if (!efeito.recalculou) throw new Error('inalcançável — guarda para estreitar a união');
-    expect(efeito.verbaAntesCents).toBe(700_000);
+    expect(efeito.verbaAntesCents).toBe(800_000);
     // Com o custo de R$ 150,00 de volta, a verba cai na mesma medida.
-    expect(efeito.ciclo.verbaCents).toBe(685_000);
-    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(685_000);
+    expect(efeito.ciclo.verbaCents).toBe(785_000);
+    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(785_000);
   });
 
   it('ciclo COM gasto lançado: não recalcula e devolve a verba intacta + a data do próximo ciclo', async () => {
@@ -194,10 +194,10 @@ describe('reativarCustoFixo', () => {
       inicio: '2026-07-05',
       fim: '2026-08-04',
       proximoInicio: '2026-08-05',
-      verbaCents: 700_000,
+      verbaCents: 800_000,
     });
     // O congelamento vale nos dois sentidos: reativar não reescreve o ciclo.
-    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(700_000);
+    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(800_000);
     // Mas o cadastro mudou — é o próximo ciclo que nasce com o custo.
     expect((await d.custosFixos.obter('cf-1'))?.ativo).toBe(true);
   });
@@ -263,7 +263,7 @@ describe('reativarProvisao', () => {
     dataFim: '2026-08-04',
     fechado: false,
     provisaoMensalCents: 0,
-    verbaVariavelCents: 700_000,
+    verbaVariavelCents: 800_000,
   });
   const PROVISAO_INATIVA = provisaoFake({ valorAnualCents: 120_000, ativo: false });
 
@@ -291,8 +291,8 @@ describe('reativarProvisao', () => {
 
     expect(efeito.recalculou).toBe(true);
     if (!efeito.recalculou) throw new Error('inalcançável — guarda para estreitar a união');
-    expect(efeito.verbaAntesCents).toBe(700_000);
-    expect(efeito.ciclo.verbaCents).toBe(690_000);
+    expect(efeito.verbaAntesCents).toBe(800_000);
+    expect(efeito.ciclo.verbaCents).toBe(790_000);
   });
 
   it('ciclo COM gasto lançado: não recalcula e a verba do ciclo segue congelada', async () => {
@@ -310,9 +310,9 @@ describe('reativarProvisao', () => {
       inicio: '2026-07-05',
       fim: '2026-08-04',
       proximoInicio: '2026-08-05',
-      verbaCents: 700_000,
+      verbaCents: 800_000,
     });
-    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(700_000);
+    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(800_000);
   });
 
   it('não mexe no acumulado, que seguiu existindo enquanto ela estava desativada', async () => {
@@ -494,14 +494,14 @@ describe('achado 2 — fakes de salvar() não podem colidir em id vazio', () => 
 describe('efeito no ciclo atual — a mensagem é bifurcada', () => {
   const CUSTO = custoFixoFake({ valorCents: 15_000 });
   // Ciclo coerente com o custo acima: fixos 15.000 e verba já descontada
-  // (800.000 renda − 100.000 poupança − 15.000 fixos).
+  // (800.000 de renda − 15.000 de fixos; a meta não entra — D-16).
   const CICLO_COM_CUSTO = cicloFake({
     id: 'c1',
     dataInicio: '2026-07-05',
     dataFim: '2026-08-04',
     fechado: false,
     fixosCents: 15_000,
-    verbaVariavelCents: 685_000,
+    verbaVariavelCents: 785_000,
   });
 
   it('ciclo COM gasto lançado: não recalcula e devolve a verba intacta + a data do próximo ciclo', async () => {
@@ -520,9 +520,9 @@ describe('efeito no ciclo atual — a mensagem é bifurcada', () => {
       inicio: '2026-07-05',
       fim: '2026-08-04',
       proximoInicio: '2026-08-05',
-      verbaCents: 685_000,
+      verbaCents: 785_000,
     });
-    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(685_000);
+    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(785_000);
   });
 
   it('ciclo SEM gasto nenhum: recalcula e devolve verba antes e depois', async () => {
@@ -536,11 +536,11 @@ describe('efeito no ciclo atual — a mensagem é bifurcada', () => {
 
     expect(efeito.recalculou).toBe(true);
     if (!efeito.recalculou) throw new Error('inalcançável — guarda para estreitar a união');
-    expect(efeito.verbaAntesCents).toBe(685_000);
-    // Sem o custo de R$ 150,00, a verba sobe para renda − poupança.
-    expect(efeito.ciclo.verbaCents).toBe(700_000);
+    expect(efeito.verbaAntesCents).toBe(785_000);
+    // Sem o custo de R$ 150,00, a verba sobe para a renda cheia.
+    expect(efeito.ciclo.verbaCents).toBe(800_000);
     expect(efeito.ciclo.proximoInicio).toBe('2026-08-05');
-    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(700_000);
+    expect((await d.ciclos.obter('c1'))?.verbaVariavelCents).toBe(800_000);
   });
 
   it('excluir também devolve o efeito, pelo mesmo caminho', async () => {
@@ -554,8 +554,8 @@ describe('efeito no ciclo atual — a mensagem é bifurcada', () => {
 
     expect(efeito.recalculou).toBe(true);
     if (!efeito.recalculou) throw new Error('inalcançável — guarda para estreitar a união');
-    expect(efeito.verbaAntesCents).toBe(685_000);
-    expect(efeito.ciclo.verbaCents).toBe(700_000);
+    expect(efeito.verbaAntesCents).toBe(785_000);
+    expect(efeito.ciclo.verbaCents).toBe(800_000);
   });
 
   it('sem ciclo aberto nenhum: não recalcula e não inventa um período', async () => {
@@ -569,7 +569,7 @@ describe('efeito no ciclo atual — a mensagem é bifurcada', () => {
   it('provisão segue o mesmo contrato', async () => {
     const d = criarDeps({
       ator: ATOR_OWNER,
-      ciclos: [cicloFake({ id: 'c1', fechado: false, provisaoMensalCents: 10_000, verbaVariavelCents: 690_000 })],
+      ciclos: [cicloFake({ id: 'c1', fechado: false, provisaoMensalCents: 10_000, verbaVariavelCents: 790_000 })],
       provisoes: [provisaoFake({ valorAnualCents: 120_000, acumuladoCents: 0 })],
     });
 
@@ -577,7 +577,7 @@ describe('efeito no ciclo atual — a mensagem é bifurcada', () => {
 
     expect(efeito.recalculou).toBe(true);
     if (!efeito.recalculou) throw new Error('inalcançável — guarda para estreitar a união');
-    expect(efeito.verbaAntesCents).toBe(690_000);
-    expect(efeito.ciclo.verbaCents).toBe(700_000);
+    expect(efeito.verbaAntesCents).toBe(790_000);
+    expect(efeito.ciclo.verbaCents).toBe(800_000);
   });
 });

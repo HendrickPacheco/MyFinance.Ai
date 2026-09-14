@@ -442,8 +442,9 @@ async function montarMetas(deps: Deps, ciclo: Ciclo, kpis: KpisPainel): Promise<
   try {
     const config = await deps.config.obter();
 
-    // Projeção = alvo + sobra PROJETADA pelo ritmo real (nunca saldo
+    // D-16: projeção = sobra PROJETADA pelo ritmo real (nunca saldo
     // ainda-não-gasto — ver `projetarPoupanca`, domain/finance/agregacoes.ts).
+    // O alvo entra só como denominador do progresso.
     const { poupancaProjetadaCents, progressoPercentual } = projetarPoupanca({
       poupancaAlvoCents: ciclo.poupancaAlvoCents,
       sobraProjetadaCents: kpis.sobraProjetadaCents,
@@ -452,6 +453,7 @@ async function montarMetas(deps: Deps, ciclo: Ciclo, kpis: KpisPainel): Promise<
     const avisoMetaIrreal = config
       ? verificarMetaIrreal({
           verbaVariavelCents: ciclo.verbaVariavelCents,
+          poupancaAlvoCents: ciclo.poupancaAlvoCents,
           diasCiclo: kpis.diasTotais,
           pisoDiarioCents: config.pisoDiarioVerbaCents,
         })

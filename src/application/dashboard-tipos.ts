@@ -29,8 +29,9 @@ export interface KpisPainel {
   diasTotais: number;
   /**
    * Projeção do que sobra DA VERBA VARIÁVEL no fim do ciclo, mantido o ritmo
-   * atual. NÃO é a poupança do mês — a meta já foi reservada antes da verba
-   * existir. Rotule como "sobra da verba", nunca como "sobra" solta.
+   * atual. D-16: é ESTA sobra que vira a poupança do mês — a meta não foi
+   * reservada em lugar nenhum. Rotule como "sobra da verba", nunca como
+   * "sobra" solta.
    */
   sobraProjetadaCents: number;
   emRecuperacao: boolean;
@@ -159,15 +160,17 @@ export interface ResumoPatrimonioPainel {
 export interface ResumoMetas {
   poupancaAlvoCents: number;
   /**
-   * Projeção de poupança no fechamento = alvo + sobra PROJETADA da verba pelo
-   * ritmo real de gasto. Pode ficar abaixo do alvo se o usuário estourar a
-   * verba (sobra projetada negativa). NUNCA use saldo-ainda-não-gasto como se
+   * Projeção de poupança no fechamento = a sobra PROJETADA da verba pelo ritmo
+   * real de gasto (D-16: a meta não entra, ela é só o alvo). Fica abaixo do
+   * alvo sempre que o ritmo de gasto não deixa a meta sobrar, e negativa se o
+   * usuário estourar a verba. NUNCA use saldo-ainda-não-gasto como se
    * fosse poupado: no primeiro dia do ciclo isso dá 100% de progresso sempre,
    * e apresenta como conquistado dinheiro que ainda pode ser gasto (SPEC 13).
    */
   poupancaProjetadaCents: number;
   /**
-   * A parcela da projeção que vem da verba (= projetada − alvo). Vem pronta do
+   * A sobra projetada da verba — desde a D-16 igual a `poupancaProjetadaCents`,
+   * mantida à parte porque é ela que o texto explicativo cita. Vem pronta do
    * read-model porque componente não faz aritmética monetária (SPEC 13).
    */
   sobraDaVerbaCents: number;

@@ -32,7 +32,14 @@ function custoFixoFake(patch: Partial<CustoFixo> = {}): CustoFixo {
   };
 }
 
-/** Ciclo atual congelado cobrindo HOJE (diaRecebimento 5 da CONFIG_PADRAO). */
+/**
+ * Ciclo atual congelado cobrindo HOJE (diaRecebimento 5 da CONFIG_PADRAO).
+ *
+ * A verba gravada é R$ 4.900 — nasceu ANTES da D-16, quando a meta ainda era
+ * descontada (800.000 − 100.000 − 200.000 − 10.000). Com a fórmula de hoje as
+ * mesmas partes dariam 590.000, e é exatamente esse o ponto: a verba do ciclo
+ * é CONGELADA (regra de ouro 3) e nenhuma mudança de regra a reescreve.
+ */
 function cicloAtualFake() {
   return cicloFake({
     id: 'ciclo-atual',
@@ -209,16 +216,18 @@ describe('obterProjecao — decisão D-11 com dado real', () => {
     expect(atual.parcelasComprometidasCents).toBe(50_000);
     expect(atual.verbaLivreCents).toBe(440_000);
 
-    // E confere com a função do motor chamada isoladamente.
-    expect(atual.verbaVariavelCents).toBe(
+    // E o motor chamado isoladamente sobre as MESMAS partes dá outro número:
+    // desde a D-16 a meta de poupança não entra na fórmula, então 590.000. A
+    // projeção não reescreve o congelado com ele — só lê.
+    expect(
       verbaVariavelCents({
         rendaPrevistaCents: 800_000,
-        poupancaAlvoCents: 100_000,
         fixosCents: 200_000,
         provisaoMensalCents: 10_000,
         rolloverRecebidoCents: 0,
       }),
-    );
+    ).toBe(590_000);
+    expect(atual.verbaVariavelCents).not.toBe(590_000);
   });
 
   it('não duplica a parcela quando ela cai na fronteira entre os dois segmentos', async () => {

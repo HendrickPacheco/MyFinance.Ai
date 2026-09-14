@@ -29,8 +29,9 @@ const FOLGA_HORIZONTE = 2;
 
 const ROTULOS = {
   verbaVariavel:
-    'verba do ciclo, com renda − poupança − fixos − provisão JÁ descontados; ' +
-    'só as parcelas ainda não foram',
+    'verba do ciclo, com fixos e provisão JÁ descontados da renda; as parcelas ' +
+    'ainda não foram, e a meta de poupança NÃO é descontada (D-16): o dinheiro ' +
+    'dela está aqui dentro e só vira poupança se sobrar',
   parcelasComprometidas: 'já preso em parcelas que caem no ciclo',
   verbaLivre: 'o que sobra de verdade: verba variável menos parcelas',
 } as const;
@@ -130,9 +131,11 @@ function montarSaidaCenario(
 
 const ROTULOS_META_PRAZO = {
   aportePrevisto:
-    'a poupança-alvo daquele ciclo; no ciclo atual, reduzida quando o gasto ' +
-    'já realizado estourou a verba variável (ver reduzidoPorGastoExcedente)',
-  aporteDisponivelPadrao: 'a poupança-alvo de um ciclo SEM o ajuste do excedente — a referência de "quanto normalmente sobra"',
+    'o que dá para guardar naquele ciclo: o que sobra da verba livre depois do ' +
+    'gasto já realizado, com teto na meta de poupança. Fica abaixo da meta ' +
+    'sempre que a verba livre não chega a ela — não só quando houve estouro ' +
+    '(ver reduzidoPorGastoExcedente)',
+  aporteDisponivelPadrao: 'o aporte de um ciclo SEM gasto já realizado — a referência de "quanto normalmente sobra"',
   aportePorCicloNecessario: 'o aporte constante que bateria o alvo exatamente no prazo',
   sobraPorCiclo: 'aporteDisponivelPadrao − aportePorCicloNecessario; negativo quer dizer que falta poupar mais que o normal',
 } as const;
@@ -173,9 +176,10 @@ export async function simularMetaPrazoFerramenta(
       ...(ciclo.reduzidoPorGastoExcedente
         ? {
             motivoReducao:
-              `A meta cheia deste ciclo é ${formatBRL(ciclo.poupancaAlvoOriginalCents)}, mas o gasto já ` +
-              `realizado estourou a verba variável em ${formatBRL(ciclo.reducaoPorExcedenteCents)}. ` +
-              'Esse excedente sai da própria poupança do ciclo — é o mesmo dinheiro, não um segundo buraco.',
+              `A meta cheia deste ciclo é ${formatBRL(ciclo.poupancaAlvoOriginalCents)}, mas o que dá ` +
+              `para guardar aqui é ${formatBRL(ciclo.aportePrevistoCents)} — ${formatBRL(ciclo.reducaoPorExcedenteCents)} ` +
+              'a menos. A meta não é descontada da verba (D-16): o aporte é o que sobra da verba livre ' +
+              'depois do gasto já realizado, com teto na própria meta.',
           }
         : {}),
       ...dinheiros({

@@ -1,6 +1,9 @@
 /**
- * Card "Composição da verba" (SPEC 7): renda prevista − poupança − fixos −
- * provisão (+ rollover se ≠0) = verba variável. Puramente apresentacional —
+ * Card "Composição da verba" (SPEC 7): renda prevista − fixos − provisão
+ * (+ rollover se ≠0) = verba variável. A meta de poupança NÃO aparece aqui
+ * (D-16): ela é objetivo, não dedução, e sai da verba só se o dono gastar
+ * menos. Quem a listar como "−" volta a mostrá-la como gasto certo.
+ * Puramente apresentacional —
  * sem interação, então fica Server Component.
  */
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
@@ -17,7 +20,6 @@ interface LinhaComposicao {
 export function ComposicaoVerbaCard({ ciclo }: { ciclo: Ciclo }) {
   const linhas: LinhaComposicao[] = [
     { rotulo: 'Renda prevista', valorCents: ciclo.rendaPrevistaCents, sinal: 1 },
-    { rotulo: 'Poupança alvo', valorCents: ciclo.poupancaAlvoCents, sinal: -1 },
     { rotulo: 'Custos fixos', valorCents: ciclo.fixosCents, sinal: -1 },
     { rotulo: 'Provisão mensal', valorCents: ciclo.provisaoMensalCents, sinal: -1 },
   ];

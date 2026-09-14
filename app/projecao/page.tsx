@@ -65,8 +65,7 @@ export default async function ProjecaoPage({
       <header>
         <h1 className="text-lg font-semibold text-fg">Projeção</h1>
         <p className="mt-1 text-sm text-muted">
-          Quanto sobra por mês depois de fixos, provisão, poupança e parcelas — e quando a verba
-          respira.
+          Quanto sobra por mês depois de fixos, provisão e parcelas — e quando a verba respira.
         </p>
       </header>
 

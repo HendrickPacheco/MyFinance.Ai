@@ -67,8 +67,9 @@ export async function estadoCiclo(deps: Deps): Promise<SaidaFerramenta> {
     ritmo: estado.ritmo.ritmo,
     rotulos: {
       verbaVariavel:
-        'verba do ciclo, com renda − poupança − fixos − provisão JÁ descontados; ' +
-        'só as parcelas ainda não foram',
+        'verba do ciclo, com fixos e provisão JÁ descontados da renda; as parcelas ' +
+        'ainda não foram, e a meta de poupança NÃO é descontada (D-16): o dinheiro ' +
+        'dela está aqui dentro e só vira poupança se sobrar',
       parcelasComprometidas: 'já preso em parcelas que caem neste ciclo',
       verbaLivre: 'o que sobra de verdade: verba variável menos parcelas',
     },

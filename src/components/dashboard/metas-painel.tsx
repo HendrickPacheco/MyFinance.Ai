@@ -1,10 +1,10 @@
 /**
  * Metas traçadas vs. realizado — o outro furo da planilha do usuário
- * (briefing do pedido). Mostra a poupança do mês por completo: a meta já
- * reservada (`poupancaAlvoCents`) e a projeção no fechamento somando a sobra
- * DA VERBA VARIÁVEL (`poupancaProjetadaCents` = alvo + sobra). A sobra da
- * verba nunca aparece sozinha rotulada como "sobra" — sempre com o contexto
- * de que é a projeção da verba, não a poupança inteira do mês. Barra de
+ * (briefing do pedido). D-16: a meta (`poupancaAlvoCents`) é OBJETIVO, não
+ * dinheiro já reservado — ela não é descontada da verba. A poupança do mês é a
+ * sobra projetada da verba (`poupancaProjetadaCents`), e a meta é só a régua
+ * do progresso. Nada aqui pode chamar a meta de "reservado": o dinheiro dela
+ * continua disponível para gastar até o ciclo fechar. Barra de
  * progresso reaproveita o padrão visual do `RitmoCard` (SPEC 7 /
  * src/components/ciclo/ritmo-card.tsx).
  */
@@ -37,13 +37,13 @@ export function MetasPainel({ metas }: { metas: ResumoMetas }) {
       <CardContent>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-xs text-muted">Meta reservada</p>
+            <p className="text-xs text-muted">Meta do mês</p>
             <p className="tnum mt-0.5 text-lg font-medium text-fg">
               {formatBRL(poupancaAlvoCents)}
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted">Projeção no fechamento</p>
+            <p className="text-xs text-muted">Projeção de poupança</p>
             <p
               className={cn(
                 'tnum mt-0.5 text-lg font-medium',
@@ -56,12 +56,13 @@ export function MetasPainel({ metas }: { metas: ResumoMetas }) {
         </div>
 
         <p className="mt-2 text-xs text-muted">
-          Meta reservada ({formatBRL(poupancaAlvoCents)}) + sobra da verba (projeção),{' '}
+          A meta não sai da sua verba: ela é o objetivo. O que você vai poupar é o que sobrar da
+          verba no fechamento — projeção de{' '}
           <span className={cn('tnum', sobraDaVerbaCents < 0 ? 'text-negativo' : 'text-fg')}>
             {formatBRL(sobraDaVerbaCents)}
-          </span>
-          . A sobra da verba não é poupança garantida — some ao fechar o ciclo sem estourar o
-          orçamento variável.
+          </span>{' '}
+          no ritmo de gasto atual. Para bater a meta de {formatBRL(poupancaAlvoCents)}, gaste
+          menos que isso.
         </p>
 
         <div className="mt-4">

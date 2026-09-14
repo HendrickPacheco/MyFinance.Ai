@@ -106,9 +106,14 @@ export async function obterResumoFechamento(deps: Deps, ciclo: Ciclo): Promise<R
   const anteriores = await deps.ciclos.ultimosFechados(1);
   const anterior = anteriores[0];
   let metaSugeridaCents: number | null = null;
+  // D-16: a sobra NÃO é um extra em cima da meta — ela É a poupança do ciclo,
+  // porque a meta não é mais descontada da verba. Somar as duas sugeriria uma
+  // meta que ninguém nunca atingiu. A sugestão é a menor sobra das duas, e só
+  // quando ela supera a meta vigente (senão seria sugerir baixar a meta por ter
+  // gasto muito, que é o incentivo invertido).
   if (sobra > 0 && anterior && (anterior.sobraCents ?? 0) > 0) {
     const menorSobra = Math.min(sobra, anterior.sobraCents ?? 0);
-    metaSugeridaCents = ciclo.poupancaAlvoCents + menorSobra;
+    if (menorSobra > ciclo.poupancaAlvoCents) metaSugeridaCents = menorSobra;
   }
 
   const itensPatrimonioSugeridos = await sugestaoItensSnapshot(deps);
@@ -214,7 +219,10 @@ export async function fecharCiclo(
   }
 
   // 6) Taxa de poupança efetiva.
-  const poupado = cicloAtual.poupancaAlvoCents + poupadoExtra;
+  // D-16: poupado = o que SOBROU e foi para uma conta. A meta não entra: ela é
+  // objetivo, e contá-la aqui reportaria como poupada uma reserva que nunca
+  // aconteceu num ciclo em que o dono gastou a verba inteira.
+  const poupado = poupadoExtra;
   const taxaPoupancaEfetiva =
     input.rendaRealizadaCents > 0 ? poupado / input.rendaRealizadaCents : 0;
 

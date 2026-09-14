@@ -116,8 +116,23 @@ Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçad
 - Parcelamento gera N transações com competência `dataCompra + k meses` (clamp de fim de
   mês); o `cicloId` é vinculado por data quando o ciclo nasce.
 - **Sem piso diário hardcoded**: o teto é 100% derivado da verba, e a verba é
-  `renda − poupança − fixos − provisão (+ rollover)` — ver `verbaVariavelCents`
+  `renda − fixos − provisão (+ rollover)` — ver `verbaVariavelCents`
   em `src/domain/finance/verba.ts`.
+- **A meta de poupança é OBJETIVO, não dedução** (decisão D-16, 14/09/2026). Ela
+  não entra em `verbaVariavelCents`: o dinheiro da meta continua dentro da verba,
+  e a poupança do ciclo é o que SOBRA no fechamento. `Ciclo.poupancaAlvoCents`
+  segue congelada, mas só como régua de comparação — nenhuma tela pode chamá-la
+  de "reservada" nem listá-la com sinal "−" ao lado de fixos e provisão.
+  Consequências que já foram aplicadas e não podem regredir:
+  - `projetarPoupanca` devolve a sobra projetada, não `alvo + sobra`.
+  - o bloco `POUPANCA` de "Para onde vai a renda" não existe mais — o dinheiro
+    está em `DISPONIVEL_PARA_GASTAR`, e a identidade dos blocos fecha assim.
+  - `verificarMetaIrreal` desconta a meta ELE MESMO (`(verba − meta)/dias`):
+    comparar a verba cheia com o piso faria o aviso nunca disparar.
+  - `sugerirMetaPoupancaCents` sugere a menor SOBRA dos ciclos recentes, e a
+    taxa de poupança do fechamento conta só o que foi de fato para uma conta.
+  - a saída de IA `composicaoDaVerba` diz `metaDePoupancaJaEstaNaVerba: false` e
+    explica que bater a meta exige gastar no máximo `verba − meta`.
 - **Razão e realidade são fontes distintas, conciliadas — nunca sincronizadas em
   silêncio** (decisão D-13, 11/08/2026). `Conta.saldoCents` é o *razão*: o que o app
   calculou a partir de transações e fechamentos. `ItemPatrimonio.valorCents` é a

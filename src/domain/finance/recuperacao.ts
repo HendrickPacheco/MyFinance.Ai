@@ -16,7 +16,10 @@ export interface SaidaRecuperacao {
   deficitCents: number;
   /** Saída (a): gasto zero pelos próximos N dias restantes. */
   gastoZero: { diasSemGastar: number };
-  /** Saída (b): puxar X da reserva (e reduzir a meta de poupança em X neste ciclo). */
+  /** Saída (b): puxar X da reserva para dentro da verba deste ciclo. Desde a
+   * D-16 isso NÃO reduz a meta de poupança — a meta nunca foi descontada da
+   * verba, então não há o que abater; o valor puxado é dinheiro da reserva
+   * entrando no disponível, e fica declarado como tal. */
   puxarDaReserva: { valorCents: number };
 }
 
