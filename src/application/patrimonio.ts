@@ -173,7 +173,7 @@ export async function custoMensalMedio(deps: Deps): Promise<number | null> {
  * consumiria o teto diário e apareceria na análise por categoria — a diferença
  * entre razão e realidade não é um gasto de hoje, é correção de um registro que
  * ficou para trás. `Conta.saldoCents` não entra no cálculo da verba (verba vem
- * de renda − poupança − fixos − provisão), então mexer nele não distorce teto.
+ * de renda − fixos − provisão), então mexer nele não distorce teto.
  *
  * Recalcula o delta a partir do estado atual em vez de confiar num valor vindo
  * da tela: entre o render e o clique o saldo pode ter mudado, e aplicar um

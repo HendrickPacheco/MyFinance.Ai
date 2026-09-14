@@ -153,6 +153,7 @@ function montarCiclo(params: {
   // Reusa a divisão do motor em vez de repeti-la aqui.
   const piso = verificarMetaIrreal({
     verbaVariavelCents: verbaLivre,
+    poupancaAlvoCents: params.poupancaAlvoCents,
     diasCiclo: diasTotais,
     pisoDiarioCents: params.pisoDiarioVerbaCents,
   });
@@ -267,7 +268,6 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
     // Chamada idêntica à de `garantirCicloAtual` — SEM parâmetro de parcela.
     const verbaVariavel = verbaVariavelCents({
       rendaPrevistaCents: rendaDosCiclosFuturos,
-      poupancaAlvoCents: poupanca,
       fixosCents: fixosDoCiclo,
       provisaoMensalCents: provisao,
       rolloverRecebidoCents,

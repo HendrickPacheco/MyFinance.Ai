@@ -47,7 +47,6 @@ type ModuloRecharts = typeof import('recharts');
 const CHAVE_DADO: Record<SerieProjecao, string> = {
   fixos: 'fixosCents',
   provisao: 'provisaoMensalCents',
-  poupanca: 'poupancaAlvoCents',
   parcelas: 'parcelasComprometidasCents',
   verbaLivre: 'verbaLivrePlotCents',
 };

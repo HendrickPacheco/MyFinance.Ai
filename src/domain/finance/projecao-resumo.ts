@@ -129,14 +129,12 @@ export function contarAbaixoDoPiso(flags: readonly boolean[]): number {
 export function totalComposicaoCents(partes: {
   fixosCents: number;
   provisaoMensalCents: number;
-  poupancaAlvoCents: number;
   parcelasComprometidasCents: number;
   verbaLivreCents: number;
 }): number {
   return somaCents([
     partes.fixosCents,
     partes.provisaoMensalCents,
-    partes.poupancaAlvoCents,
     partes.parcelasComprometidasCents,
     partes.verbaLivreCents,
   ]);

@@ -26,11 +26,13 @@ export function dinheiros(valores: Record<string, number>): SaidaFerramenta {
 /**
  * Decomposição da verba variável, para toda ferramenta que a expõe.
  *
- * Origem (11/08/2026): o dono afirmou que a meta de poupança já sai da verba —
- * está certo, é literalmente `verbaVariavelCents` em domain/finance/verba.ts —
- * e o copiloto RESPONDEU QUE NÃO. Ele não tinha como saber: recebia
- * `verbaVariavel` como número atômico, e o rótulo "antes de descontar parcela"
- * ainda sugeria que nada havia sido descontado.
+ * Origem (11/08/2026): o copiloto negou ao dono um fato do próprio motor por
+ * receber `verbaVariavel` como número atômico, sem as partes que o formam.
+ *
+ * Desde a D-16 (14/09/2026) o fato é o OPOSTO — a meta de poupança não é
+ * descontada da verba — e a lição é a mesma: sem as partes, o modelo chuta.
+ * Aqui a saída diz explicitamente que a meta continua DENTRO da verba e o que
+ * o dono precisa fazer para bater a meta.
  *
  * Um número derivado que chega sem suas partes convida o modelo a inventar de
  * onde ele veio — inventando uma causa (caso do patrimônio) ou negando um fato
@@ -46,20 +48,22 @@ export function composicaoDaVerba(params: {
 }): SaidaFerramenta {
   return {
     composicaoDaVerba: {
-      formula: 'verbaVariavel = renda − poupança − fixos − provisão + rollover',
+      formula: 'verbaVariavel = renda − fixos − provisão + rollover',
       ...dinheiros({
         renda: params.rendaPrevistaCents,
-        poupancaJaDescontada: params.poupancaAlvoCents,
+        metaDePoupancaNaoDescontada: params.poupancaAlvoCents,
         fixosJaDescontados: params.fixosCents,
         provisaoJaDescontada: params.provisaoMensalCents,
         rollover: params.rolloverRecebidoCents,
       }),
-      metaDePoupancaJaEstaNaVerba: true,
+      metaDePoupancaJaEstaNaVerba: false,
       observacao:
-        'A meta de poupança JÁ foi subtraída para chegar em verbaVariavel. Ela não ' +
-        'aparece como linha separada porque não é um gasto do ciclo — é dinheiro que ' +
-        'nunca entrou na verba. Nunca diga que a meta não está descontada, e nunca ' +
-        'sugira separá-la de novo a partir da verba livre: isso a contaria duas vezes.',
+        'A meta de poupança NÃO foi subtraída de verbaVariavel (decisão D-16): ela é um ' +
+        'OBJETIVO, não um gasto certo. O dinheiro da meta ainda está dentro da verba, e ' +
+        'só vira poupança se o dono gastar menos que a verba — a poupança do ciclo é a ' +
+        'sobra no fechamento. Portanto: para bater a meta, ele precisa gastar no máximo ' +
+        'verbaVariavel − metaDePoupancaNaoDescontada. Nunca diga que a meta já está ' +
+        'descontada da verba, e nunca some a meta de volta à verba: ela já está lá.',
     },
   };
 }

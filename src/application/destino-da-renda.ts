@@ -62,7 +62,6 @@ export async function obterDestinoDaRendaSomenteLeitura(
     hoje,
     fimDoCiclo: ciclo.dataFim,
     rendaPrevistaCents: ciclo.rendaPrevistaCents,
-    poupancaAlvoCents: ciclo.poupancaAlvoCents,
     fixosCents: ciclo.fixosCents,
     provisaoMensalCents: ciclo.provisaoMensalCents,
     verbaVariavelCents: ciclo.verbaVariavelCents,

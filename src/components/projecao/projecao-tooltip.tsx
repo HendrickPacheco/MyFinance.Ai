@@ -26,8 +26,6 @@ export function valorDaSerie(linha: LinhaProjecao, serie: SerieProjecao): number
       return linha.fixosCents;
     case 'provisao':
       return linha.provisaoMensalCents;
-    case 'poupanca':
-      return linha.poupancaAlvoCents;
     case 'parcelas':
       return linha.parcelasComprometidasCents;
     case 'verbaLivre':

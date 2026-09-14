@@ -10,7 +10,7 @@
  * `verba.ts`). Por isso os três campos abaixo coexistem, cada um com o rótulo
  * do bolso de onde vem:
  *
- *   verbaVariavelCents        renda − poupança − fixos − provisão (+ rollover)
+ *   verbaVariavelCents        renda − fixos − provisão (+ rollover)
  *   parcelasComprometidasCents  soma das parcelas que caem no ciclo
  *   verbaLivreCents           verbaVariavel − parcelasComprometidas
  *
@@ -178,7 +178,8 @@ export interface CicloProjetado {
   fixosCents: number;
   provisaoMensalCents: number;
 
-  /** Verba do motor: renda − poupança − fixos − provisão (+ rollover).
+  /** Verba do motor: renda − fixos − provisão (+ rollover). A meta de poupança
+   * NÃO entra (D-16) — ver `poupancaAlvoCents`, que viaja ao lado como alvo.
    * NÃO desconta parcela — ver o cabeçalho deste arquivo. */
   verbaVariavelCents: number;
   /** Soma das obrigações futuras que caem no intervalo do ciclo.

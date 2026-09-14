@@ -141,8 +141,9 @@ describe('destinação da sobra (Config.destinoSobra + destinoSobraContaId)', ()
 
     expect(r.sobraCents).toBe(-50_000);
     expect(deps.contas.saldoDe('reserva')).toBe(950_000);
-    // Déficit não conta como poupança extra.
-    expect(r.taxaPoupancaEfetiva).toBeCloseTo(100_000 / 800_000, 10);
+    // D-16: poupado é o que SOBROU e foi para uma conta. Com déficit não sobrou
+    // nada — e a meta não entra na conta: ela é objetivo, não poupança feita.
+    expect(r.taxaPoupancaEfetiva).toBe(0);
   });
 
   it('sobra ZERO não gera ajuste de saldo', async () => {
@@ -166,7 +167,9 @@ describe('destinação da sobra (Config.destinoSobra + destinoSobraContaId)', ()
 
     expect(deps.contas.ajustes).toEqual([]);
     expect(primeiro(deps.ciclos.itens).sobraCents).toBe(500_000);
-    expect(r.taxaPoupancaEfetiva).toBeCloseTo(100_000 / 800_000, 10);
+    // D-16: no ROLLOVER a sobra não vai para conta nenhuma neste fechamento —
+    // ela vira verba do próximo ciclo. Nada foi poupado aqui.
+    expect(r.taxaPoupancaEfetiva).toBe(0);
   });
 
   it('INVESTIMENTO também usa destinoSobraContaId', async () => {
@@ -312,7 +315,9 @@ describe('renda realizada é INPUT do usuário, não somatório de transações'
     const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 512_345 });
 
     expect(primeiro(deps.ciclos.itens).rendaRealizadaCents).toBe(512_345);
-    expect(r.taxaPoupancaEfetiva).toBeCloseTo((100_000 + 700_000) / 512_345, 10);
+    // D-16: poupado = só a sobra destinada à reserva (a verba inteira, já que
+    // RENDA não é gasto). A meta-alvo não é somada.
+    expect(r.taxaPoupancaEfetiva).toBeCloseTo(700_000 / 512_345, 10);
   });
 
   it('renda realizada zero não divide por zero — taxa é 0', async () => {
@@ -349,26 +354,43 @@ describe('recalibração de meta (passo 5 do wizard / SPEC regra 12)', () => {
 
   it('sugere aumento só quando SOBROU com folga em 2 ciclos seguidos', async () => {
     const deps = cenario({
+      ciclos: [cicloAberto(), anteriorFechado(200_000)],
+      transacoes: [transacaoFake({ id: 't1', valorCents: 550_000, cicloId: 'c-julho' })],
+    });
+
+    const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
+
+    // D-16: a sobra É a poupança do ciclo (a meta não é mais descontada da
+    // verba), então a sugestão é a MENOR das duas sobras — nunca a soma da meta
+    // com a sobra, que sugeriria um valor que ninguém nunca atingiu.
+    expect(resumo.sobraCents).toBe(150_000);
+    expect(resumo.metaSugeridaCents).toBe(150_000);
+  });
+
+  it('usa a menor sobra quando a anterior foi menor', async () => {
+    const deps = cenario({
+      ciclos: [cicloAberto(), anteriorFechado(120_000)],
+      transacoes: [transacaoFake({ id: 't1', valorCents: 550_000, cicloId: 'c-julho' })],
+    });
+
+    const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
+
+    expect(resumo.metaSugeridaCents).toBe(120_000);
+  });
+
+  it('NÃO sugere quando a menor sobra não supera a meta vigente', async () => {
+    // Sobra atual 50.000 e anterior 80.000, contra uma meta de 100.000: as duas
+    // ficaram ABAIXO do alvo. Sugerir a menor delas seria baixar a meta por ter
+    // gasto muito — incentivo invertido (D-16).
+    const deps = cenario({
       ciclos: [cicloAberto(), anteriorFechado(80_000)],
       transacoes: [transacaoFake({ id: 't1', valorCents: 650_000, cicloId: 'c-julho' })],
     });
 
     const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
 
-    // sobra atual = 50.000; anterior = 80.000 -> sobe pela MENOR das duas.
     expect(resumo.sobraCents).toBe(50_000);
-    expect(resumo.metaSugeridaCents).toBe(150_000); // 100.000 + 50.000
-  });
-
-  it('usa a menor sobra quando a anterior foi menor', async () => {
-    const deps = cenario({
-      ciclos: [cicloAberto(), anteriorFechado(20_000)],
-      transacoes: [transacaoFake({ id: 't1', valorCents: 650_000, cicloId: 'c-julho' })],
-    });
-
-    const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
-
-    expect(resumo.metaSugeridaCents).toBe(120_000);
+    expect(resumo.metaSugeridaCents).toBeNull();
   });
 
   it('NÃO sugere aumento quando o ciclo anterior teve déficit', async () => {

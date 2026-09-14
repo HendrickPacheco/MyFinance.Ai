@@ -107,7 +107,8 @@ export async function paraOndeVaiARenda(
       naoExplicado: destino.naoExplicadoCents,
     }),
     // A decomposição canônica da verba (D-15) viaja junto: é ela que impede o
-    // copiloto de negar que a meta de poupança já foi descontada.
+    // copiloto de afirmar que a meta de poupança já foi descontada da verba —
+    // desde a D-16 ela NÃO é, e continua dentro do disponível.
     avisoDeVocabularioInterno: AVISO_VOCABULARIO_INTERNO,
     ...composicaoDaVerba({
       rendaPrevistaCents: estado.ciclo.rendaPrevistaCents,

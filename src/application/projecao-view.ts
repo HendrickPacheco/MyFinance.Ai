@@ -64,6 +64,7 @@ export interface LinhaProjecao {
   rendaPrevistaCents: number;
   fixosCents: number;
   provisaoMensalCents: number;
+  /** A META do ciclo (D-16). Informativa: NÃO entra em `totalComposicaoCents`. */
   poupancaAlvoCents: number;
   parcelasComprometidasCents: number;
   verbaLivreCents: number;
@@ -72,7 +73,7 @@ export interface LinhaProjecao {
   abaixoDoPiso: boolean;
   terminamNesteCiclo: readonly FimDeParcelamento[];
   /**
-   * Soma exata das cinco faixas da coluna empilhada — a altura da barra. NÃO é
+   * Soma exata das quatro faixas da coluna empilhada — a altura da barra. NÃO é
    * `rendaPrevistaCents`; ver o cabeçalho deste arquivo.
    */
   totalComposicaoCents: number;
@@ -284,7 +285,7 @@ const CSV_CABECALHO = [
   'Renda prevista',
   'Custos fixos',
   'Provisão',
-  'Poupança-alvo',
+  'Meta de poupança',
   'Parcelas',
   'Verba livre',
   'Variação da verba livre',

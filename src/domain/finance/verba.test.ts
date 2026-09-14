@@ -77,60 +77,86 @@ describe('poupancaAlvoCents', () => {
 });
 
 describe('verbaVariavelCents (SPEC 9 — provisão zero e provisão preenchida)', () => {
-  it('renda − poupança − fixos − provisão, com provisão ZERO', () => {
-    // 5000 − 1000 − 2000 − 0 = 2000,00
+  it('renda − fixos − provisão, com provisão ZERO', () => {
+    // 5000 − 2000 − 0 = 3000,00
     expect(
       verbaVariavelCents({
         rendaPrevistaCents: 500000,
-        poupancaAlvoCents: 100000,
         fixosCents: 200000,
         provisaoMensalCents: 0,
       }),
-    ).toBe(200000);
+    ).toBe(300000);
   });
 
   it('com provisão PREENCHIDA a verba cai exatamente pela provisão', () => {
-    // 5000 − 1000 − 2000 − 500 = 1500,00
+    // 5000 − 2000 − 500 = 2500,00
     expect(
       verbaVariavelCents({
         rendaPrevistaCents: 500000,
-        poupancaAlvoCents: 100000,
         fixosCents: 200000,
         provisaoMensalCents: 50000,
       }),
-    ).toBe(150000);
+    ).toBe(250000);
   });
 
   it('soma o rollover herdado (item 5), inclusive negativo', () => {
     expect(
       verbaVariavelCents({
         rendaPrevistaCents: 500000,
-        poupancaAlvoCents: 100000,
         fixosCents: 200000,
         provisaoMensalCents: 0,
         rolloverRecebidoCents: 30000,
       }),
-    ).toBe(230000);
+    ).toBe(330000);
     expect(
       verbaVariavelCents({
         rendaPrevistaCents: 500000,
-        poupancaAlvoCents: 100000,
         fixosCents: 200000,
         provisaoMensalCents: 0,
         rolloverRecebidoCents: -50000,
       }),
-    ).toBe(150000);
+    ).toBe(250000);
   });
 
   it('pode ser negativa (renda insuficiente) — tratamento fica com o modo recuperação', () => {
+    // Agora só os fixos derrubam a verba: 1000 − 1300 = −300,00.
     expect(
       verbaVariavelCents({
         rendaPrevistaCents: 100000,
-        poupancaAlvoCents: 50000,
-        fixosCents: 80000,
+        fixosCents: 130000,
         provisaoMensalCents: 0,
       }),
     ).toBe(-30000);
+  });
+});
+
+describe('verbaVariavelCents — a meta de poupança NÃO é descontada (D-16, 14/09/2026)', () => {
+  // Este bloco substitui o teste que provava o contrário. A meta continua
+  // existindo (`poupancaAlvoCents`), mas como OBJETIVO: quem voltar a subtraí-la
+  // dentro da verba transforma alvo em gasto certo e derruba o teto diário de
+  // um mês em que o dono nunca decidiu poupar. O guarda tem que continuar aqui.
+  it('a verba é a mesma por qualquer meta — a meta não entra na conta', () => {
+    const verba = verbaVariavelCents({
+      rendaPrevistaCents: 3_000_000,
+      fixosCents: 488_400,
+      provisaoMensalCents: 0,
+    });
+
+    // Renda 30.000 − fixos 4.884: os 18.000 de meta não aparecem em lugar nenhum.
+    expect(verba).toBe(2_511_600);
+    expect(verba).not.toBe(3_000_000 - 1_800_000 - 488_400);
+  });
+
+  it('meta maior que a renda inteira continua sem afetar a verba', () => {
+    // O sinal de "essa meta não cabe" é `verificarMetaIrreal` (sugestoes.ts),
+    // nunca uma verba artificialmente negativa.
+    expect(
+      verbaVariavelCents({
+        rendaPrevistaCents: 500000,
+        fixosCents: 200000,
+        provisaoMensalCents: 0,
+      }),
+    ).toBeGreaterThan(0);
   });
 });
 

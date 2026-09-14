@@ -32,7 +32,8 @@ export function PassoMeta({
         ) : (
           <>
             <p className="text-sm text-muted">
-              Este ciclo e o anterior fecharam com folga. Você pode subir sua meta de poupança:
+              Você sobrou mais do que a meta neste ciclo e no anterior — a sugestão é o menor dos
+              dois, o patamar que você já provou alcançar:
             </p>
             <div className="tnum flex items-center gap-3 text-lg">
               <span className="text-faint line-through">{formatBRL(metaAtualCents)}</span>

@@ -28,7 +28,6 @@ async function ConfigPageConteudo() {
   });
   const verbaPrevista = verbaVariavelCents({
     rendaPrevistaCents: config.rendaBaseCents,
-    poupancaAlvoCents: poupanca,
     fixosCents: fixosTotalCents,
     provisaoMensalCents,
   });
@@ -48,12 +47,18 @@ async function ConfigPageConteudo() {
           <p className="text-sm text-muted">Verba variável prevista para o próximo ciclo</p>
           <p className="tnum mt-1 text-3xl font-bold text-fg">{formatBRL(verbaPrevista)}</p>
           <p className="tnum mt-2 text-xs text-faint">
-            renda {formatBRL(config.rendaBaseCents)} − poupança {formatBRL(poupanca)} − fixos{' '}
-            {formatBRL(fixosTotalCents)} − provisão {formatBRL(provisaoMensalCents)}
+            renda {formatBRL(config.rendaBaseCents)} − fixos {formatBRL(fixosTotalCents)} −
+            provisão {formatBRL(provisaoMensalCents)}
+          </p>
+          <p className="tnum mt-1 text-xs text-faint">
+            A meta de {formatBRL(poupanca)} está DENTRO dessa verba — ela é o alvo, não um
+            desconto. Para bater a meta, gaste no máximo{' '}
+            {formatBRL(Math.max(verbaPrevista - poupanca, 0))} no ciclo.
           </p>
           {verbaPrevista <= 0 ? (
             <p className="mt-2 text-sm text-negativo">
-              A verba ficou zerada ou negativa. Reveja a meta de poupança ou os custos fixos.
+              A verba ficou zerada ou negativa. Reveja os custos fixos, as provisões ou a renda
+              prevista.
             </p>
           ) : null}
         </div>

@@ -148,7 +148,6 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
 
       const verba = verbaVariavelCents({
         rendaPrevistaCents,
-        poupancaAlvoCents: poupancaCents,
         fixosCents,
         provisaoMensalCents: provMensalCents,
         rolloverRecebidoCents: rollover,
@@ -208,7 +207,6 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
   );
   const verba = verbaVariavelCents({
     rendaPrevistaCents: ciclo.rendaPrevistaCents,
-    poupancaAlvoCents: poupancaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -308,7 +306,6 @@ export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<EfeitoNoC
   );
   const verba = verbaVariavelCents({
     rendaPrevistaCents,
-    poupancaAlvoCents: poupancaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -374,7 +371,6 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
     verbaAtualCents: ciclo.verbaVariavelCents,
     verbaRecalculadaCents: verbaVariavelCents({
       rendaPrevistaCents: ciclo.rendaPrevistaCents,
-      poupancaAlvoCents: poupancaCents,
       fixosCents,
       provisaoMensalCents: provMensalCents,
       rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -422,34 +418,19 @@ export async function puxarDaReserva(deps: Deps, valorCents: number): Promise<Ci
     await deps.contas.ajustarSaldo(variavel.id, +valorCents);
   }
 
-  // A verba sobe o valor CHEIO e a poupança-alvo desce só até onde tinha — e
-  // isso está certo. O dinheiro tem lastro: a TRANSFERENCIA acima o moveu de
-  // verdade da reserva para a conta variável. Clampar a puxada recusaria ao
-  // dono o uso do próprio dinheiro, que é regressão, não correção.
+  // A verba sobe o valor CHEIO: o dinheiro tem lastro, a TRANSFERENCIA acima o
+  // moveu de verdade da reserva para a conta variável.
   //
-  // O que faltava era CONTABILIDADE. Estes dois números separam as duas metades
-  // da puxada:
-  //
-  //  - `poupancaAbatidaCents` é REALOCAÇÃO desta renda — o que ia ser poupado
-  //    passa a ser gasto. Já fica declarado sozinho: é o bloco "Poupança (meta)"
-  //    aparecendo menor.
-  //  - o resto é disponível que esta renda NÃO explica, e é o que precisa de
-  //    bloco próprio. Sem ele, virava "diferença não explicada" negativa em
-  //    "Para onde vai a renda" — o app dizendo que perdeu a conta de um dinheiro
-  //    que está na reserva do dono.
-  //
-  // Guardar o valor bruto no lugar do excedente faria a soma dos blocos fechar
-  // quando a poupança comporta a puxada e quebrar quando não comporta.
-  const poupancaAbatidaCents = Math.min(ciclo.poupancaAlvoCents, valorCents);
-  const foraDaRendaCents = valorCents - poupancaAbatidaCents;
-
-  const nota = `Puxou ${valorCents} centavos da reserva; poupança reduzida em ${poupancaAbatidaCents} neste ciclo.`;
+  // Desde a D-16 a meta de poupança não é descontada da verba, então não há
+  // poupança-alvo a abater aqui — a puxada inteira é disponível que ESTA renda
+  // não explica, e precisa ficar declarada em `puxadoDaReservaForaDaRendaCents`
+  // para "Para onde vai a renda" não acusar diferença não explicada negativa.
+  const nota = `Puxou ${valorCents} centavos da reserva para a verba deste ciclo.`;
   return deps.ciclos.atualizar(ciclo.id, {
-    poupancaAlvoCents: ciclo.poupancaAlvoCents - poupancaAbatidaCents,
     verbaVariavelCents: ciclo.verbaVariavelCents + valorCents,
     // ACUMULA: o dono pode puxar mais de uma vez no mesmo ciclo.
     puxadoDaReservaForaDaRendaCents:
-      ciclo.puxadoDaReservaForaDaRendaCents + foraDaRendaCents,
+      ciclo.puxadoDaReservaForaDaRendaCents + valorCents,
     observacao: ciclo.observacao ? `${ciclo.observacao}\n${nota}` : nota,
   });
 }

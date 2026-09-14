@@ -5,8 +5,9 @@
  * O que estes testes existem para proteger:
  *  1. R5 — abrir a projeção não pode criar ciclo;
  *  2. D-11 — `verbaLivreCents` é copiada do motor, nunca redescontada;
- *  3. o fechamento da coluna empilhada: a soma das cinco faixas TEM que bater
- *     com `totalComposicaoCents` em todos os ciclos, senão o gráfico mente;
+ *  3. o fechamento da coluna empilhada: a soma das QUATRO faixas TEM que bater
+ *     com `totalComposicaoCents` em todos os ciclos, senão o gráfico mente —
+ *     e a meta de poupança não é uma delas (D-16);
  *  4. a manchete honesta em cada estado do horizonte (degrau, aperto,
  *     estabilidade, ciclo único, verba negativa, nada acabando).
  */
@@ -28,7 +29,11 @@ import {
 
 const HOJE = '2026-07-20';
 
-/** Ciclo atual congelado: 05/07 a 04/08, verba gravada de R$ 4.900. */
+/**
+ * Ciclo atual congelado: 05/07 a 04/08, verba gravada de R$ 5.900 — que é
+ * `renda − fixos − provisão` (D-16: a meta de poupança NÃO é descontada da
+ * verba). `poupancaAlvoCents` continua gravado, só que como objetivo.
+ */
 function cicloAtualFake(patch: Partial<Ciclo> = {}): Ciclo {
   return cicloFake({
     dataInicio: '2026-07-05',
@@ -37,7 +42,7 @@ function cicloAtualFake(patch: Partial<Ciclo> = {}): Ciclo {
     poupancaAlvoCents: 100_000,
     fixosCents: 200_000,
     provisaoMensalCents: 10_000,
-    verbaVariavelCents: 490_000,
+    verbaVariavelCents: 590_000,
     ...patch,
   });
 }
@@ -70,7 +75,7 @@ function parcelamentoFake(patch: Partial<Parcelamento> = {}): Parcelamento {
   };
 }
 
-/** Cenário base: verba plana de R$ 4.900 por ciclo, sem parcela nenhuma. */
+/** Cenário base: verba plana de R$ 5.900 por ciclo, sem parcela nenhuma. */
 function depsBase(patch: Partial<Parameters<typeof criarDeps>[0]> = {}): FakeDeps {
   return criarDeps({
     hoje: HOJE,
@@ -116,9 +121,9 @@ describe('obterResumoProjecao — linhas', () => {
     expect(resumo.linhas.map((l) => l.periodoLabel)).toEqual(['jul/26', 'ago/26', 'set/26']);
     expect(resumo.totalMeses).toBe(3);
 
-    // 4.900 − 500 nos dois primeiros; a última parcela é em ago/26, então a
-    // verba só volta a 4.900 em set/26.
-    expect(resumo.linhas.map((l) => l.verbaLivreCents)).toEqual([440_000, 440_000, 490_000]);
+    // 5.900 − 500 nos dois primeiros; a última parcela é em ago/26, então a
+    // verba só volta a 5.900 em set/26.
+    expect(resumo.linhas.map((l) => l.verbaLivreCents)).toEqual([540_000, 540_000, 590_000]);
     expect(resumo.linhas.map((l) => l.deltaVerbaLivreCents)).toEqual([null, 0, 50_000]);
   });
 
@@ -129,8 +134,8 @@ describe('obterResumoProjecao — linhas', () => {
     if (!jul) throw new Error('projeção sem ciclos');
 
     expect(jul.parcelasComprometidasCents).toBe(50_000);
-    // A verba gravada é 490.000: livre = 490.000 − 50.000, e não menos.
-    expect(jul.verbaLivreCents).toBe(440_000);
+    // A verba gravada é 590.000: livre = 590.000 − 50.000, e não menos.
+    expect(jul.verbaLivreCents).toBe(540_000);
   });
 
   it('expõe o parcelamento que termina no ciclo em que ele termina', async () => {
@@ -162,17 +167,33 @@ describe('obterResumoProjecao — linhas', () => {
 });
 
 describe('obterResumoProjecao — fechamento da coluna empilhada', () => {
-  it('a soma das cinco faixas bate com totalComposicaoCents em todos os ciclos', async () => {
+  it('a soma das quatro faixas bate com totalComposicaoCents em todos os ciclos', async () => {
     const resumo = await obterResumoProjecao(depsComParcelamentoAcabando(), { numCiclos: 6 });
 
     for (const linha of resumo.linhas) {
       const somaDasFaixas =
         linha.fixosCents +
         linha.provisaoMensalCents +
-        linha.poupancaAlvoCents +
         linha.parcelasComprometidasCents +
         linha.verbaLivreCents;
       expect(somaDasFaixas).toBe(linha.totalComposicaoCents);
+    }
+  });
+
+  it('a meta de poupança NÃO é uma faixa da pilha (D-16)', async () => {
+    const resumo = await obterResumoProjecao(depsComParcelamentoAcabando(), { numCiclos: 3 });
+
+    for (const linha of resumo.linhas) {
+      // A meta continua na linha, mas como informação — empilhá-la desenharia
+      // uma barra maior que a renda e daria ao dono a impressão de que aquele
+      // dinheiro já saiu da verba.
+      expect(linha.poupancaAlvoCents).toBeGreaterThan(0);
+      expect(linha.totalComposicaoCents).toBe(
+        linha.fixosCents +
+          linha.provisaoMensalCents +
+          linha.parcelasComprometidasCents +
+          linha.verbaLivreCents,
+      );
     }
   });
 
@@ -185,7 +206,7 @@ describe('obterResumoProjecao — fechamento da coluna empilhada', () => {
   });
 
   it('com rollover congelado o total das faixas é renda + rollover, não renda', async () => {
-    const deps = depsBase({ ciclos: [cicloAtualFake({ rolloverRecebidoCents: 33_000, verbaVariavelCents: 523_000 })] });
+    const deps = depsBase({ ciclos: [cicloAtualFake({ rolloverRecebidoCents: 33_000, verbaVariavelCents: 623_000 })] });
 
     const resumo = await obterResumoProjecao(deps, { numCiclos: 2 });
     const jul = resumo.linhas[0];
@@ -199,14 +220,17 @@ describe('obterResumoProjecao — fechamento da coluna empilhada', () => {
     // A verba gravada (700.000) não é a soma das partes (590.000): SPEC 5.2.
     // Empilhar contra a renda desenharia faixas com altura errada.
     const deps = depsBase({
-      ciclos: [cicloAtualFake({ poupancaAlvoCents: 0, verbaVariavelCents: 700_000 })],
+      ciclos: [cicloAtualFake({ verbaVariavelCents: 700_000 })],
     });
 
     const resumo = await obterResumoProjecao(deps, { numCiclos: 1 });
     const jul = resumo.linhas[0];
     if (!jul) throw new Error('projeção sem ciclos');
 
-    expect(jul.totalComposicaoCents).toBe(910_000); // 200.000 + 10.000 + 0 + 0 + 700.000
+    // 200.000 + 10.000 + 0 de parcela + 700.000. A meta de 100.000 fica de
+    // fora da conta (D-16) — por isso o total não é 1.010.000.
+    expect(jul.totalComposicaoCents).toBe(910_000);
+    expect(jul.poupancaAlvoCents).toBe(100_000);
     expect(jul.rendaPrevistaCents).toBe(800_000);
   });
 });
@@ -215,13 +239,16 @@ describe('obterResumoProjecao — extremos e piso', () => {
   it('mínima e máxima trazem o rótulo do ciclo em que acontecem', async () => {
     const resumo = await obterResumoProjecao(depsComParcelamentoAcabando(), { numCiclos: 3 });
 
-    expect(resumo.minima).toEqual({ periodoLabel: 'jul/26', verbaLivreCents: 440_000 });
-    expect(resumo.maxima).toEqual({ periodoLabel: 'set/26', verbaLivreCents: 490_000 });
+    expect(resumo.minima).toEqual({ periodoLabel: 'jul/26', verbaLivreCents: 540_000 });
+    expect(resumo.maxima).toEqual({ periodoLabel: 'set/26', verbaLivreCents: 590_000 });
   });
 
   it('conta os meses abaixo do piso diário de verba', async () => {
-    // Piso de R$ 150/dia contra ~R$ 158/dia de verba livre: só os ciclos com
-    // parcela ficam abaixo.
+    // `abaixoDoPiso` compara o piso com (verba livre − meta) / dias: a meta
+    // segue fora da verba (D-16), mas é justamente ela que o piso testa — a
+    // pergunta é se o alvo cabe. Piso de R$ 150/dia contra ~R$ 142/dia nos
+    // ciclos com parcela e ~R$ 163/dia no ciclo já livre dela: só os dois
+    // primeiros ficam abaixo.
     const deps = depsComParcelamentoAcabando();
     deps.config.mutar({ pisoDiarioVerbaCents: 15_000 });
 
@@ -243,7 +270,7 @@ describe('obterResumoProjecao — manchete', () => {
     const resumo = await obterResumoProjecao(depsComParcelamentoAcabando(), { numCiclos: 3 });
 
     expect(resumo.manchete).toBe(
-      `A verba livre passa de ${formatBRL(440_000)} para ${formatBRL(490_000)} em set/26, ` +
+      `A verba livre passa de ${formatBRL(540_000)} para ${formatBRL(590_000)} em set/26, ` +
         'quando a última parcela de Notebook acaba.',
     );
   });
@@ -300,7 +327,7 @@ describe('obterResumoProjecao — manchete', () => {
     const resumo = await obterResumoProjecao(depsBase(), { numCiclos: 3 });
 
     expect(resumo.manchete).toContain(
-      `A verba livre fica estável em ${formatBRL(490_000)} nos próximos 3 meses.`,
+      `A verba livre fica estável em ${formatBRL(590_000)} nos próximos 3 meses.`,
     );
   });
 
@@ -333,9 +360,9 @@ describe('obterResumoProjecao — manchete', () => {
 
     const resumo = await obterResumoProjecao(deps, { numCiclos: 3 });
 
-    expect(resumo.minima.verbaLivreCents).toBe(-110_000);
+    expect(resumo.minima.verbaLivreCents).toBe(-10_000);
     expect(resumo.manchete).toContain(
-      `Atenção: em jul/26 a verba livre fica negativa (${formatBRL(-110_000)})`,
+      `Atenção: em jul/26 a verba livre fica negativa (${formatBRL(-10_000)})`,
     );
     expect(resumo.manchete).toContain(
       `as parcelas do ciclo (${formatBRL(600_000)}) passam do que sobra`,
@@ -358,7 +385,7 @@ describe('serializarProjecaoCsv', () => {
       deltaVerbaLivreCents: null,
       abaixoDoPiso: false,
       terminamNesteCiclo: [],
-      totalComposicaoCents: 800_000,
+      totalComposicaoCents: 700_000, // 4 faixas, sem a meta (D-16)
       ...patch,
     };
   }
@@ -367,14 +394,16 @@ describe('serializarProjecaoCsv', () => {
     const [cabecalho] = serializarProjecaoCsv([linhaFake()]).split('\r\n');
 
     expect(cabecalho).toBe(
-      'Mês;Início;Fim;Renda prevista;Custos fixos;Provisão;Poupança-alvo;Parcelas;Verba livre;Variação da verba livre;Total das faixas;Abaixo do piso;Termina neste ciclo',
+      'Mês;Início;Fim;Renda prevista;Custos fixos;Provisão;Meta de poupança;Parcelas;Verba livre;Variação da verba livre;Total das faixas;Abaixo do piso;Termina neste ciclo',
     );
   });
 
   it('escreve valores em reais com vírgula decimal e sem símbolo', () => {
     const [, linha] = serializarProjecaoCsv([linhaFake()]).split('\r\n');
 
-    expect(linha).toBe('jul/26;2026-07-05;2026-08-04;8000,00;2000,00;100,00;1000,00;500,00;4400,00;;8000,00;não;');
+    // A coluna da meta continua na MESMA posição (7ª), só mudou de nome; e o
+    // total das faixas é 7000,00 — a meta não entra nele (D-16).
+    expect(linha).toBe('jul/26;2026-07-05;2026-08-04;8000,00;2000,00;100,00;1000,00;500,00;4400,00;;7000,00;não;');
   });
 
   it('deixa a variação vazia no primeiro ciclo e preenchida nos demais', () => {

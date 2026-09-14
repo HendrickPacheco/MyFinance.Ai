@@ -454,16 +454,22 @@ describe('somarProgramadosCents', () => {
 });
 
 describe('projetarPoupanca', () => {
-  it('sobra projetada zero: poupança projetada fica exatamente no alvo (100%)', () => {
+  // D-16 (14/09/2026): a meta deixou de ser descontada da verba, então ela não
+  // é mais um piso garantido de poupança — é só o denominador do progresso.
+  // A poupança projetada do ciclo É a sobra projetada da verba, e nada além.
+  it('sobra projetada zero: nada é poupado — a meta não vem mais "de graça" (D-16)', () => {
+    // Antes este caso dava 100% do alvo, porque o alvo já tinha sido separado
+    // da verba no nascimento do ciclo. Agora gastar a verba inteira significa
+    // exatamente o que parece: poupança zero.
     const resultado = projetarPoupanca({ poupancaAlvoCents: 1_800_000, sobraProjetadaCents: 0 });
-    expect(resultado.poupancaProjetadaCents).toBe(1_800_000);
-    expect(resultado.progressoPercentual).toBe(100);
+    expect(resultado.poupancaProjetadaCents).toBe(0);
+    expect(resultado.progressoPercentual).toBe(0);
   });
 
-  it('ciclo com estouro de verba (sobra projetada negativa) projeta poupança MENOR que o alvo', () => {
+  it('sobra projetada abaixo do alvo projeta poupança MENOR que o alvo', () => {
     const resultado = projetarPoupanca({
       poupancaAlvoCents: 1_800_000,
-      sobraProjetadaCents: -50_000,
+      sobraProjetadaCents: 1_750_000,
     });
     expect(resultado.poupancaProjetadaCents).toBe(1_750_000);
     expect(resultado.progressoPercentual).toBeLessThan(100);
@@ -471,35 +477,45 @@ describe('projetarPoupanca', () => {
   });
 
   it('ciclo recém-aberto sem gasto ainda registrado, mas com verba já negativa (déficit — modo recuperação), NÃO dá 100%', () => {
-    // Fixos + poupança + provisão > renda: a verba nasce negativa, e com
-    // zero gasto realizado a sobra projetada é a própria verba (negativa).
-    // Ao contrário do `Math.max(alvo + saldoDisponivel, 0)` antigo — que
-    // escondia o tamanho real do déficit atrás de um piso em zero —, a
-    // projeção aqui preserva o valor negativo.
+    // Fixos + provisão > renda: a verba nasce negativa, e com zero gasto
+    // realizado a sobra projetada é a própria verba (negativa). Ao contrário
+    // do `Math.max(alvo + saldoDisponivel, 0)` antigo — que escondia o tamanho
+    // real do déficit atrás de um piso em zero —, a projeção preserva o negativo.
     const resultado = projetarPoupanca({
       poupancaAlvoCents: 1_800_000,
       sobraProjetadaCents: -500_000,
     });
-    expect(resultado.poupancaProjetadaCents).toBe(1_300_000);
+    expect(resultado.poupancaProjetadaCents).toBe(-500_000);
     expect(resultado.progressoPercentual).toBeLessThan(100);
   });
 
-  it('deficit maior que o alvo fica negativo, sem piso em zero (nunca esconde o tamanho do rombo)', () => {
+  it('deficit fica negativo, sem piso em zero (nunca esconde o tamanho do rombo)', () => {
     const resultado = projetarPoupanca({
       poupancaAlvoCents: 1_800_000,
       sobraProjetadaCents: -2_500_000,
     });
-    expect(resultado.poupancaProjetadaCents).toBe(-700_000);
+    expect(resultado.poupancaProjetadaCents).toBe(-2_500_000);
     expect(resultado.progressoPercentual).toBe(0);
   });
 
-  it('sobra projetada positiva soma ao alvo; progresso fica limitado em 100% (sem dados de estouro, não há como diferenciar de saldo não-gasto)', () => {
+  it('sobra projetada acima do alvo bate a meta; progresso fica limitado em 100%', () => {
     const resultado = projetarPoupanca({
       poupancaAlvoCents: 1_800_000,
-      sobraProjetadaCents: 700_000,
+      sobraProjetadaCents: 2_500_000,
     });
     expect(resultado.poupancaProjetadaCents).toBe(2_500_000);
     expect(resultado.progressoPercentual).toBe(100);
+  });
+
+  it('o alvo NUNCA é somado à sobra — ele só serve de denominador (D-16)', () => {
+    // Guarda invertida do comportamento antigo (`alvo + sobra`). Reintroduzi-lo
+    // contaria como poupado um dinheiro que continua disponível para gastar.
+    const alvo = 1_800_000;
+    const sobra = 700_000;
+    const resultado = projetarPoupanca({ poupancaAlvoCents: alvo, sobraProjetadaCents: sobra });
+
+    expect(resultado.poupancaProjetadaCents).toBe(sobra);
+    expect(resultado.poupancaProjetadaCents).not.toBe(alvo + sobra);
   });
 
   it('alvo zero não divide por zero — progresso sempre 0', () => {
