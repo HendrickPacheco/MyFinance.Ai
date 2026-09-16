@@ -21,6 +21,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { criarDeps } from '@/composition';
 import { executar, type Resultado } from './resultado';
+import { executarComConfirmacao, type ResultadoRetroativo } from './resultado-retroativo';
 import { hashDoTexto, normalizarTextoDeFatura } from '@/infrastructure/importacao/texto-fatura';
 import {
   conciliarImportacao,
@@ -119,8 +120,8 @@ const confirmarItemSchema = z.object({
  */
 export async function confirmarItemImportadoAction(
   entrada: unknown,
-): Promise<Resultado<ResultadoConfirmacao>> {
-  return executar(async () => {
+): Promise<ResultadoRetroativo<ResultadoConfirmacao>> {
+  return executarComConfirmacao(async () => {
     const validado = confirmarItemSchema.parse(entrada);
     const deps = await criarDeps();
 
