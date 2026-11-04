@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/cn';
 import { Button, TooltipPortal, type TooltipAnchorRect } from '@/components/ui';
 import { EVENTO_ABRIR_LANCAMENTO } from '@/components/dashboard/lancamento-painel';
+import { TemaToggle } from '@/components/layout/tema-toggle';
 import { sair } from '@/actions/auth';
 import type { Papel } from '@/domain/auth/ator';
 
@@ -277,6 +278,9 @@ export function Sidebar({
         })}
       </nav>
 
+      <div className="px-3 pb-2">
+        <TemaToggle />
+      </div>
       <RodapeSessao papel={papel} collapsed={collapsed} />
     </aside>
   );

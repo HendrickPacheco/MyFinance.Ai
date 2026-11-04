@@ -1,45 +1,98 @@
 @import 'tailwindcss';
 
 /*
-  Direção de design (SPEC seção 11): "painel de instrumentos noturno".
-  Fundo quase-preto, neutros frios e quietos, UM acento (azul calmo) para
-  interação, e cores semânticas reservadas para o estado do dinheiro. Toda a
-  ousadia é gasta no número herói da tela Hoje; o resto é disciplinado.
-  Dark-first porque o app é aberto à noite, na fila do caixa.
+  Direção de design (protótipo docs/design/dashboard): "painel claro".
+  Tema CLARO é o padrão do app inteiro; o escuro é derivado da mesma paleta e
+  ativado por `html[data-theme='dark']` (preferência em localStorage
+  `financial:tema`, aplicada antes da pintura pelo script anti-flash).
+  Um acento (violeta) para interação; cores semânticas reservadas ao estado do
+  dinheiro. Telas usam as classes geradas por estes tokens, nunca hex solto.
+  `static` emite todas as variáveis no :root, para o bloco escuro poder
+  sobrescrevê-las mesmo as não referenciadas por utilitário.
 */
 
-@theme {
-  --color-bg: #0a0c11;
-  --color-surface: #14171f;
-  --color-surface-2: #1b1f29;
-  --color-border: #272c38;
-  --color-border-strong: #37404f;
+@theme static {
+  --color-bg: #f7f8fa;
+  --color-surface: #ffffff;
+  --color-surface-2: #fafafc;
+  --color-border: #ecedf1;
+  --color-border-strong: #dcdee6;
+  --color-line: #f2f3f6;
+  --color-line-2: #eff0f4;
+  --color-track: #f0f1f5;
 
-  --color-fg: #f3f5f9;
-  --color-muted: #99a1b0;
-  --color-faint: #626b7a;
+  --color-fg: #0f1222;
+  --color-fg-2: #2a2e40;
+  --color-muted: #6b7083;
+  --color-faint: #8a8fa3;
+  --color-subtle: #a3a7b7;
 
   /* acento único de interação */
-  --color-accent: #6ea8fe;
-  --color-accent-fg: #08101f;
+  --color-accent: #6d28d9;
+  --color-accent-hover: #5b21b6;
+  --color-accent-from: #7c3aed;
+  --color-accent-light: #c4b5fd;
+  --color-accent-soft: #f5f0ff;
+  --color-accent-chip: #f3eeff;
+  --color-accent-avatar: #ede7fb;
+  --color-accent-pill-border: #e4d9fb;
+  --color-accent-fg: #ffffff;
 
   /* estados semânticos do saldo */
-  --color-positivo: #35d0a5;
-  --color-atencao: #f4b740;
-  --color-negativo: #ff6b6b;
-  --color-recuperacao: #ff8f5e;
+  --color-positivo: #16a34a;
+  --color-positivo-soft: #dcfce7;
+  --color-positivo-dot: #22c55e;
+  --color-atencao: #d97706;
+  --color-negativo: #dc2626;
+  --color-recuperacao: #ea580c;
+
+  --shadow-card:
+    0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -12px rgba(16, 24, 40, 0.08);
 
   --radius-card: 1rem;
 
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
     Arial, sans-serif;
   --font-mono:
     ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, monospace;
 }
 
-:root {
+html[data-theme='dark'] {
+  --color-bg: #0b0c12;
+  --color-surface: #14151f;
+  --color-surface-2: #191a26;
+  --color-border: #24263a;
+  --color-border-strong: #33364d;
+  --color-line: #1e2030;
+  --color-line-2: #202233;
+  --color-track: #262840;
+  --color-fg: #f3f4f8;
+  --color-fg-2: #d6d8e3;
+  --color-muted: #9a9fb5;
+  --color-faint: #7c8199;
+  --color-subtle: #5f6480;
+  --color-accent: #8b5cf6;
+  --color-accent-hover: #a78bfa;
+  --color-accent-from: #8b5cf6;
+  --color-accent-light: #6d4fc2;
+  --color-accent-soft: #1f1934;
+  --color-accent-chip: #241c3d;
+  --color-accent-avatar: #2a2145;
+  --color-accent-pill-border: #3b2f63;
+  --color-accent-fg: #ffffff;
+  --color-positivo: #4ade80;
+  --color-positivo-soft: #12301f;
+  --color-positivo-dot: #22c55e;
+  --color-atencao: #f4b740;
+  --color-negativo: #ff6b6b;
+  --color-recuperacao: #ff8f5e;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
+}
+
+:root {
+  color-scheme: light;
 }
 
 * {

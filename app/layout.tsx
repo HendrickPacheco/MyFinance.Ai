@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { Inter } from 'next/font/google';
 import './globals.css';
 import { Nav } from '@/components/nav';
 import { Sidebar } from '@/components/layout/sidebar';
@@ -11,13 +12,20 @@ import { estaAutenticado } from '@/domain/auth/ator';
 import { PapelProvider } from '@/components/auth/ator-contexto';
 import { SIDEBAR_ANTI_FLASH_SCRIPT } from '@/shared/anti-flash-script';
 
+const inter = Inter({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-inter',
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
   title: 'Quanto posso gastar hoje',
   description: 'Controle financeiro pessoal — um limitador de gastos por ciclo.',
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0a0c11',
+  themeColor: '#F7F8FA',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -73,12 +81,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
+    <html lang="pt-BR" className={inter.variable} suppressHydrationWarning>
       <head>
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script dangerouslySetInnerHTML={{ __html: SIDEBAR_ANTI_FLASH_SCRIPT }} />
       </head>
-      <body>
+      <body className="antialiased">
         {naTelaDeLogin ? (
           // A tela de login não tem sidebar nem navegação: não há para onde
           // navegar antes de entrar, e mostrar o chassi do app sugeriria que há.
