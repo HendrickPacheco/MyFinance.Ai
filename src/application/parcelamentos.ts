@@ -315,6 +315,23 @@ export async function listarParcelamentos(deps: Deps): Promise<ParcelamentoResum
   return Promise.all(parcelamentos.map((p) => resumirParcelamento(deps, p, janela, cache)));
 }
 
+/**
+ * O mesmo resumo de `listarParcelamentos`, para UM parcelamento — usado por
+ * `GET /agent/v1/parcelamentos/:id`. `null` quando o id não existe (ou é de
+ * outro dono; `obter` já é escopado).
+ */
+export async function obterParcelamentoResumo(
+  deps: Deps,
+  id: string,
+): Promise<ParcelamentoResumo | null> {
+  const parcelamento = await deps.parcelamentos.obter(id);
+  if (!parcelamento) return null;
+
+  const janela = await janelaDeCiclos(deps);
+  const cache = criarCacheCiclos(deps);
+  return resumirParcelamento(deps, parcelamento, janela, cache);
+}
+
 /** Um grupo vazio — evita `null` espalhado nos três campos da prévia. */
 const GRUPO_VAZIO: GrupoDeParcelas = {
   quantidade: 0,

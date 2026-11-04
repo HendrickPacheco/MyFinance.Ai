@@ -16,6 +16,8 @@ import {
   type PagamentoFixoRepository,
   type ProvisaoRepository,
   type TransacaoRepository,
+  type FiltroTransacoes,
+  type PaginaTransacoes,
   type ParcelamentoRepository,
   type CicloRepository,
   type PatrimonioRepository,
@@ -586,6 +588,65 @@ export class FakeTransacaoRepo implements TransacaoRepository {
     const atualizada: Transacao = { ...alvo, pagoEm };
     this.itens[i] = atualizada;
     return clone(atualizada);
+  }
+
+  /**
+   * Espelho em memória do keyset pagination do adapter Prisma (API do
+   * agente) — sem nome de categoria/conta (o fake não tem acesso aos
+   * repositórios delas; nenhum teste de filtro depende disso).
+   */
+  async listarFiltrado(filtro: FiltroTransacoes): Promise<PaginaTransacoes> {
+    const direcao = filtro.direcao === 'asc' ? 1 : -1;
+    const campo = filtro.ordem === 'valor' ? 'valorCents' : 'data';
+
+    const filtrados = this.itens.filter((t) => {
+      if (filtro.de !== undefined && t.data < filtro.de) return false;
+      if (filtro.ate !== undefined && t.data > filtro.ate) return false;
+      if (filtro.tipo && t.tipo !== filtro.tipo) return false;
+      if (filtro.metodo && t.metodo !== filtro.metodo) return false;
+      if (filtro.categoriaId && t.categoriaId !== filtro.categoriaId) return false;
+      if (filtro.contaId && t.contaId !== filtro.contaId) return false;
+      if (filtro.cicloId && t.cicloId !== filtro.cicloId) return false;
+      if (filtro.parcelamentoId && t.parcelamentoId !== filtro.parcelamentoId) return false;
+      if (filtro.origem && t.origem !== filtro.origem) return false;
+      if (filtro.texto && !(t.descricao ?? '').toLowerCase().includes(filtro.texto.toLowerCase())) {
+        return false;
+      }
+      if (filtro.valorMinCents !== undefined && t.valorCents < filtro.valorMinCents) return false;
+      if (filtro.valorMaxCents !== undefined && t.valorCents > filtro.valorMaxCents) return false;
+      return true;
+    });
+
+    const ordenados = [...filtrados].sort((a, b) => {
+      const chaveA = campo === 'valorCents' ? a.valorCents : a.data;
+      const chaveB = campo === 'valorCents' ? b.valorCents : b.data;
+      const cmp = chaveA < chaveB ? -1 : chaveA > chaveB ? 1 : a.id.localeCompare(b.id);
+      return cmp * direcao;
+    });
+
+    const cursor = filtro.cursor ? JSON.parse(Buffer.from(filtro.cursor, 'base64url').toString('utf8')) : null;
+    const apartirDoCursor = cursor
+      ? ordenados.filter((t) => {
+          const chave = filtro.ordem === 'valor' ? t.valorCents : t.data;
+          if (chave !== cursor.valor) return filtro.direcao === 'asc' ? chave > cursor.valor : chave < cursor.valor;
+          return filtro.direcao === 'asc' ? t.id > cursor.id : t.id < cursor.id;
+        })
+      : ordenados;
+
+    const temMais = apartirDoCursor.length > filtro.limite;
+    const pagina = apartirDoCursor.slice(0, filtro.limite);
+    const ultima = pagina.at(-1);
+    const proximoCursor =
+      temMais && ultima
+        ? Buffer.from(
+            JSON.stringify({ valor: filtro.ordem === 'valor' ? ultima.valorCents : ultima.data, id: ultima.id }),
+          ).toString('base64url')
+        : null;
+
+    return {
+      itens: pagina.map((t) => ({ ...clone(t), categoriaNome: null, contaNome: null })),
+      proximoCursor,
+    };
   }
 }
 

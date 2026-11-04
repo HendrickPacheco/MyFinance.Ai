@@ -14,24 +14,10 @@ import {
   type PreviaEncerramento,
   type ResultadoEncerramentoParcelamento,
 } from '@/application/parcelamentos';
-import { METODO_PAGAMENTO } from '@/domain/model/enums';
+import { patchParcelamentoSchema } from '@/application/transacoes-schemas';
 import type { Parcelamento } from '@/domain/model/entidades';
 
 export type { ResultadoRetroativo } from './resultado-retroativo';
-
-const dataCivil = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve estar em YYYY-MM-DD')
-  .optional();
-
-const patchParcelamentoSchema = z.object({
-  descricao: z.string().min(1, 'Descreva a compra.').optional(),
-  categoriaId: z.string().nullish(),
-  metodo: z.enum(METODO_PAGAMENTO).nullish(),
-  valorTotalCents: z.number().int().positive('Informe um valor maior que zero.').optional(),
-  numParcelas: z.number().int().min(2, 'Parcelamento tem no mínimo 2 parcelas.').max(72).optional(),
-  dataCompra: dataCivil,
-});
 
 /**
  * Toda tela que soma parcelas (§5.1 ticket 4).

@@ -12,39 +12,10 @@ import {
   excluirTransacao as ucExcluir,
   estornarTransacao as ucEstornar,
 } from '@/application/transacoes';
+import { transacaoInputSchema as transacaoSchema, parcelamentoInputSchema as parcelamentoSchema } from '@/application/transacoes-schemas';
 import type { Transacao } from '@/domain/model/entidades';
 
 export type { ResultadoRetroativo } from './resultado-retroativo';
-
-const TIPO = z.enum(['DESPESA', 'RENDA', 'TRANSFERENCIA', 'ESTORNO']);
-const METODO = z.enum(['PIX', 'DEBITO', 'CREDITO', 'DINHEIRO', 'BOLETO']);
-const dataCivil = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve estar em YYYY-MM-DD')
-  .optional();
-
-const transacaoSchema = z.object({
-  valorCents: z.number().int().positive('Informe um valor maior que zero.'),
-  categoriaId: z.string().nullish(),
-  tipo: TIPO.optional(),
-  data: dataCivil,
-  descricao: z.string().max(200).nullish(),
-  metodo: METODO.nullish(),
-  contaId: z.string().nullish(),
-  contaDestinoId: z.string().nullish(),
-  provisaoId: z.string().nullish(),
-  confirmarRetroativo: z.boolean().optional(),
-});
-
-const parcelamentoSchema = z.object({
-  descricao: z.string().min(1, 'Descreva a compra.'),
-  valorTotalCents: z.number().int().positive(),
-  numParcelas: z.number().int().min(2, 'Parcelamento tem no mínimo 2 parcelas.').max(72),
-  dataCompra: dataCivil,
-  categoriaId: z.string().nullish(),
-  contaId: z.string().nullish(),
-  metodo: METODO.nullish(),
-});
 
 /**
  * Toda rota que exibe o MESMO dinheiro precisa ser invalidada junto — senão a

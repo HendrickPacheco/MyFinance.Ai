@@ -12,6 +12,7 @@ import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
 import type { AjusteConta, AjusteProvisao } from '@/domain/ports/repositorios';
 import { gerarParcelas } from '@/domain/finance';
 import {
+  CicloFechadoError,
   exigirConfirmacaoSeRetroativo,
   recalcularSobraDosCiclosFechados,
 } from './retroatividade';
@@ -412,4 +413,56 @@ export async function estornarTransacao(
 
   await recalcularSobraDosCiclosFechados(deps, ciclosFechados);
   return estorno;
+}
+
+/**
+ * Lançado por `criarTransacoesEmLote` quando um item do lote falha por regra
+ * de negócio comum (`Error`) — carrega o ÍNDICE do item, para
+ * `POST /agent/v1/transacoes/lote` devolver qual entrada falhou.
+ *
+ * Nunca envolve `CicloFechadoError`: `criarTransacao` (diferente de
+ * editar/excluir/estornar) não tem guarda de retroatividade — lançar no
+ * passado é permitido sem confirmação, pelo próprio design do caso de uso de
+ * criação. A checagem abaixo existe mesmo assim como defesa: se um guard
+ * desses vier a nascer em `criarTransacao` no futuro, o erro continua
+ * subindo como `CicloFechadoError` (409, erro do LOTE inteiro), nunca
+ * envolto num índice que faria pouco sentido para uma confirmação que cobre
+ * vários ciclos de uma vez.
+ */
+export class LoteTransacaoFalhouError extends Error {
+  constructor(
+    public readonly indice: number,
+    public readonly causa: Error,
+  ) {
+    super(`Item ${indice} do lote falhou: ${causa.message}`);
+    this.name = causa.name.includes('NaoEncontrado') ? causa.name : 'LoteTransacaoFalhouError';
+  }
+}
+
+/**
+ * Cria várias transações em sequência, reusando o MESMO `criarTransacao` que
+ * o lançamento único usa — nenhuma regra de negócio duplicada aqui. "Tudo ou
+ * nada" (SPEC do lote do agente) é garantia do CHAMADOR: a rota
+ * `POST /agent/v1/transacoes/lote` já roda dentro da transação Prisma
+ * interativa do kernel (`rotaEscrita`), então um erro lançado aqui no meio do
+ * laço reverte tudo que já foi escrito — esta função só precisa lançar
+ * cedo e dizer QUAL índice, nunca tentar o próprio rollback.
+ */
+export async function criarTransacoesEmLote(
+  deps: Deps,
+  itens: readonly TransacaoInput[],
+): Promise<Transacao[]> {
+  const criadas: Transacao[] = [];
+  for (let indice = 0; indice < itens.length; indice += 1) {
+    const item = itens[indice];
+    if (!item) continue;
+    try {
+      criadas.push(await criarTransacao(deps, item));
+    } catch (erro) {
+      if (erro instanceof CicloFechadoError) throw erro;
+      if (erro instanceof Error) throw new LoteTransacaoFalhouError(indice, erro);
+      throw erro;
+    }
+  }
+  return criadas;
 }
