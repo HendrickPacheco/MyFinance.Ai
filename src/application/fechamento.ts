@@ -32,8 +32,13 @@ export class DestinoSobraIndefinidoError extends Error {
  * Resolve a conta que recebe a sobra: prioriza `destinoSobraContaId` (se
  * ainda existir); na ausência, cai numa conta RESERVA determinística (a
  * primeira ativa) — nunca deixa a sobra sem destino em silêncio.
+ *
+ * Exportada para a API do agente poder mostrar, ANTES e DEPOIS de fechar, qual
+ * conta vai receber a sobra (`GET /ciclos/atual/previa-fechamento` e
+ * `POST /ciclos/atual/fechar`) — a mesma resolução que `fecharCiclo` usa por
+ * dentro, nunca uma segunda lógica de fallback.
  */
-async function resolverContaDestinoSobra(
+export async function resolverContaDestinoSobra(
   deps: Deps,
   destinoSobraContaId: string | null,
 ): Promise<string | null> {
@@ -46,6 +51,36 @@ async function resolverContaDestinoSobra(
 
   const reservaPadrao = contas.find((c) => c.tipo === 'RESERVA');
   return reservaPadrao?.id ?? null;
+}
+
+export type TipoDestinoSobra = 'ROLLOVER' | 'CONTA' | 'SEM_DESTINO';
+
+export interface DestinoSobraDescrito {
+  tipo: TipoDestinoSobra;
+  contaId: string | null;
+  contaNome: string | null;
+}
+
+/**
+ * Versão informativa de `resolverDestinoSobraOuFalhar`: nunca lança, porque
+ * existe para PREVIEW (antes de fechar, ou para anexar à resposta depois de
+ * fechar) — `SEM_DESTINO` é exatamente o caso em que fechar de verdade lançaria
+ * `DestinoSobraIndefinidoError`, e quem olha a prévia precisa poder ver isso
+ * sem derrubar a chamada.
+ */
+export async function descreverDestinoSobra(
+  deps: Deps,
+  config: Config,
+  sobraCents: number,
+): Promise<DestinoSobraDescrito> {
+  if (config.destinoSobra === 'ROLLOVER') return { tipo: 'ROLLOVER', contaId: null, contaNome: null };
+  if (sobraCents === 0) return { tipo: 'SEM_DESTINO', contaId: null, contaNome: null };
+
+  const contaId = await resolverContaDestinoSobra(deps, config.destinoSobraContaId);
+  if (!contaId) return { tipo: 'SEM_DESTINO', contaId: null, contaNome: null };
+
+  const conta = await deps.contas.obter(contaId);
+  return { tipo: 'CONTA', contaId, contaNome: conta?.nome ?? null };
 }
 
 /**
