@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatBRL, parseBRL, ratearCents, somaCents, assertCentavos } from './dinheiro';
+import { formatarNumeroBRL, formatBRL, parseBRL, ratearCents, somaCents, assertCentavos } from './dinheiro';
 
 describe('formatBRL', () => {
   it('formata centavos como moeda BRL', () => {
@@ -63,5 +63,14 @@ describe('assertCentavos', () => {
   it('aceita inteiros', () => {
     expect(assertCentavos(0)).toBe(0);
     expect(assertCentavos(-100)).toBe(-100);
+  });
+});
+
+describe('formatarNumeroBRL', () => {
+  it('omite ,00 quando redondo e mantém centavos quando não', () => {
+    expect(formatarNumeroBRL(287900)).toBe('2.879');
+    expect(formatarNumeroBRL(0)).toBe('0');
+    expect(formatarNumeroBRL(91755)).toBe('917,55');
+    expect(formatarNumeroBRL(-8300)).toBe('-83');
   });
 });

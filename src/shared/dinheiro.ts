@@ -96,3 +96,16 @@ export function ratearCents(totalCents: number, partes: number): number[] {
     i === partes - 1 ? base + resto : base,
   );
 }
+
+/**
+ * Número BRL sem símbolo, omitindo ",00" quando redondo: 287900 -> "2.879";
+ * 91755 -> "917,55". Para telas que mostram o "R$" à parte (menor, apagado).
+ */
+export function formatarNumeroBRL(cents: number): string {
+  assertCentavos(cents, 'cents');
+  const inteiro = cents % CENTAVOS_POR_UNIDADE === 0;
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: inteiro ? 0 : 2,
+    maximumFractionDigits: inteiro ? 0 : 2,
+  }).format(cents / CENTAVOS_POR_UNIDADE);
+}
