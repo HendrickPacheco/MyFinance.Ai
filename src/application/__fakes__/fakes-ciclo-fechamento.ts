@@ -23,6 +23,7 @@ import {
 import type {
   Categoria,
   Ciclo,
+  Cotacao,
   Config,
   Conta,
   Conversa,
@@ -37,6 +38,7 @@ import type {
   Transacao,
 } from '@/domain/model/entidades';
 import type { DataCivil } from '@/shared/data';
+import type { CotacaoRepository } from '@/domain/ports/cotacao';
 import type { Deps } from '../deps';
 import { RelogioFixo } from '@/infrastructure/relogio/relogio-sistema';
 import type { Ator } from '@/domain/auth/ator';
@@ -1173,6 +1175,22 @@ export class FakeEmbedding implements EmbeddingPort {
   }
 }
 
+export class FakeCotacaoRepo implements CotacaoRepository {
+  private porData = new Map<string, Cotacao>();
+  async obter(data: DataCivil): Promise<Cotacao | null> {
+    return this.porData.get(data) ?? null;
+  }
+  async ultimaAte(data: DataCivil): Promise<Cotacao | null> {
+    const datas = [...this.porData.keys()].filter((d) => d <= data).sort();
+    const ultima = datas[datas.length - 1];
+    return ultima ? (this.porData.get(ultima) ?? null) : null;
+  }
+  async salvar(c: Cotacao): Promise<Cotacao> {
+    this.porData.set(c.data, { ...c });
+    return { ...c };
+  }
+}
+
 export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
   const config = opcoes.config === undefined ? clone(CONFIG_PADRAO) : opcoes.config;
   // `aplicarLote` mexe em saldo de conta e acumulado de provisão dentro da
@@ -1207,6 +1225,7 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     embeddings: opcoes.embeddings,
     conversas: new FakeConversaRepo(),
     importacoes: new FakeImportacaoRepo(),
+    cotacoes: new FakeCotacaoRepo(),
   };
 }
 

@@ -119,6 +119,12 @@ export async function criarDeps(): Promise<Deps> {
     conversas: new PrismaConversaRepository(prisma, donoId),
     // Rascunho de importação de fatura (I3 do TASKS-IMPORTACAO.md).
     importacoes: new PrismaImportacaoRepository(prisma, donoId),
+    // TODO Task 7: trocar por PrismaCotacaoRepository. Falha alto até lá.
+    cotacoes: {
+      obter: () => Promise.reject(new Error('CotacaoRepository: Task 7 pendente')),
+      ultimaAte: () => Promise.reject(new Error('CotacaoRepository: Task 7 pendente')),
+      salvar: () => Promise.reject(new Error('CotacaoRepository: Task 7 pendente')),
+    },
     // Independente de `ia`: sem OPENAI_MODEL_EMBEDDING a memória continua
     // gravando e listando, só a busca semântica degrada.
     embeddings: embeddingHabilitado() ? criarEmbeddingIA() : undefined,

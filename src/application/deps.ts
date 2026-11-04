@@ -15,6 +15,7 @@ import type { MemoriaPort } from '@/domain/ports/memoria';
 import type { EmbeddingPort } from '@/domain/ports/embeddings';
 import type { ConversaPort } from '@/domain/ports/conversa';
 import type { ImportacaoRepository } from '@/domain/ports/importacao';
+import type { CotacaoRepository, FonteCotacaoPort } from '@/domain/ports/cotacao';
 import type {
   ConfigRepository,
   ContaRepository,
@@ -87,4 +88,8 @@ export interface Deps {
    * depende de nenhuma extensão externa, então toda instalação a tem.
    */
   importacoes: ImportacaoRepository;
+  /** Cotação USD→BRL (global, sem dono — D4). */
+  cotacoes: CotacaoRepository;
+  /** Fonte externa (PTAX). Opcional: sem ela só vale o que já foi salvo. */
+  fonteCotacao?: FonteCotacaoPort;
 }
