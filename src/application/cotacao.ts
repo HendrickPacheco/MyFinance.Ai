@@ -15,7 +15,12 @@ export async function obterCotacaoUsd(
   deps: Deps,
   data: DataCivil = deps.relogio.hoje(),
 ): Promise<{ cotacao: Cotacao | null; aviso: string | null }> {
-  const salva = await deps.cotacoes.ultimaAte(data);
+  let salva: Cotacao | null = null;
+  try {
+    salva = await deps.cotacoes.ultimaAte(data);
+  } catch {
+    // repositório fora do ar = "nada salvo"; segue para fonte/fallback
+  }
   if (salva && diffDias(data, salva.data) <= IDADE_MAXIMA_CACHE_DIAS) {
     return { cotacao: salva, aviso: null };
   }

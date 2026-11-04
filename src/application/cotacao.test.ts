@@ -56,6 +56,16 @@ describe('obterCotacaoUsd', () => {
   });
 });
 
+describe('obterCotacaoUsd com repositório quebrado', () => {
+  it('ultimaAte lança: não rejeita, devolve null + aviso', async () => {
+    const deps = await montar(null);
+    deps.cotacoes.ultimaAte = async () => { throw new Error('db'); };
+    const r = await obterCotacaoUsd(deps);
+    expect(r.cotacao).toBeNull();
+    expect(r.aviso).not.toBeNull();
+  });
+});
+
 describe('salvarCotacaoManual', () => {
   it('VIEWER não pode', async () => {
     const deps = criarDeps({ hoje: '2026-11-04', ator: ATOR_VIEWER });
