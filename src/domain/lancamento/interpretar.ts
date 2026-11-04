@@ -1,4 +1,4 @@
-import type { MetodoPagamento } from '@/domain/model/enums';
+import type { MetodoPagamento, TipoVerba } from '@/domain/model/enums';
 
 export interface CategoriaRef {
   id: string;
@@ -12,6 +12,8 @@ export type LancamentoInterpretado =
       descricao: string | null;
       metodo: MetodoPagamento | null;
       categoriaId: string | null;
+      /** 'EXTRA' com a palavra "extra(s)"; null = padrão da categoria. */
+      tipoVerba: TipoVerba | null;
     }
   | { ok: false; erro: string };
 
@@ -37,7 +39,7 @@ function parseValor(token: string): number | null {
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 }
 
-/** Interpreta "80 mercado pix" em valor, método, categoria e descrição. */
+/** Interpreta "80 mercado pix extra" em valor, método, categoria, verba e descrição. */
 export function interpretarLancamentoRapido(
   texto: string,
   categorias: CategoriaRef[],
@@ -54,8 +56,13 @@ export function interpretarLancamentoRapido(
   }
   if (valorCents === null || valorCents <= 0) return { ok: false, erro: 'Informe um valor.' };
 
+  let tipoVerba: TipoVerba | null = null;
   let metodo: MetodoPagamento | null = null;
   const semMetodo = resto.filter((tk) => {
+    if (/^extras?$/.test(semAcento(tk))) {
+      tipoVerba = 'EXTRA';
+      return false;
+    }
     const m = METODOS[semAcento(tk)];
     if (m && !metodo) {
       metodo = m;
@@ -82,5 +89,6 @@ export function interpretarLancamentoRapido(
     descricao: semMetodo.join(' ') || null,
     metodo,
     categoriaId,
+    tipoVerba,
   };
 }

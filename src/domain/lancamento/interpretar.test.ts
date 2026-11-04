@@ -61,4 +61,18 @@ describe('interpretarLancamentoRapido', () => {
     expect(i('80', cats)).toMatchObject({ descricao: null });
     expect(i('mercado 80 pix', cats)).toMatchObject({ valorCents: 8000, descricao: 'mercado' });
   });
+
+  it.each(['extra', 'Extras', 'EXTRÁ'])('palavra %s → verba EXTRA, fora da descrição', (kw) => {
+    expect(i(`200 presente ${kw} pix`, cats)).toMatchObject({
+      ok: true,
+      tipoVerba: 'EXTRA',
+      descricao: 'presente',
+      metodo: 'PIX',
+    });
+  });
+
+  it('sem a palavra → tipoVerba null (vale o padrão da categoria); "extrato" não conta', () => {
+    expect(i('50 mercado', cats)).toMatchObject({ tipoVerba: null });
+    expect(i('50 extrato', cats)).toMatchObject({ tipoVerba: null, descricao: 'extrato' });
+  });
 });

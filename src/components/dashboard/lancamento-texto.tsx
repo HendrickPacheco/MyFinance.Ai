@@ -34,6 +34,7 @@ export function LancamentoTexto({ categorias }: { categorias: OpcaoCategoria[] }
           categoriaId: categoria.id,
           descricao: r.descricao,
           metodo: r.metodo,
+          ...(r.tipoVerba ? { tipoVerbaOverride: r.tipoVerba } : {}),
         });
         if (!res.ok) return setErro(res.erro);
         setTexto('');
