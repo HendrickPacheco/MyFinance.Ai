@@ -104,6 +104,16 @@ export function parseBRL(entrada: string): number {
   return Math.round(numero * CENTAVOS_POR_UNIDADE);
 }
 
+/**
+ * Cotação digitada ("5,43", "5.4306") -> micros inteiros, sem passar por float.
+ * Rejeita mais de 6 casas decimais em vez de arredondar em silêncio.
+ */
+export function parseTaxaMicros(entrada: string): number {
+  const m = /^(\d+)(?:[.,](\d{1,6}))?$/.exec(entrada.trim());
+  if (!m) throw new Error(`cotação inválida: "${entrada}" (use até 6 casas decimais)`);
+  return Number(m[1]) * 1_000_000 + Number((m[2] ?? '').padEnd(6, '0'));
+}
+
 /** Soma uma lista de centavos garantindo inteireza. */
 export function somaCents(valores: readonly number[]): number {
   return valores.reduce((acc, v) => acc + assertCentavos(v), 0);

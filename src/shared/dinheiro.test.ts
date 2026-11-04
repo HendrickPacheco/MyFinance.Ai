@@ -91,3 +91,14 @@ describe('formatUSD / formatTaxaBRL / converterParaBrlCents', () => {
     expect(() => converterParaBrlCents(Number.MAX_SAFE_INTEGER, 5_430_000)).toThrow(RangeError);
   });
 });
+
+describe('parseTaxaMicros', () => {
+  it('converte sem deriva de float e rejeita >6 casas', async () => {
+    const { parseTaxaMicros } = await import('./dinheiro');
+    expect(parseTaxaMicros('5,43')).toBe(5_430_000);
+    expect(parseTaxaMicros('5.4306')).toBe(5_430_600);
+    expect(parseTaxaMicros('4,35')).toBe(4_350_000);
+    expect(() => parseTaxaMicros('5,1234567')).toThrow();
+    expect(() => parseTaxaMicros('abc')).toThrow();
+  });
+});

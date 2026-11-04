@@ -6,11 +6,12 @@
  * Puramente apresentacional —
  * sem interação, então fica Server Component.
  */
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
-import { formatBRL } from '@/shared/dinheiro';
-import { cn } from '@/lib/cn';
-import type { Ciclo } from '@/domain/model/entidades';
-import { rendaEfetivaCents } from '@/domain/finance/renda';
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui";
+import { formatBRL } from "@/shared/dinheiro";
+import { cn } from "@/lib/cn";
+import type { Ciclo } from "@/domain/model/entidades";
+import type { DivisaoVerba } from "@/domain/finance";
+import { rendaEfetivaCents } from "@/domain/finance/renda";
 
 interface LinhaComposicao {
   rotulo: string;
@@ -18,21 +19,35 @@ interface LinhaComposicao {
   sinal: 1 | -1;
 }
 
-export function ComposicaoVerbaCard({ ciclo }: { ciclo: Ciclo }) {
+export function ComposicaoVerbaCard({
+  ciclo,
+  divisao,
+  pisoDiarioCents,
+}: {
+  ciclo: Ciclo;
+  /** Só a tela do ciclo atual mostra o split; o histórico omite. */
+  divisao?: DivisaoVerba;
+  pisoDiarioCents?: number;
+}) {
   const linhas: LinhaComposicao[] = [
     {
-      rotulo: ciclo.rendaRealLiquidaCents != null ? 'Renda real' : 'Renda prevista',
+      rotulo:
+        ciclo.rendaRealLiquidaCents != null ? "Renda real" : "Renda prevista",
       valorCents: rendaEfetivaCents(ciclo),
       sinal: 1,
     },
-    { rotulo: 'Custos fixos', valorCents: ciclo.fixosCents, sinal: -1 },
-    { rotulo: 'Provisão mensal', valorCents: ciclo.provisaoMensalCents, sinal: -1 },
+    { rotulo: "Custos fixos", valorCents: ciclo.fixosCents, sinal: -1 },
+    {
+      rotulo: "Provisão mensal",
+      valorCents: ciclo.provisaoMensalCents,
+      sinal: -1,
+    },
   ];
 
   if (ciclo.rolloverRecebidoCents !== 0) {
     const positivo = ciclo.rolloverRecebidoCents > 0;
     linhas.push({
-      rotulo: positivo ? 'Rollover recebido' : 'Rollover devido',
+      rotulo: positivo ? "Rollover recebido" : "Rollover devido",
       valorCents: Math.abs(ciclo.rolloverRecebidoCents),
       sinal: positivo ? 1 : -1,
     });
@@ -46,10 +61,13 @@ export function ComposicaoVerbaCard({ ciclo }: { ciclo: Ciclo }) {
       <CardContent>
         <ul className="space-y-2">
           {linhas.map((linha) => (
-            <li key={linha.rotulo} className="flex items-center justify-between text-sm">
+            <li
+              key={linha.rotulo}
+              className="flex items-center justify-between text-sm"
+            >
               <span className="text-muted">{linha.rotulo}</span>
               <span className="tnum text-fg">
-                {linha.sinal === 1 ? '+' : '−'} {formatBRL(linha.valorCents)}
+                {linha.sinal === 1 ? "+" : "−"} {formatBRL(linha.valorCents)}
               </span>
             </li>
           ))}
@@ -57,10 +75,20 @@ export function ComposicaoVerbaCard({ ciclo }: { ciclo: Ciclo }) {
 
         <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
           <span className="text-sm font-medium text-fg">Verba variável</span>
-          <span className={cn('tnum text-2xl font-semibold text-accent')}>
+          <span className={cn("tnum text-2xl font-semibold text-accent")}>
             {formatBRL(ciclo.verbaVariavelCents)}
           </span>
         </div>
+
+        {divisao && pisoDiarioCents != null ? (
+          <p className="mt-3 text-sm text-muted">
+            Para bater a meta, gaste até{" "}
+            {formatBRL(Math.max(divisao.gastavelCents, 0))} —{" "}
+            {formatBRL(divisao.diaADiaCents)} no dia a dia (
+            {formatBRL(pisoDiarioCents)}/dia) e {formatBRL(divisao.extrasCents)}{" "}
+            em extras.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

@@ -539,7 +539,7 @@ async function montarMetas(
  * decomposição sai de `rendaLiquidaPrevista` com uma Config sintética (como a
  * confirmação faz) — uma implementação só da conta e do texto.
  */
-function montarRenda(ciclo: Ciclo, config: Config | null): ResumoRendaCiclo {
+export function montarRenda(ciclo: Ciclo, config: Config | null): ResumoRendaCiclo {
   const liquidaCents = rendaEfetivaCents(ciclo);
   const confirmada = ciclo.rendaRealLiquidaCents != null;
   const semImposto = { impostoEstimadoCents: null, impostoEstimadoPercentual: null };
