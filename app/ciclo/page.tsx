@@ -32,7 +32,7 @@ export default async function CicloPage() {
       <ComposicaoVerbaCard
         ciclo={estado.ciclo}
         divisao={estado.divisao}
-        pisoDiarioCents={config?.pisoDiarioVerbaCents ?? 0}
+        diaADiaDiarioCents={estado.diaADiaDiarioCents}
       />
 
       {!estado.ciclo.fechado ? (

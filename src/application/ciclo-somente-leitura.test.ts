@@ -199,4 +199,30 @@ describe('obterEstadoCiclo: split da verba (Task 11)', () => {
     expect(estado.renda.liquidaCents).toBe(3_000_000);
     expect(estado.renda.confirmada).toBe(false);
   });
+
+  it('meta que não cabe: mostra o dia a dia real e quanto falta para o piso', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-10',
+      config: { ...CONFIG_PADRAO, pisoDiarioVerbaCents: 15_000 },
+      ciclos: [
+        cicloFake({
+          id: 'nov',
+          dataInicio: '2026-11-01',
+          dataFim: '2026-11-30',
+          verbaVariavelCents: 2_511_600,
+          poupancaAlvoCents: 2_200_000,
+        }),
+      ],
+    });
+
+    const estado = await obterEstadoCiclo(deps);
+
+    expect(estado.divisao).toEqual({
+      gastavelCents: 311_600,
+      diaADiaCents: 311_600,
+      extrasCents: 0,
+      faltaParaPisoCents: 138_400,
+    });
+    expect(estado.diaADiaDiarioCents).toBe(10_386);
+  });
 });

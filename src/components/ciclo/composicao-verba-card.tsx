@@ -22,12 +22,12 @@ interface LinhaComposicao {
 export function ComposicaoVerbaCard({
   ciclo,
   divisao,
-  pisoDiarioCents,
+  diaADiaDiarioCents,
 }: {
   ciclo: Ciclo;
   /** Só a tela do ciclo atual mostra o split; o histórico omite. */
   divisao?: DivisaoVerba;
-  pisoDiarioCents?: number;
+  diaADiaDiarioCents?: number;
 }) {
   const linhas: LinhaComposicao[] = [
     {
@@ -80,14 +80,25 @@ export function ComposicaoVerbaCard({
           </span>
         </div>
 
-        {divisao && pisoDiarioCents != null ? (
-          <p className="mt-3 text-sm text-muted">
-            Para bater a meta, gaste até{" "}
-            {formatBRL(Math.max(divisao.gastavelCents, 0))} —{" "}
-            {formatBRL(divisao.diaADiaCents)} no dia a dia (
-            {formatBRL(pisoDiarioCents)}/dia) e {formatBRL(divisao.extrasCents)}{" "}
-            em extras.
-          </p>
+        {divisao && diaADiaDiarioCents != null ? (
+          divisao.faltaParaPisoCents > 0 ? (
+            <div className="mt-3 space-y-1 text-sm">
+              <p className="text-muted">
+                {divisao.gastavelCents <= 0
+                  ? "A meta consome toda a verba: não sobra nada para gastar."
+                  : `Para bater a meta, gaste até ${formatBRL(divisao.gastavelCents)}, todo no dia a dia (${formatBRL(diaADiaDiarioCents)}/dia, sem extras).`}
+              </p>
+              <p className="text-negativo">
+                Faltam {formatBRL(divisao.faltaParaPisoCents)} para cobrir o dia a dia.
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted">
+              Para bater a meta, gaste até {formatBRL(divisao.gastavelCents)} —{" "}
+              {formatBRL(divisao.diaADiaCents)} no dia a dia ({formatBRL(diaADiaDiarioCents)}/dia) e{" "}
+              {formatBRL(divisao.extrasCents)} em extras.
+            </p>
+          )
         ) : null}
       </CardContent>
     </Card>
