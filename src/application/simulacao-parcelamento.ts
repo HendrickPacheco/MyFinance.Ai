@@ -24,6 +24,13 @@ export interface SimulacaoParcelamento {
   truncado: boolean;
 }
 
+/** Texto do alerta, compartilhado com a simulação do copiloto. */
+export function alertaReducaoDiaADia(menorDiaADiaCents: number | null): string | null {
+  return menorDiaADiaCents == null
+    ? null
+    : `Essa compra vai reduzir seu dia a dia para ${formatBRL(menorDiaADiaCents)}/dia`;
+}
+
 // `obterProjecao` aceita no máximo 60 ciclos; parcelamentos vão até 72.
 const MAX_CICLOS = 60;
 
@@ -70,9 +77,6 @@ export async function simularImpactoParcelamento(
   return {
     truncado: necessarios > MAX_CICLOS,
     meses,
-    alerta:
-      menorDiaADia == null
-        ? null
-        : `Essa compra vai reduzir seu dia a dia para ${formatBRL(menorDiaADia)}/dia`,
+    alerta: alertaReducaoDiaADia(menorDiaADia),
   };
 }

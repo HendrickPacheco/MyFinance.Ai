@@ -11,6 +11,7 @@
 import { formatBRL } from '@/shared/dinheiro';
 import type { Deps } from '@/application/deps';
 import { obterProjecao, type ResultadoProjecao } from '@/application/projecao';
+import { alertaReducaoDiaADia } from '@/application/simulacao-parcelamento';
 import { obterSimulacaoMetaPrazo } from '@/application/meta-prazo';
 import { obterSimulacaoRenda, type CicloSimulacaoRenda } from '@/application/renda-hipotetica';
 import type { CicloProjetado } from '@/domain/finance';
@@ -34,6 +35,10 @@ const ROTULOS = {
     'dela está aqui dentro e só vira poupança se sobrar',
   parcelasComprometidas: 'já preso em parcelas que caem no ciclo',
   verbaLivre: 'o que sobra de verdade: verba variável menos parcelas',
+  parcelaEExtras:
+    'a parcela NÃO é deduzida da verba variável (D-11): ela consome primeiro os extras ' +
+    '(extrasRestante) e só o EXCESSO além dos extras reduz o dia a dia (diaADiaDiario = ' +
+    'dia a dia ÷ dias do ciclo). passouAReduzirDiaADia diz se a compra empurrou o dia a dia para baixo',
 } as const;
 
 function cicloParaSaida(ciclo: CicloProjetado): SaidaFerramenta {
@@ -48,6 +53,9 @@ function cicloParaSaida(ciclo: CicloProjetado): SaidaFerramenta {
       parcelasComprometidas: ciclo.parcelasComprometidasCents,
       verbaLivre: ciclo.verbaLivreCents,
       verbaDiariaLivre: ciclo.verbaDiariaLivreCents,
+      diaADia: ciclo.diaADiaCents,
+      extrasRestante: ciclo.extrasRestanteCents,
+      diaADiaDiario: ciclo.diaADiaDiarioCents,
     }),
   };
 }
@@ -107,8 +115,16 @@ function montarSaidaCenario(
     .filter((d) => d.passouAFicarAbaixoDoPiso)
     .map((d) => d.inicio);
 
+  // Mesmo critério da simulação de tela (Task 16): menor dia a dia/dia entre os meses afetados.
+  const afetados = cenario.delta.flatMap((d, i) =>
+    d.passouAReduzirDiaADia && cenario.ciclos[i] ? [cenario.ciclos[i].diaADiaDiarioCents] : [],
+  );
+  const alerta = alertaReducaoDiaADia(afetados.length ? Math.min(...afetados) : null);
+
   return {
     compra: { descricao, dataCompra },
+    reduzDiaADia: alerta != null,
+    alerta,
     rotulos: ROTULOS,
     premissas: projecao.premissas,
     /** Ciclos que só ficam abaixo do piso POR CAUSA da compra. */
@@ -116,10 +132,13 @@ function montarSaidaCenario(
     apertaOOrcamento: ciclosQuePassamAFicarApertados.length > 0,
     ciclosSemACompra: projecao.ciclos.map(cicloParaSaida),
     ciclosComACompra: cenario.ciclos.map(cicloParaSaida),
-    impactoPorCiclo: cenario.delta.map((d) => ({
+    impactoPorCiclo: cenario.delta.map((d, i) => ({
       inicio: d.inicio,
       passouAFicarAbaixoDoPiso: d.passouAFicarAbaixoDoPiso,
+      passouAReduzirDiaADia: d.passouAReduzirDiaADia,
       ...dinheiros({
+        variacaoExtrasRestante: d.extrasRestanteCents,
+        diaADiaDiarioDepois: cenario.ciclos[i]?.diaADiaDiarioCents ?? 0,
         parcelaAdicionada: d.parcelasComprometidasCents,
         variacaoVerbaLivre: d.verbaLivreCents,
         variacaoVerbaDiariaLivre: d.verbaDiariaLivreCents,
