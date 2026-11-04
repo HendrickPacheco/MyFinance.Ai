@@ -109,3 +109,15 @@ export function formatarNumeroBRL(cents: number): string {
     maximumFractionDigits: inteiro ? 0 : 2,
   }).format(cents / CENTAVOS_POR_UNIDADE);
 }
+
+/**
+ * Rótulo curto de ponto de gráfico, em reais inteiros: >= 10.000 vira "10,6k"
+ * (exceto quando `completo`, ex.: o último ponto -> "11.300"); abaixo, "5.379".
+ */
+export function formatarRotuloGrafico(cents: number, completo = false): string {
+  const reais = Math.round(cents / CENTAVOS_POR_UNIDADE);
+  if (reais >= 10_000 && !completo) {
+    return `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(reais / 1000)}k`;
+  }
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(reais);
+}

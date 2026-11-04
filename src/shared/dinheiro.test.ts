@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatarNumeroBRL, formatBRL, parseBRL, ratearCents, somaCents, assertCentavos } from './dinheiro';
+import { formatarNumeroBRL, formatarRotuloGrafico, formatBRL, parseBRL, ratearCents, somaCents, assertCentavos } from './dinheiro';
 
 describe('formatBRL', () => {
   it('formata centavos como moeda BRL', () => {
@@ -72,5 +72,13 @@ describe('formatarNumeroBRL', () => {
     expect(formatarNumeroBRL(0)).toBe('0');
     expect(formatarNumeroBRL(91755)).toBe('917,55');
     expect(formatarNumeroBRL(-8300)).toBe('-83');
+  });
+});
+
+describe('formatarRotuloGrafico', () => {
+  it('inteiro abaixo de 10 mil, compacto acima, completo no último', () => {
+    expect(formatarRotuloGrafico(537_900)).toBe('5.379');
+    expect(formatarRotuloGrafico(1_060_000)).toBe('10,6k');
+    expect(formatarRotuloGrafico(1_130_000, true)).toBe('11.300');
   });
 });
