@@ -85,7 +85,7 @@ export function ComposicaoVerbaCard({
             <div className="mt-3 space-y-1 text-sm">
               <p className="text-muted">
                 {divisao.gastavelCents <= 0
-                  ? "A meta consome toda a verba: não sobra nada para gastar."
+                  ? "Para bater a meta, não sobra nada para gastar neste ciclo."
                   : `Para bater a meta, gaste até ${formatBRL(divisao.gastavelCents)}, todo no dia a dia (${formatBRL(diaADiaDiarioCents)}/dia, sem extras).`}
               </p>
               <p className="text-negativo">
