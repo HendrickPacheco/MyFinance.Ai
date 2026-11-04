@@ -59,7 +59,7 @@ export interface ResultadoProjecao {
    */
   cicloAtualCongelado: boolean;
   /** Cotação que alimentou a renda dos ciclos futuros; `null` em BRL ou sem cotação. */
-  cotacao: { taxaMicros: number; simulada: boolean } | null;
+  cotacao: { taxaMicros: number | null; simulada: boolean } | null;
 }
 
 const PREMISSAS_BASE = [
@@ -217,7 +217,8 @@ export async function obterProjecao(
     obrigacoesFuturas: obrigacoes,
   };
 
-  const cotacaoUsada = taxaUsada == null ? null : { taxaMicros: taxaUsada, simulada };
+  const cotacaoUsada =
+    config.moedaRenda === 'USD' ? { taxaMicros: taxaUsada, simulada } : null;
   const premissas: string[] = [...PREMISSAS_BASE];
   if (config.moedaRenda === 'USD') {
     premissas.push(`Renda dos ciclos futuros: ${renda.decomposicao}.`);

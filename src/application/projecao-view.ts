@@ -99,7 +99,7 @@ export interface ResumoProjecao {
   manchete: string;
   premissas: readonly string[];
   /** Cotação usada nos ciclos futuros (slider); `null` em BRL. */
-  cotacao: { taxaMicros: number; simulada: boolean } | null;
+  cotacao: { taxaMicros: number | null; simulada: boolean } | null;
 }
 
 /** Horizontes oferecidos pelo seletor da tela (§3.4). */

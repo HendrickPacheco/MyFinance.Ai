@@ -611,6 +611,16 @@ describe('obterProjecao — renda em USD (ciclos futuros)', () => {
     expect(r.ciclos[1]?.rendaPrevistaCents).toBe(4_030_000);
   });
 
+  it('USD sem cotação alguma: flag USD presente, taxa nula, renda base', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04' });
+    deps.config.mutar(configUsd);
+
+    const r = await obterProjecao(deps, { numCiclos: 2 });
+
+    expect(r.cotacao).toEqual({ taxaMicros: null, simulada: false });
+    expect(r.ciclos[0]?.rendaPrevistaCents).toBe(3_000_000);
+  });
+
   it('config em BRL: sem cotação na resposta', async () => {
     const r = await obterProjecao(criarDeps({ hoje: HOJE }), { numCiclos: 2, taxaMicros: 6_000_000 });
     expect(r.cotacao).toBeNull();

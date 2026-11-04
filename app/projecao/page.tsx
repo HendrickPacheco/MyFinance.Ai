@@ -75,7 +75,7 @@ export default async function ProjecaoPage({
 
       <ProjecaoFiltros
         horizonte={horizonte}
-        cotacao={resumo.cotacao?.simulada ? (resumo.cotacao.taxaMicros / 1_000_000).toFixed(2) : undefined}
+        cotacao={resumo.cotacao?.simulada && resumo.cotacao.taxaMicros != null ? (resumo.cotacao.taxaMicros / 1_000_000).toFixed(2) : undefined}
       />
 
       {resumo.cotacao ? (

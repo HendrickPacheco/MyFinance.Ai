@@ -16,16 +16,17 @@ export function CotacaoSlider({
   taxaMicros,
   simulada,
 }: {
-  taxaMicros: number;
+  taxaMicros: number | null;
   simulada: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const [valor, setValor] = useState(paraTexto(taxaMicros));
+  const semCotacao = taxaMicros === null;
+  const [valor, setValor] = useState(paraTexto(taxaMicros ?? COTACAO_MIN_MICROS));
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  useEffect(() => setValor(paraTexto(taxaMicros)), [taxaMicros]);
+  useEffect(() => setValor(paraTexto(taxaMicros ?? COTACAO_MIN_MICROS)), [taxaMicros]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   function navegar(cotacao: string | null) {
@@ -57,7 +58,11 @@ export function CotacaoSlider({
         onChange={(e) => aoMudar(e.target.value)}
         className="min-h-[44px] min-w-[10rem] flex-1 accent-[var(--color-accent,currentColor)]"
       />
-      <span className="tnum text-sm font-medium text-fg">R$ {valor.replace('.', ',')}</span>
+      {semCotacao ? (
+        <span className="text-sm text-muted">sem cotação — mova para simular</span>
+      ) : (
+        <span className="tnum text-sm font-medium text-fg">R$ {valor.replace('.', ',')}</span>
+      )}
       {simulada ? (
         <button
           type="button"
