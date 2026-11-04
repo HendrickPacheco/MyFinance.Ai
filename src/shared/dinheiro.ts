@@ -23,6 +23,40 @@ export function formatBRL(cents: number): string {
   }).format(cents / CENTAVOS_POR_UNIDADE);
 }
 
+/** Formata centavos de dólar: 730000 -> "US$ 7.300,00". */
+export function formatUSD(cents: number): string {
+  assertCentavos(cents, 'cents');
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(
+    cents / CENTAVOS_POR_UNIDADE,
+  );
+}
+
+/**
+ * Formata taxa em micros (taxa × 1.000.000) como BRL, de 2 a 4 casas:
+ * 5_430_000 -> "R$ 5,43"; 5_430_600 -> "R$ 5,4306". Aritmética inteira.
+ */
+export function formatTaxaBRL(taxaMicros: number): string {
+  assertCentavos(taxaMicros, 'taxaMicros');
+  const dezMilesimos = Math.round(taxaMicros / 100);
+  const inteiros = Math.floor(dezMilesimos / 10_000);
+  const frac = String(dezMilesimos % 10_000)
+    .padStart(4, '0')
+    .replace(/0+$/, '')
+    .padEnd(2, '0');
+  return `R$ ${inteiros.toLocaleString('pt-BR')},${frac}`;
+}
+
+/** Converte centavos da moeda de origem em centavos de BRL: floor(valor × taxa / 1e6). */
+export function converterParaBrlCents(valorOrigemCents: number, taxaMicros: number): number {
+  assertCentavos(valorOrigemCents, 'valorOrigemCents');
+  assertCentavos(taxaMicros, 'taxaMicros');
+  const produto = valorOrigemCents * taxaMicros;
+  if (!Number.isSafeInteger(produto)) {
+    throw new RangeError('Conversão excede o inteiro seguro');
+  }
+  return Math.floor(produto / 1_000_000);
+}
+
 /**
  * Formata centavos como decimal pt-BR SEM símbolo e SEM separador de milhar:
  * 123456 -> "1234,56"; -50 -> "-0,50".
