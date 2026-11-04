@@ -23,13 +23,26 @@ import { formatBRL, parseBRL } from '@/shared/dinheiro';
 import { Button, ConfirmInline, Input, Label, Select } from '@/components/ui';
 import { editarTransacao } from '@/actions/transacoes';
 import type { DataCivil } from '@/shared/data';
+import type { TipoTransacao, TipoVerba } from '@/domain/model/enums';
 import { TITULO_RETROATIVO, descricaoRetroativo } from './retroatividade';
 
 /** O mínimo que o `<select>` precisa. Serve tanto `Categoria` quanto `OpcaoCategoria`. */
 export interface OpcaoCategoriaEdicao {
   id: string;
   nome: string;
+  /** Opcionais: sem eles o seletor de verba não sabe o padrão e fica oculto. */
+  grupo?: string;
+  tipoVerba?: TipoVerba;
 }
+
+/** Dados que habilitam o seletor "Verba" (override de tipo de verba, só DESPESA). */
+export interface VerbaEdicao {
+  tipo: TipoTransacao;
+  ehParcela: boolean;
+  override: TipoVerba | null;
+}
+
+const ROTULO_VERBA: Record<TipoVerba, string> = { DIA_A_DIA: 'Dia a dia', EXTRA: 'Extra' };
 
 export interface TransacaoEdicaoFormProps {
   transacaoId: string;
@@ -38,6 +51,8 @@ export interface TransacaoEdicaoFormProps {
   categoriaId: string | null;
   descricao: string | null;
   categorias: readonly OpcaoCategoriaEdicao[];
+  /** Ausente = sem seletor de verba (superfície que ainda não conhece o override). */
+  verba?: VerbaEdicao;
   /** Fechar a edição sem salvar. */
   onCancelar: () => void;
   /** Salvou com sucesso; quem chama fecha a edição. O refresh já foi disparado. */
@@ -51,6 +66,7 @@ export function TransacaoEdicaoForm({
   categoriaId: categoriaIdInicial,
   descricao: descricaoInicial,
   categorias,
+  verba,
   onCancelar,
   onSalvo,
 }: TransacaoEdicaoFormProps) {
@@ -72,6 +88,13 @@ export function TransacaoEdicaoForm({
   const [categoriaId, setCategoriaId] = useState(categoriaIdInicial ?? '');
   const [descricao, setDescricao] = useState(descricaoInicial ?? '');
   const [data, setData] = useState(dataInicial);
+  // '' = padrão da categoria (override null).
+  const [verbaSel, setVerbaSel] = useState<'' | TipoVerba>(verba?.override ?? '');
+
+  const categoriaSel = categorias.find((c) => c.id === categoriaId);
+  const mostrarVerba =
+    verba?.tipo === 'DESPESA' && categoriaSel?.grupo !== 'FIXO' && !!categoriaSel?.tipoVerba;
+  const padraoVerba = ROTULO_VERBA[categoriaSel?.tipoVerba ?? 'EXTRA'];
 
   const executarEdicao = useCallback(
     async (valorCents: number, confirmarRetroativo: boolean) => {
@@ -83,6 +106,8 @@ export function TransacaoEdicaoForm({
         descricao: descricao || null,
         data,
         confirmarRetroativo,
+        // Só envia quando o seletor existe: ausente = preserva o atual.
+        ...(mostrarVerba && !verba?.ehParcela ? { tipoVerbaOverride: verbaSel || null } : {}),
       });
       setPendente(false);
       if (r.ok) {
@@ -98,7 +123,7 @@ export function TransacaoEdicaoForm({
       setConfirmacao(null);
       setErro(r.erro);
     },
-    [transacaoId, categoriaId, descricao, data, router, onSalvo],
+    [transacaoId, categoriaId, descricao, data, mostrarVerba, verba, verbaSel, router, onSalvo],
   );
 
   /**
@@ -168,6 +193,28 @@ export function TransacaoEdicaoForm({
           ))}
         </Select>
       </div>
+
+      {mostrarVerba ? (
+        <div className="mt-3">
+          <Label htmlFor={`verba-${transacaoId}`}>Verba</Label>
+          <Select
+            id={`verba-${transacaoId}`}
+            value={verba?.ehParcela ? 'EXTRA' : verbaSel}
+            disabled={verba?.ehParcela}
+            onChange={(e) => setVerbaSel(e.target.value as '' | TipoVerba)}
+          >
+            {verba?.ehParcela ? (
+              <option value="EXTRA">Extras (parcela)</option>
+            ) : (
+              <>
+                <option value="">Verba: padrão da categoria ({padraoVerba})</option>
+                <option value="DIA_A_DIA">Dia a dia</option>
+                <option value="EXTRA">Extras</option>
+              </>
+            )}
+          </Select>
+        </div>
+      ) : null}
 
       <div className="mt-3">
         <Label htmlFor={`descricao-${transacaoId}`}>Descrição</Label>

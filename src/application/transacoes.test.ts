@@ -14,6 +14,7 @@ import {
   type OpcoesFakeDeps,
 } from './__fakes__/fakes-ciclo-fechamento';
 import {
+  criarTransacao,
   editarTransacao,
   excluirTransacao,
   estornarTransacao,
@@ -203,5 +204,39 @@ describe('estornarTransacao — data do estorno (SPEC regra 5 / seção 9)', () 
     const ciclo = await deps.ciclos.obter(CICLO_FECHADO_ID);
     // gasto líquido = 30.000 (despesa) - 30.000 (estorno) = 0 -> sobra = verba inteira.
     expect(ciclo?.sobraCents).toBe(100_000);
+  });
+});
+
+describe('tipoVerbaOverride por lançamento', () => {
+  const aberto = { data: '2026-07-10', cicloId: CICLO_ABERTO_ID };
+
+  it('editar grava o override; null volta ao padrão da categoria; undefined preserva', async () => {
+    const deps = fixture([transacaoFake({ id: 'tx-1', ...aberto })]);
+
+    const a = await editarTransacao(deps, 'tx-1', { valorCents: 10_000, tipoVerbaOverride: 'DIA_A_DIA' });
+    expect(a.tipoVerbaOverride).toBe('DIA_A_DIA');
+
+    const b = await editarTransacao(deps, 'tx-1', { valorCents: 12_000 });
+    expect(b.tipoVerbaOverride).toBe('DIA_A_DIA');
+
+    const c = await editarTransacao(deps, 'tx-1', { valorCents: 12_000, tipoVerbaOverride: null });
+    expect(c.tipoVerbaOverride).toBeNull();
+  });
+
+  it('parcela recusa override não nulo, mas aceita null', async () => {
+    const deps = fixture([transacaoFake({ id: 'tx-p', parcelamentoId: 'parc-1', parcelaNum: 1, ...aberto })]);
+
+    await expect(
+      editarTransacao(deps, 'tx-p', { valorCents: 10_000, tipoVerbaOverride: 'DIA_A_DIA' }),
+    ).rejects.toThrow('Parcela sempre consome extras');
+    await expect(
+      editarTransacao(deps, 'tx-p', { valorCents: 10_000, tipoVerbaOverride: null }),
+    ).resolves.toBeDefined();
+  });
+
+  it('criar aceita o override', async () => {
+    const deps = fixture();
+    const t = await criarTransacao(deps, { valorCents: 5_000, tipoVerbaOverride: 'EXTRA' });
+    expect(t.tipoVerbaOverride).toBe('EXTRA');
   });
 });
