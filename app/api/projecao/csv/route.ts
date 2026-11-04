@@ -8,6 +8,7 @@ import {
 } from '@/application/projecao-view';
 import { estaAutenticado } from '@/domain/auth/ator';
 import { lerHorizonte } from '@/lib/projecao-horizonte';
+import { lerCotacao } from '@/lib/projecao-cotacao';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,9 +40,11 @@ export async function GET(req: Request): Promise<Response> {
 
   const horizonte = lerHorizonte(new URL(req.url).searchParams.get('horizonte') ?? undefined);
 
+  const taxaMicros = lerCotacao(new URL(req.url).searchParams.get('cotacao') ?? undefined) ?? undefined;
+
   let resumo;
   try {
-    resumo = await obterResumoProjecao(deps, { numCiclos: horizonte });
+    resumo = await obterResumoProjecao(deps, { numCiclos: horizonte, taxaMicros });
   } catch (erro) {
     if (!(erro instanceof ConfigAusenteError)) throw erro;
     return NextResponse.json(

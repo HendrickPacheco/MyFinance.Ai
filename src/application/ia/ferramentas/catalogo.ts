@@ -90,7 +90,7 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
   {
     nome: 'situacao_hoje',
     descricao:
-      'Quanto o usuário pode gastar HOJE: teto do dia, quanto já gastou hoje, quanto ainda resta hoje e se está em modo recuperação. Use para perguntas sobre o dia corrente.',
+      'Quanto o usuário pode gastar HOJE: teto do dia, quanto já gastou hoje, quanto ainda resta hoje e se está em modo recuperação. Traz também `verbas` (dia a dia e extras), cujo podeGastarHojeDiaADia é o "Posso gastar hoje" do app. Use para perguntas sobre o dia corrente.',
     argumentos: z.object({}),
     origem: 'application/hoje.ts: obterEstadoHojeSomenteLeitura → domain/finance/teto.ts: calcularTeto',
     comoFoiCalculado: 'domain/finance/teto.ts: calcularTeto',
@@ -100,7 +100,7 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
   {
     nome: 'estado_ciclo',
     descricao:
-      'Situação do ciclo inteiro: composição da verba, quanto já foi gasto, ritmo de gasto e projeção de fechamento. Use para perguntas sobre o mês/ciclo, não sobre hoje.',
+      'Situação do ciclo inteiro: composição da verba, as verbas dia a dia e extras (`verbas`), quanto já foi gasto, ritmo de gasto e projeção de fechamento. Use para perguntas sobre o mês/ciclo, não sobre hoje.',
     argumentos: z.object({}),
     origem:
       'application/ciclo-view.ts: obterEstadoCicloSomenteLeitura → domain/finance/ritmo.ts: indicadoresRitmo',
@@ -200,6 +200,27 @@ export const CATALOGO_FERRAMENTAS: readonly FerramentaCatalogo[] = [
       'application/patrimonio.ts: obterPatrimonio → domain/finance/patrimonio.ts: totalPatrimonioCents, mesesDeReserva',
     comoFoiCalculado: 'domain/finance/patrimonio.ts: totalPatrimonioCents, mesesDeReserva',
     bloqueio: null,
+  },
+  {
+    nome: 'poupanca_real',
+    descricao:
+      'Poupança REAL (variação do patrimônio) contra a meta: o guardado estimado do ciclo atual e de onde veio a estimativa, cada um dos últimos 12 ciclos fechados (meta, real, diferença) e as médias de 3, 6 e 12 ciclos. Use para "quanto guardei de verdade", "estou batendo a meta?". A meta é objetivo, nunca dinheiro reservado. Quando um valor vier null, cite o motivo que vem ao lado.',
+    argumentos: z.object({}),
+    origem:
+      'application/dashboard.ts: estimarGuardadoDoCiclo + application/historico.ts: obterHistorico → domain/finance/poupanca-real.ts: estimarPoupancaEmCurso, mediaPoupancaReal',
+    comoFoiCalculado: 'domain/finance/poupanca-real.ts: estimarPoupancaEmCurso, mediaPoupancaReal',
+    bloqueio: null,
+    observacao: 'Só leitura: lerCicloAtual nunca abre ciclo (D-8).',
+  },
+  {
+    nome: 'renda_do_ciclo',
+    descricao:
+      'A renda do ciclo atual: moeda, bruta em dólar, cotação e data, imposto, líquida e a decomposição em texto; se foi confirmada, a prevista e a real (null com motivo enquanto o dono não confirmar). Use para "quanto entrou este mês", "qual cotação foi usada", "a renda já foi confirmada?".',
+    argumentos: z.object({}),
+    origem: 'application/dashboard.ts: montarRenda → domain/finance/renda.ts: rendaLiquidaPrevista',
+    comoFoiCalculado: 'application/dashboard.ts: montarRenda → domain/finance/renda.ts: rendaLiquidaPrevista',
+    bloqueio: null,
+    observacao: 'Só leitura: lerCicloAtual nunca abre ciclo (D-8).',
   },
   {
     nome: 'projetar_ciclos',

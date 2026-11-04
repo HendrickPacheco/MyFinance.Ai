@@ -28,6 +28,7 @@ const CATEGORIA_LAZER: Categoria = {
   icone: null,
   cor: null,
   ordem: 3,
+  tipoVerba: 'EXTRA',
 };
 
 describe('compararCiclos', () => {

@@ -20,11 +20,18 @@ import {
   type HorizonteProjecao,
 } from '@/lib/projecao-horizonte';
 
-export function ProjecaoFiltros({ horizonte }: { horizonte: HorizonteProjecao }) {
+/** `cotacao`: texto da cotação simulada ('5.43'), ou undefined. */
+export function ProjecaoFiltros({
+  horizonte,
+  cotacao,
+}: {
+  horizonte: HorizonteProjecao;
+  cotacao?: string;
+}) {
   const opcoes = HORIZONTES_PROJECAO.map((meses) => ({
     value: String(meses),
     label: `${String(meses)} meses`,
-    href: hrefProjecao(meses),
+    href: hrefProjecao(meses, cotacao),
   }));
 
   return (
@@ -36,7 +43,7 @@ export function ProjecaoFiltros({ horizonte }: { horizonte: HorizonteProjecao })
       />
 
       <a
-        href={hrefCsvProjecao(horizonte)}
+        href={hrefCsvProjecao(horizonte, cotacao)}
         download
         className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-border px-3 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-fg"
       >

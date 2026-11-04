@@ -11,21 +11,73 @@
  * não pode gravar no banco (decisão D-8).
  */
 import type { Deps } from '@/application/deps';
-import { obterEstadoHojeSomenteLeitura } from '@/application/hoje';
+import { consumoVerbasDoCiclo, obterEstadoHojeSomenteLeitura } from '@/application/hoje';
 import { obterEstadoCicloSomenteLeitura } from '@/application/ciclo-view';
-import { ritmoExibivel } from '@/domain/finance';
+import { diasTotaisCiclo, ritmoExibivel, type ConsumoVerbas } from '@/domain/finance';
+import type { Ciclo } from '@/domain/model/entidades';
 import { obterEstadoPainelSomenteLeitura } from '@/application/dashboard';
 import { obterProjecao } from '@/application/projecao';
-import { dinheiros, composicaoDaVerba, semCicloAberto, type SaidaFerramenta } from './saida';
+import {
+  dinheiros,
+  composicaoDaVerba,
+  composicaoDasVerbas,
+  semCicloAberto,
+  type SaidaFerramenta,
+} from './saida';
 
 const ORIGEM_HOJE = 'domain/finance/teto.ts: calcularTeto';
 const ORIGEM_CICLO = 'domain/finance/ritmo.ts: indicadoresRitmo';
 const ORIGEM_CATEGORIAS = 'domain/finance/agregacoes.ts: agregarGastoPorCategoria';
 const ORIGEM_PAGAMENTOS = 'domain/finance/pagamentos.ts: resumoPagamentosCents';
 
+/**
+ * Verbas dia a dia / extras (D1). `podeGastarHojeDiaADia` é o mesmo
+ * `podeGastarHojeCents` que o painel mostra como "Posso gastar hoje" —
+ * uma resposta só no app e no copiloto.
+ */
+function verbas(ciclo: Ciclo, consumo: ConsumoVerbas, pisoDiarioCents: number): SaidaFerramenta {
+  return {
+    ...composicaoDasVerbas({
+      ...consumo,
+      verbaVariavelCents: ciclo.verbaVariavelCents,
+      poupancaAlvoCents: ciclo.poupancaAlvoCents,
+      pisoDiarioCents,
+      diasCiclo: diasTotaisCiclo({ inicio: ciclo.dataInicio, fim: ciclo.dataFim }),
+    }),
+    ...dinheiros({
+      extrasUsado: consumo.extrasUsadoCents,
+      extrasRestante: consumo.extrasRestanteCents,
+      excedenteDosExtras: consumo.excedenteExtrasCents,
+      diaADiaEfetivo: consumo.diaADiaEfetivoCents,
+      diaADiaUsado: consumo.diaADiaUsadoCents,
+      diaADiaRestante: consumo.diaADiaRestanteCents,
+      podeGastarHojeDiaADia: consumo.podeGastarHojeCents,
+      tetoHojeDiaADia: consumo.tetoDiaADia.tetoHojeCents,
+      gastoHojeDiaADia: consumo.tetoDiaADia.gastoHojeCents,
+      excedidoHojeDiaADia: consumo.excedidoHojeCents,
+    }),
+    formulaConsumo:
+      'extrasRestante = extras − extrasUsado; excedenteDosExtras = max(extrasUsado − max(extras, 0), 0); ' +
+      'diaADiaEfetivo = diaADia − excedenteDosExtras; diaADiaRestante = diaADiaEfetivo − diaADiaUsado',
+    rotuloExtrasUsado:
+      'extrasUsado inclui as parcelas e gastos EXTRA com data até o FIM do ciclo — parte pode ser ' +
+      'compromisso agendado, ainda não pago. Não diga "você já gastou" esse valor; diga "comprometido nos extras".',
+    rotuloPodeGastarHoje:
+      'podeGastarHojeDiaADia é o "Posso gastar hoje" do app: dia a dia restante ÷ dias restantes, ' +
+      'menos o que já saiu hoje do dia a dia. Nunca é negativo: se o dia já estourou, é 0 (como no app). ' +
+      'Partes: tetoHojeDiaADia (teto de hoje) e gastoHojeDiaADia (o que saiu hoje do dia a dia); ' +
+      'excedidoHojeDiaADia é quanto o gasto de hoje passou do teto — se for maior que 0, diga esse valor ao usuário.',
+  };
+}
+
+async function pisoDiario(deps: Deps): Promise<number> {
+  return (await deps.config.obter())?.pisoDiarioVerbaCents ?? 0;
+}
+
 export async function situacaoHoje(deps: Deps): Promise<SaidaFerramenta> {
   const estado = await obterEstadoHojeSomenteLeitura(deps);
   if (!estado) return semCicloAberto(ORIGEM_HOJE);
+  const piso = await pisoDiario(deps);
 
   return {
     hoje: estado.hoje,
@@ -38,6 +90,10 @@ export async function situacaoHoje(deps: Deps): Promise<SaidaFerramenta> {
       saldoDisponivelNoCiclo: estado.teto.saldoDisponivelCents,
       deficitRecuperacao: estado.recuperacao.deficitCents,
     }),
+    rotuloRestaHoje:
+      'restaHoje é o teto sobre a verba INTEIRA (inclui extras), NÃO o "Posso gastar hoje" do app — ' +
+      'esse é verbas.podeGastarHojeDiaADia.',
+    verbas: verbas(estado.ciclo, estado.diaADia, piso),
     comoFoiCalculado: ORIGEM_HOJE,
   };
 }
@@ -58,6 +114,14 @@ export async function estadoCiclo(deps: Deps): Promise<SaidaFerramenta> {
   if (!atual) return semCicloAberto(ORIGEM_CICLO);
 
   const ritmo = ritmoExibivel(estado.ritmo);
+  const piso = await pisoDiario(deps);
+  const consumo = consumoVerbasDoCiclo({
+    ciclo: estado.ciclo,
+    transacoes: estado.transacoes,
+    categorias: estado.categorias,
+    pisoDiarioCents: piso,
+    hoje: estado.hoje,
+  });
 
   return {
     inicio: atual.inicio,
@@ -85,6 +149,7 @@ export async function estadoCiclo(deps: Deps): Promise<SaidaFerramenta> {
       tetoDiarioInicial: ritmo.tetoInicialCents,
       projecaoFechamento: ritmo.projecaoFechamentoCents,
     }),
+    verbas: verbas(estado.ciclo, consumo, piso),
     comoFoiCalculado: ORIGEM_CICLO,
   };
 }

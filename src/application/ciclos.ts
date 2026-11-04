@@ -5,13 +5,15 @@
  */
 import type { Deps } from './deps';
 import { exigirEscrita } from '@/domain/auth/permissoes';
-import type { Ciclo } from '@/domain/model/entidades';
+import type { Ciclo, Config } from '@/domain/model/entidades';
 import type { DestinoSobra } from '@/domain/model/enums';
 import { addDias, type DataCivil } from '@/shared/data';
 import {
   limitesCiclo,
   provisaoMensalCents,
   poupancaAlvoCents,
+  rendaEfetivaCents,
+  rendaLiquidaPrevista,
   verbaVariavelCents,
 } from '@/domain/finance';
 
@@ -60,6 +62,21 @@ async function parametrosCongelados(deps: Deps, rendaPrevistaCents: number) {
   });
 
   return { fixosCents, provMensalCents, poupancaCents };
+}
+
+/**
+ * Renda prevista de um ciclo que está nascendo. Roda no layout, então lê só o
+ * CACHE de cotação (nada de rede) e nunca lança: qualquer falha cai na
+ * `rendaBaseCents` da Config, que é o comportamento de antes do USD.
+ */
+async function rendaPrevistaAoNascer(deps: Deps, config: Config, inicio: DataCivil) {
+  const base = { liquidaCents: config.rendaBaseCents, taxaMicros: null, dataCotacao: null };
+  if (config.moedaRenda !== 'USD') return base;
+  try {
+    return rendaLiquidaPrevista(config, await deps.cotacoes.ultimaAte(inicio));
+  } catch {
+    return base;
+  }
 }
 
 /** Ciclo que cobre hoje, mais a pendência de fechamento do anterior. */
@@ -140,7 +157,8 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
       const anterior = await deps.ciclos.ultimoFechado();
       const rollover = rolloverACreditar(anterior, config.destinoSobra, inicio);
 
-      const rendaPrevistaCents = config.rendaBaseCents;
+      const renda = await rendaPrevistaAoNascer(deps, config, inicio);
+      const rendaPrevistaCents = renda.liquidaCents;
       const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
         deps,
         rendaPrevistaCents,
@@ -174,6 +192,16 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
         fechadoEm: null,
         sobraCents: null,
         observacao: null,
+        poupancaRealCents: null,
+        patrimonioInicialCents: null,
+        patrimonioFinalCents: null,
+        fonteMedicaoPoupanca: null,
+        rendaRealBrutaMoedaOrigemCents: null,
+        cotacaoRealUsadaMicros: null,
+        impostoRealCents: null,
+        rendaRealLiquidaCents: null,
+        cotacaoPrevistaMicros: renda.taxaMicros,
+        cotacaoPrevistaData: renda.dataCotacao,
       });
       ciclo = resultado.ciclo;
 
@@ -203,10 +231,10 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
   const { ciclo } = await garantirCicloAtual(deps);
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    ciclo.rendaPrevistaCents,
+    rendaEfetivaCents(ciclo),
   );
   const verba = verbaVariavelCents({
-    rendaPrevistaCents: ciclo.rendaPrevistaCents,
+    rendaPrevistaCents: rendaEfetivaCents(ciclo),
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -299,20 +327,29 @@ export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<EfeitoNoC
   // em R$ X".
   if (transacoes.length > 0) return { recalculou: false, ciclo: resumirCiclo(ciclo) };
 
-  const rendaPrevistaCents = config.rendaBaseCents;
+  // D8: renda real confirmada substitui a prevista — a Config não a desfaz.
+  // Sem real, a prevista vem do mesmo caminho do nascimento (cache USD).
+  const real = ciclo.rendaRealLiquidaCents;
+  const prevista =
+    real == null ? await rendaPrevistaAoNascer(deps, config, ciclo.dataInicio) : null;
+  const rendaEfetivaCents = real ?? prevista?.liquidaCents ?? ciclo.rendaPrevistaCents;
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    rendaPrevistaCents,
+    rendaEfetivaCents,
   );
   const verba = verbaVariavelCents({
-    rendaPrevistaCents,
+    rendaPrevistaCents: rendaEfetivaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
   });
 
   const atualizado = await deps.ciclos.atualizar(ciclo.id, {
-    rendaPrevistaCents,
+    ...(prevista && {
+      rendaPrevistaCents: prevista.liquidaCents,
+      cotacaoPrevistaMicros: prevista.taxaMicros,
+      cotacaoPrevistaData: prevista.dataCotacao,
+    }),
     poupancaAlvoCents: poupancaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
@@ -362,7 +399,7 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
 
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    ciclo.rendaPrevistaCents,
+    rendaEfetivaCents(ciclo),
   );
 
   return {
@@ -370,7 +407,7 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
     fim: ciclo.dataFim,
     verbaAtualCents: ciclo.verbaVariavelCents,
     verbaRecalculadaCents: verbaVariavelCents({
-      rendaPrevistaCents: ciclo.rendaPrevistaCents,
+      rendaPrevistaCents: rendaEfetivaCents(ciclo),
       fixosCents,
       provisaoMensalCents: provMensalCents,
       rolloverRecebidoCents: ciclo.rolloverRecebidoCents,

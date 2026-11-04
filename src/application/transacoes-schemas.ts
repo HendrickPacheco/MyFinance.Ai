@@ -25,6 +25,7 @@ export const transacaoInputSchema = z.object({
   contaId: z.string().nullish(),
   contaDestinoId: z.string().nullish(),
   provisaoId: z.string().nullish(),
+  tipoVerbaOverride: z.enum(['DIA_A_DIA', 'EXTRA']).nullish(),
   confirmarRetroativo: z.boolean().optional(),
 });
 export type TransacaoInputSchema = z.infer<typeof transacaoInputSchema>;

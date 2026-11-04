@@ -20,8 +20,12 @@ import {
   verificarMetaIrreal,
   sugerirRendaPrevistaCents,
   sugerirMetaPoupancaCents,
+  rendaLiquidaPrevista,
+  mediaPoupancaReal,
+  type RendaLiquida,
   type VerificacaoMetaIrreal,
 } from '@/domain/finance';
+import { obterCotacaoUsd } from './cotacao';
 import { recalcularCicloAtualSeVazio, type EfeitoNoCicloAtual } from './ciclos';
 import { validarCategoriaDeCustoFixo } from './categoria-custo-fixo';
 
@@ -42,6 +46,11 @@ export interface EstadoConfig {
   sugestaoMetaPoupancaCents: number | null;
   /** Regra 12: se a verba diária prevista para o próximo ciclo fica abaixo do piso configurado. */
   avisoMetaIrreal: VerificacaoMetaIrreal;
+  /** Média da poupança REAL dos 3 últimos fechados; `null` se algum dos 3 não foi medido. */
+  sugestaoMetaPorPoupancaReal: { mediaCents: number; ciclos: 3 } | null;
+  /** Decomposição USD→BRL da config SALVA; `null` quando a renda é em reais. */
+  rendaPrevistaUsd: RendaLiquida | null;
+  avisoCotacao: string | null;
 }
 
 export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
@@ -91,6 +100,20 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
     })),
   );
 
+  const real = mediaPoupancaReal(ultimosFechados, 3);
+  const sugestaoMetaPorPoupancaReal =
+    real.ciclosConsiderados === 3 && real.mediaCents != null
+      ? { mediaCents: real.mediaCents, ciclos: 3 as const }
+      : null;
+
+  let rendaPrevistaUsd: RendaLiquida | null = null;
+  let avisoCotacao: string | null = null;
+  if (config.moedaRenda === 'USD') {
+    const { cotacao, aviso } = await obterCotacaoUsd(deps);
+    rendaPrevistaUsd = rendaLiquidaPrevista(config, cotacao);
+    avisoCotacao = aviso;
+  }
+
   return {
     config,
     contas,
@@ -102,10 +125,26 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
     sugestaoRendaVariavelCents,
     sugestaoMetaPoupancaCents,
     avisoMetaIrreal,
+    sugestaoMetaPorPoupancaReal,
+    rendaPrevistaUsd,
+    avisoCotacao,
   };
 }
 
-export type ConfigInput = Omit<Config, 'id'>;
+const CAMPOS_RENDA_MOEDA = [
+  'moedaRenda',
+  'rendaBrutaMoedaOrigemCents',
+  'impostoEstimadoCents',
+  'impostoEstimadoPercentual',
+  'fonteRenda',
+] as const;
+
+/**
+ * Os campos de renda em moeda de origem são opcionais: quem não os informa
+ * (a tela de Config atual) PRESERVA o que já está gravado, em vez de zerá-los.
+ */
+export type ConfigInput = Omit<Config, 'id' | (typeof CAMPOS_RENDA_MOEDA)[number]> &
+  Partial<Pick<Config, (typeof CAMPOS_RENDA_MOEDA)[number]>>;
 
 export interface ResultadoAtualizarConfig {
   config: Config;
@@ -127,7 +166,25 @@ export async function atualizarConfig(
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirOwner(deps.ator);
 
-  const config = await deps.config.salvar({ id: 1, ...input });
+  const atual = await deps.config.obter();
+  const preservados = {
+    moedaRenda: atual?.moedaRenda ?? 'BRL',
+    rendaBrutaMoedaOrigemCents: atual?.rendaBrutaMoedaOrigemCents ?? null,
+    impostoEstimadoCents: atual?.impostoEstimadoCents ?? null,
+    impostoEstimadoPercentual: atual?.impostoEstimadoPercentual ?? null,
+    fonteRenda: atual?.fonteRenda ?? null,
+  };
+  const nova: Config = { id: 1, ...preservados, ...input };
+  if (nova.impostoEstimadoCents != null && nova.impostoEstimadoPercentual != null) {
+    throw new RangeError('Informe imposto fixo OU percentual, não os dois');
+  }
+  // Renda em USD: `rendaBaseCents` passa a guardar a líquida em reais derivada,
+  // para os leitores legados (onboarding, projeção) seguirem corretos.
+  if (nova.moedaRenda === 'USD') {
+    const { cotacao } = await obterCotacaoUsd(deps);
+    nova.rendaBaseCents = rendaLiquidaPrevista(nova, cotacao).liquidaCents;
+  }
+  const config = await deps.config.salvar(nova);
   const efeito = await recalcularCicloAtualSeVazio(deps);
   return { config, efeito };
 }
@@ -183,9 +240,17 @@ export async function upsertProvisao(
   return { provisao: salvo, efeito: await recalcularCicloAtualSeVazio(deps) };
 }
 
-export async function upsertCategoria(deps: Deps, categoria: Categoria): Promise<Categoria> {
+export async function upsertCategoria(
+  deps: Deps,
+  categoria: Omit<Categoria, 'tipoVerba'> & { tipoVerba?: Categoria['tipoVerba'] },
+): Promise<Categoria> {
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirOwner(deps.ator);
 
-  return deps.categorias.salvar(categoria);
+  // Sem `tipoVerba` informado, edição preserva o atual; criação nasce EXTRA.
+  const tipoVerba =
+    categoria.tipoVerba ??
+    (categoria.id ? (await deps.categorias.obter(categoria.id))?.tipoVerba : undefined) ??
+    'EXTRA';
+  return deps.categorias.salvar({ ...categoria, tipoVerba });
 }

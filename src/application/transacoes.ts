@@ -8,7 +8,7 @@
 import type { Deps } from './deps';
 import { exigirEscrita } from '@/domain/auth/permissoes';
 import type { Transacao, OrigemTransacao } from '@/domain/model/entidades';
-import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
+import type { TipoTransacao, MetodoPagamento, TipoVerba } from '@/domain/model/enums';
 import type { AjusteConta, AjusteProvisao } from '@/domain/ports/repositorios';
 import { gerarParcelas } from '@/domain/finance';
 import {
@@ -33,6 +33,12 @@ export interface TransacaoInput {
   contaId?: string | null;
   contaDestinoId?: string | null;
   provisaoId?: string | null;
+  /**
+   * Tipo de verba deste lançamento. `undefined` = padrão da categoria (na
+   * edição: preserva o atual); `null` = limpar o override. Parcela é sempre
+   * EXTRA — não aceita override.
+   */
+  tipoVerbaOverride?: TipoVerba | null;
   /**
    * Confirmação explícita (SPEC regra 9) exigida quando a operação toca um
    * ciclo já fechado — seja porque a transação pertence a ele, seja porque a
@@ -209,6 +215,7 @@ export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise
     pagoEm: null,
     origem: input.origem ?? 'MANUAL',
     itemImportadoId: input.itemImportadoId ?? null,
+    tipoVerbaOverride: input.tipoVerbaOverride ?? null,
   });
 
   await aplicarEfeitoSaldo(deps, t, +1);
@@ -291,6 +298,10 @@ export async function editarTransacao(
   const manter = <T>(entrada: T | undefined, atualValor: T): T =>
     entrada !== undefined ? entrada : atualValor;
 
+  if (atual.parcelamentoId != null && input.tipoVerbaOverride != null) {
+    throw new Error('Parcela sempre consome extras');
+  }
+
   const data = manter(input.data, atual.data);
   const novoCicloId = await resolverCicloId(deps, data);
 
@@ -316,6 +327,7 @@ export async function editarTransacao(
     contaId: manter(input.contaId, atual.contaId),
     contaDestinoId: manter(input.contaDestinoId, atual.contaDestinoId),
     provisaoId: manter(input.provisaoId, atual.provisaoId),
+    tipoVerbaOverride: manter(input.tipoVerbaOverride, atual.tipoVerbaOverride ?? null),
     cicloId: novoCicloId,
   };
 

@@ -17,23 +17,24 @@ interface SeedCategoria {
   grupo: 'VARIAVEL' | 'FIXO' | 'RENDA';
   essencial: boolean;
   ordem: number;
+  tipoVerba: 'DIA_A_DIA' | 'EXTRA';
 }
 
 export const CATEGORIAS_BASE: SeedCategoria[] = [
-  { nome: 'Mercado', grupo: 'VARIAVEL', essencial: true, ordem: 1 },
-  { nome: 'Delivery', grupo: 'VARIAVEL', essencial: false, ordem: 2 },
-  { nome: 'Restaurante', grupo: 'VARIAVEL', essencial: false, ordem: 3 },
-  { nome: 'Transporte', grupo: 'VARIAVEL', essencial: true, ordem: 4 },
-  { nome: 'Combustível', grupo: 'VARIAVEL', essencial: true, ordem: 5 },
-  { nome: 'Farmácia', grupo: 'VARIAVEL', essencial: true, ordem: 6 },
-  { nome: 'Assinaturas', grupo: 'VARIAVEL', essencial: false, ordem: 7 },
-  { nome: 'Lazer', grupo: 'VARIAVEL', essencial: false, ordem: 8 },
-  { nome: 'Vestuário', grupo: 'VARIAVEL', essencial: false, ordem: 9 },
-  { nome: 'Casa', grupo: 'VARIAVEL', essencial: true, ordem: 10 },
-  { nome: 'Saúde', grupo: 'VARIAVEL', essencial: true, ordem: 11 },
-  { nome: 'Educação', grupo: 'VARIAVEL', essencial: true, ordem: 12 },
-  { nome: 'Presentes', grupo: 'VARIAVEL', essencial: false, ordem: 13 },
-  { nome: 'Outros', grupo: 'VARIAVEL', essencial: false, ordem: 14 },
+  { nome: 'Mercado', grupo: 'VARIAVEL', essencial: true, ordem: 1, tipoVerba: 'DIA_A_DIA' },
+  { nome: 'Delivery', grupo: 'VARIAVEL', essencial: false, ordem: 2, tipoVerba: 'DIA_A_DIA' },
+  { nome: 'Restaurante', grupo: 'VARIAVEL', essencial: false, ordem: 3, tipoVerba: 'DIA_A_DIA' },
+  { nome: 'Transporte', grupo: 'VARIAVEL', essencial: true, ordem: 4, tipoVerba: 'DIA_A_DIA' },
+  { nome: 'Combustível', grupo: 'VARIAVEL', essencial: true, ordem: 5, tipoVerba: 'DIA_A_DIA' },
+  { nome: 'Farmácia', grupo: 'VARIAVEL', essencial: true, ordem: 6, tipoVerba: 'DIA_A_DIA' },
+  { nome: 'Assinaturas', grupo: 'VARIAVEL', essencial: false, ordem: 7, tipoVerba: 'EXTRA' },
+  { nome: 'Lazer', grupo: 'VARIAVEL', essencial: false, ordem: 8, tipoVerba: 'EXTRA' },
+  { nome: 'Vestuário', grupo: 'VARIAVEL', essencial: false, ordem: 9, tipoVerba: 'EXTRA' },
+  { nome: 'Casa', grupo: 'VARIAVEL', essencial: true, ordem: 10, tipoVerba: 'EXTRA' },
+  { nome: 'Saúde', grupo: 'VARIAVEL', essencial: true, ordem: 11, tipoVerba: 'EXTRA' },
+  { nome: 'Educação', grupo: 'VARIAVEL', essencial: true, ordem: 12, tipoVerba: 'EXTRA' },
+  { nome: 'Presentes', grupo: 'VARIAVEL', essencial: false, ordem: 13, tipoVerba: 'EXTRA' },
+  { nome: 'Outros', grupo: 'VARIAVEL', essencial: false, ordem: 14, tipoVerba: 'EXTRA' },
 ];
 
 export const CONTAS_BASE = [

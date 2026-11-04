@@ -14,6 +14,11 @@ import {
   type PreviaEncerramento,
   type ResultadoEncerramentoParcelamento,
 } from '@/application/parcelamentos';
+import {
+  simularImpactoParcelamento,
+  type SimulacaoParcelamento,
+} from '@/application/simulacao-parcelamento';
+import { METODO_PAGAMENTO } from '@/domain/model/enums';
 import { patchParcelamentoSchema } from '@/application/transacoes-schemas';
 import type { Parcelamento } from '@/domain/model/entidades';
 
@@ -77,5 +82,23 @@ export async function editarParcelamento(
     const parcelamento = await ucEditar(deps, id, dados, confirmarRetroativo);
     revalidarTudo();
     return parcelamento;
+  });
+}
+
+const simulacaoSchema = z.object({
+  descricao: z.string().min(1).default('Simulação'),
+  valorTotalCents: z.number().int().positive(),
+  numParcelas: z.number().int().min(2).max(72),
+  dataCompra: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve estar em YYYY-MM-DD'),
+});
+
+/** Leitura pura (sem `exigirEscrita`, sem revalidar): pré-visualiza o impacto nas verbas. */
+export async function simularParcelamentoAction(
+  input: z.input<typeof simulacaoSchema>,
+): Promise<Resultado<SimulacaoParcelamento>> {
+  return executar(async () => {
+    const dados = simulacaoSchema.parse(input);
+    const deps = await criarDeps();
+    return simularImpactoParcelamento(deps, dados);
   });
 }

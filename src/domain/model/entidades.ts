@@ -19,6 +19,10 @@ import type {
   TipoVeredito,
   AlvoTipoItemImportado,
   DecisaoItemImportado,
+  TipoVerba,
+  MoedaRenda,
+  FonteMedicaoPoupanca,
+  FonteCotacao,
 } from './enums';
 
 export interface Config {
@@ -34,6 +38,11 @@ export interface Config {
   destinoSobraContaId: string | null;
   /** Piso diário configurável (regra 12) — abaixo disso, a meta de poupança é irreal. */
   pisoDiarioVerbaCents: number;
+  moedaRenda: MoedaRenda;
+  rendaBrutaMoedaOrigemCents: number | null;
+  impostoEstimadoCents: number | null;
+  impostoEstimadoPercentual: number | null;
+  fonteRenda: string | null;
 }
 
 export interface Conta {
@@ -104,6 +113,7 @@ export interface Categoria {
   icone: string | null;
   cor: string | null;
   ordem: number;
+  tipoVerba: TipoVerba;
 }
 
 /**
@@ -131,6 +141,8 @@ export interface Transacao {
   cicloId: string | null;
   /** Marcação de "parcela paga" (rastreamento — nunca abate a verba). `null` = não paga. */
   pagoEm: DataCivil | null;
+  /** Sobrescreve `Categoria.tipoVerba` neste lançamento. Opcional como `origem`: `undefined` = sem override. */
+  tipoVerbaOverride?: TipoVerba | null;
   /**
    * Opcional na INTERFACE de propósito: código que monta uma `Transacao` só
    * para cálculo (nunca persistida) não precisa declarar procedência. Quem
@@ -196,6 +208,26 @@ export interface Ciclo {
   fechadoEm: DataCivil | null;
   sobraCents: number | null;
   observacao: string | null;
+  poupancaRealCents: number | null;
+  patrimonioInicialCents: number | null;
+  patrimonioFinalCents: number | null;
+  fonteMedicaoPoupanca: FonteMedicaoPoupanca | null;
+  rendaRealBrutaMoedaOrigemCents: number | null;
+  cotacaoRealUsadaMicros: number | null;
+  impostoRealCents: number | null;
+  rendaRealLiquidaCents: number | null;
+  /** Cotação (micros) congelada na renda prevista, e a data a que se refere. */
+  cotacaoPrevistaMicros: number | null;
+  cotacaoPrevistaData: DataCivil | null;
+}
+
+/** Cotação pública (global, sem dono — D4). `taxaMicros` = taxa x 1.000.000. */
+export interface Cotacao {
+  data: DataCivil;
+  moedaOrigem: 'USD';
+  moedaDestino: 'BRL';
+  taxaMicros: number;
+  fonte: FonteCotacao;
 }
 
 export interface ItemPatrimonio {

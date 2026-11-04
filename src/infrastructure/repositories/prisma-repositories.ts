@@ -114,6 +114,11 @@ export class PrismaConfigRepository implements ConfigRepository {
       destinoSobra: config.destinoSobra,
       destinoSobraContaId: config.destinoSobraContaId,
       pisoDiarioVerbaCents: config.pisoDiarioVerbaCents,
+      moedaRenda: config.moedaRenda,
+      rendaBrutaMoedaOrigemCents: config.rendaBrutaMoedaOrigemCents,
+      impostoEstimadoCents: config.impostoEstimadoCents,
+      impostoEstimadoPercentual: config.impostoEstimadoPercentual,
+      fonteRenda: config.fonteRenda,
     };
     // Chave do upsert é `donoId`, não `id=1`: a Config deixou de ser singleton
     // global e passou a ser uma por dono.
@@ -204,6 +209,7 @@ export class PrismaCategoriaRepository implements CategoriaRepository {
       icone: categoria.icone,
       cor: categoria.cor,
       ordem: categoria.ordem,
+      tipoVerba: categoria.tipoVerba,
     };
     if (!categoria.id) {
       const criada = await this.db.categoria.create({ data: { ...dados, donoId: this.donoId } });
@@ -728,6 +734,7 @@ function dadosTransacao(t: Transacao, donoId: string) {
     // aqui espelha o `@default("MANUAL")` do schema.
     origem: t.origem ?? 'MANUAL',
     itemImportadoId: t.itemImportadoId ?? null,
+    tipoVerbaOverride: t.tipoVerbaOverride ?? null,
   };
 }
 
@@ -968,6 +975,16 @@ function dadosCiclo(c: Ciclo, donoId: string) {
     fechadoEm: c.fechadoEm,
     sobraCents: c.sobraCents,
     observacao: c.observacao,
+    poupancaRealCents: c.poupancaRealCents,
+    patrimonioInicialCents: c.patrimonioInicialCents,
+    patrimonioFinalCents: c.patrimonioFinalCents,
+    fonteMedicaoPoupanca: c.fonteMedicaoPoupanca,
+    rendaRealBrutaMoedaOrigemCents: c.rendaRealBrutaMoedaOrigemCents,
+    cotacaoRealUsadaMicros: c.cotacaoRealUsadaMicros,
+    impostoRealCents: c.impostoRealCents,
+    rendaRealLiquidaCents: c.rendaRealLiquidaCents,
+    cotacaoPrevistaMicros: c.cotacaoPrevistaMicros,
+    cotacaoPrevistaData: c.cotacaoPrevistaData,
   };
 }
 

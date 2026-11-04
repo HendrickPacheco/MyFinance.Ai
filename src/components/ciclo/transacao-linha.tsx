@@ -105,6 +105,11 @@ export function TransacaoLinha({
         categoriaId={transacao.categoriaId}
         descricao={transacao.descricao}
         categorias={categorias}
+        verba={{
+          tipo: transacao.tipo,
+          ehParcela: transacao.parcelamentoId != null,
+          override: transacao.tipoVerbaOverride ?? null,
+        }}
         onCancelar={() => setEditando(false)}
         onSalvo={() => setEditando(false)}
       />

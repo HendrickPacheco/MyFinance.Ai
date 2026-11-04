@@ -65,7 +65,7 @@ export const ENDPOINTS_CICLOS: EndpointDoc[] = [
     caminho: '/ciclos/atual/fechar',
     escopo: 'admin',
     tag: TAG,
-    resumo: 'Fecha o ciclo pendente (o anterior ainda aberto) ou o atual. Suporta `?dryRun=true` e `Idempotency-Key`.',
+    resumo: 'Fecha o ciclo pendente (o anterior ainda aberto) ou o atual. Exige medir a poupança real: snapshot de patrimônio no fim do ciclo (±5 dias, salvo ou em `snapshotItens`) ou `poupancaRealManualCents` — sem isso responde 422. Suporta `?dryRun=true` e `Idempotency-Key`.',
     body: fechamentoSchema,
     escrita: true,
   },

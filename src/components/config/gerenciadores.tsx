@@ -168,6 +168,42 @@ export function ListaCategorias({ categorias }: { categorias: Categoria[] }) {
           ))}
         </div>
 
+        {/* Só categoria VARIAVEL consome verba; FIXO/RENDA não têm tipo de verba. */}
+        <ul className="divide-y divide-border">
+          {categorias
+            .filter((c) => c.grupo === 'VARIAVEL')
+            .map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="text-fg">{c.nome}</span>
+                <Select
+                  aria-label={`Tipo de verba de ${c.nome}`}
+                  value={c.tipoVerba}
+                  disabled={pending}
+                  className="w-36"
+                  onChange={(e) =>
+                    salvar(
+                      () =>
+                        upsertCategoria({
+                          id: c.id,
+                          nome: c.nome,
+                          grupo: c.grupo,
+                          essencial: c.essencial,
+                          icone: c.icone,
+                          cor: c.cor,
+                          ordem: c.ordem,
+                          tipoVerba: e.target.value as Categoria['tipoVerba'],
+                        }),
+                      () => {},
+                    )
+                  }
+                >
+                  <option value="DIA_A_DIA">Dia a dia</option>
+                  <option value="EXTRA">Extra</option>
+                </Select>
+              </li>
+            ))}
+        </ul>
+
         <div className="rounded-xl border border-border-strong p-3">
           <p className="mb-2 text-sm text-muted">Nova categoria</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">

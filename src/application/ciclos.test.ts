@@ -17,6 +17,7 @@ import {
   primeiro,
   cicloFake,
   contaFake,
+  CONFIG_PADRAO,
   provisaoFake,
   transacaoFake,
 } from './__fakes__/fakes-ciclo-fechamento';
@@ -415,6 +416,11 @@ function deps0Config() {
     destinoSobra: 'RESERVA' as const,
     destinoSobraContaId: null,
     pisoDiarioVerbaCents: 1_500,
+    moedaRenda: 'BRL' as const,
+    rendaBrutaMoedaOrigemCents: null,
+    impostoEstimadoCents: null,
+    impostoEstimadoPercentual: null,
+    fonteRenda: null,
   };
 }
 
@@ -573,5 +579,125 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
 
     expect(deps.transacoes.itens).toHaveLength(0);
     expect(ciclo.verbaVariavelCents).toBe(810_000);
+  });
+});
+
+describe('garantirCicloAtual — renda em USD (só cache de cotação)', () => {
+  const configUsd = {
+    ...CONFIG_PADRAO,
+    rendaBaseCents: 3_000_000,
+    diaRecebimento: 1,
+    moedaRenda: 'USD' as const,
+    rendaBrutaMoedaOrigemCents: 730_000,
+    impostoEstimadoCents: 350_000,
+  };
+
+  it('ciclo novo nasce com a renda líquida convertida pela cotação em cache', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+    await deps.cotacoes.salvar({
+      data: '2026-10-30',
+      moedaOrigem: 'USD',
+      moedaDestino: 'BRL',
+      taxaMicros: 5_430_000,
+      fonte: 'PTAX_BCB',
+    });
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo).toMatchObject({
+      rendaPrevistaCents: 3_613_900,
+      cotacaoPrevistaMicros: 5_430_000,
+      cotacaoPrevistaData: '2026-10-30',
+    });
+  });
+
+  it('sem cotação em cache usa a renda base', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo.rendaPrevistaCents).toBe(3_000_000);
+    expect(ciclo.cotacaoPrevistaMicros).toBeNull();
+  });
+
+  it('repositório de cotação fora do ar não impede o ciclo de nascer', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+    deps.cotacoes.ultimaAte = () => Promise.reject(new Error('db fora'));
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo.rendaPrevistaCents).toBe(3_000_000);
+  });
+});
+
+describe('recalcularCicloAtualSeVazio — renda real confirmada (D8)', () => {
+  const configUsd = {
+    ...CONFIG_PADRAO,
+    rendaBaseCents: 3_000_000,
+    diaRecebimento: 1,
+    metaPoupancaCents: 1_800_000,
+    moedaRenda: 'USD' as const,
+    rendaBrutaMoedaOrigemCents: 730_000,
+    impostoEstimadoCents: 350_000,
+  };
+  const novembro = cicloFake({
+    id: 'nov',
+    dataInicio: '2026-11-01',
+    dataFim: '2026-11-30',
+    rendaPrevistaCents: 3_000_000,
+    poupancaAlvoCents: 1_800_000,
+    verbaVariavelCents: 3_000_000,
+  });
+
+  it('mantém a renda real e recalcula só o que a Config afeta', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-04',
+      config: configUsd,
+      ciclos: [{ ...novembro, rendaRealLiquidaCents: 3_665_000, verbaVariavelCents: 3_665_000 }],
+      custosFixos: [
+        {
+          id: 'f1', nome: 'Fixos', valorCents: 488_400, diaVencimento: 10, ativo: true,
+          contaId: null, categoriaId: null, vigenteDe: null, vigenteAte: null,
+        },
+      ],
+    });
+
+    const efeito = await recalcularCicloAtualSeVazio(deps);
+
+    expect(efeito.recalculou).toBe(true);
+    expect(primeiro(deps.ciclos.itens)).toMatchObject({
+      rendaRealLiquidaCents: 3_665_000,
+      rendaPrevistaCents: 3_000_000,
+      fixosCents: 488_400,
+      verbaVariavelCents: 3_665_000 - 488_400,
+    });
+  });
+
+  it('recalcularCicloAtual (explícito) também usa a renda real', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-04',
+      config: configUsd,
+      ciclos: [{ ...novembro, rendaRealLiquidaCents: 3_665_000 }],
+    });
+
+    const c = await recalcularCicloAtual(deps);
+
+    expect(c).toMatchObject({ rendaPrevistaCents: 3_000_000, verbaVariavelCents: 3_665_000 });
+  });
+
+  it('sem real, recalcula a prevista USD pelo cache e grava a cotação', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd, ciclos: [novembro] });
+    await deps.cotacoes.salvar({
+      data: '2026-10-30', moedaOrigem: 'USD', moedaDestino: 'BRL', taxaMicros: 5_430_000, fonte: 'PTAX_BCB',
+    });
+
+    await recalcularCicloAtualSeVazio(deps);
+
+    expect(primeiro(deps.ciclos.itens)).toMatchObject({
+      rendaPrevistaCents: 3_613_900,
+      verbaVariavelCents: 3_613_900,
+      cotacaoPrevistaMicros: 5_430_000,
+      cotacaoPrevistaData: '2026-10-30',
+    });
   });
 });
