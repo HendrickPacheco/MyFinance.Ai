@@ -138,6 +138,14 @@ function LinhaMobile({ linha }: { linha: LinhaProjecao }) {
         verba livre · renda prevista {formatBRL(linha.rendaPrevistaCents)}
       </p>
 
+      <p className="text-xs text-muted">
+        dia a dia {formatBRL(linha.diaADiaCents)} ({formatBRL(linha.diaADiaDiarioCents)}/dia) ·
+        extras restantes{' '}
+        <span className={linha.extrasRestanteCents < 0 ? 'text-negativo' : undefined}>
+          {formatBRL(linha.extrasRestanteCents)}
+        </span>
+      </p>
+
       <MicroBarra linha={linha} />
 
       <div className="mt-3 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2 sm:gap-x-6">

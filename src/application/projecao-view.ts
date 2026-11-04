@@ -77,6 +77,11 @@ export interface LinhaProjecao {
    * `rendaPrevistaCents`; ver o cabeçalho deste arquivo.
    */
   totalComposicaoCents: number;
+  /** Bolso "dia a dia" do ciclo e o quanto sobra por dia depois das parcelas que estouram os extras. */
+  diaADiaCents: number;
+  /** Negativo = as parcelas invadem o dia a dia. */
+  extrasRestanteCents: number;
+  diaADiaDiarioCents: number;
 }
 
 export interface ExtremoProjecao {
@@ -93,6 +98,8 @@ export interface ResumoProjecao {
   /** Frase pronta da manchete (§3.4). */
   manchete: string;
   premissas: readonly string[];
+  /** Cotação usada nos ciclos futuros (slider); `null` em BRL. */
+  cotacao: { taxaMicros: number; simulada: boolean } | null;
 }
 
 /** Horizontes oferecidos pelo seletor da tela (§3.4). */
@@ -216,9 +223,9 @@ function montarManchete(linhas: readonly LinhaProjecao[], pior: LinhaProjecao): 
  */
 export async function obterResumoProjecao(
   deps: Deps,
-  opcoes: { numCiclos: number },
+  opcoes: { numCiclos: number; taxaMicros?: number },
 ): Promise<ResumoProjecao> {
-  const { ciclos, premissas } = await obterProjecao(deps, { numCiclos: opcoes.numCiclos });
+  const { ciclos, premissas, cotacao } = await obterProjecao(deps, opcoes);
 
   const deltas = deltasVerbaLivreCents(ciclos.map((c) => c.verbaLivreCents));
 
@@ -251,6 +258,9 @@ export async function obterResumoProjecao(
     abaixoDoPiso: ciclo.abaixoDoPiso,
     terminamNesteCiclo: ciclo.terminamNesteCiclo,
     totalComposicaoCents: totalComposicaoCents(ciclo),
+    diaADiaCents: ciclo.diaADiaCents,
+    extrasRestanteCents: ciclo.extrasRestanteCents,
+    diaADiaDiarioCents: ciclo.diaADiaDiarioCents,
   }));
 
   const extremos = extremosVerbaLivre(linhas.map((l) => l.verbaLivreCents));
@@ -264,6 +274,7 @@ export async function obterResumoProjecao(
     totalMeses: linhas.length,
     manchete: montarManchete(linhas, linhaMinima),
     premissas,
+    cotacao,
   };
 }
 
@@ -290,6 +301,9 @@ const CSV_CABECALHO = [
   'Verba livre',
   'Variação da verba livre',
   'Total das faixas',
+  'Dia a dia',
+  'Dia a dia por dia',
+  'Extras restantes',
   'Abaixo do piso',
   'Termina neste ciclo',
 ] as const;
@@ -325,6 +339,9 @@ function celulasDaLinha(linha: LinhaProjecao): string[] {
     // existe (ver `deltasVerbaLivreCents`).
     linha.deltaVerbaLivreCents === null ? '' : formatarDecimalBR(linha.deltaVerbaLivreCents),
     formatarDecimalBR(linha.totalComposicaoCents),
+    formatarDecimalBR(linha.diaADiaCents),
+    formatarDecimalBR(linha.diaADiaDiarioCents),
+    formatarDecimalBR(linha.extrasRestanteCents),
     linha.abaixoDoPiso ? 'sim' : 'não',
     descreverTerminos(linha.terminamNesteCiclo),
   ];

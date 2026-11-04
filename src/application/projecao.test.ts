@@ -563,3 +563,56 @@ describe('obterProjecao — detalhe das obrigações (Fase 6)', () => {
     }
   });
 });
+
+describe('obterProjecao — renda em USD (ciclos futuros)', () => {
+  const configUsd = {
+    rendaBaseCents: 3_000_000,
+    diaRecebimento: 1,
+    moedaRenda: 'USD' as const,
+    rendaBrutaMoedaOrigemCents: 730_000,
+    impostoEstimadoCents: 350_000,
+  };
+
+  async function comCache() {
+    const deps = criarDeps({ hoje: '2026-11-04' });
+    deps.config.mutar(configUsd);
+    await deps.cotacoes.salvar({
+      data: '2026-11-03',
+      moedaOrigem: 'USD',
+      moedaDestino: 'BRL',
+      taxaMicros: 5_430_000,
+      fonte: 'PTAX_BCB',
+    });
+    return deps;
+  }
+
+  it('taxaMicros sobrepõe a cotação em cache e a premissa diz que é simulada', async () => {
+    const r = await obterProjecao(await comCache(), { numCiclos: 2, taxaMicros: 6_000_000 });
+
+    expect(r.ciclos[0]?.rendaPrevistaCents).toBe(4_030_000);
+    expect(r.cotacao).toEqual({ taxaMicros: 6_000_000, simulada: true });
+    expect(r.premissas.join('\n')).toMatch(/simulad/i);
+  });
+
+  it('sem override usa a cotação em cache', async () => {
+    const r = await obterProjecao(await comCache(), { numCiclos: 2 });
+
+    expect(r.ciclos[0]?.rendaPrevistaCents).toBe(3_613_900);
+    expect(r.cotacao).toEqual({ taxaMicros: 5_430_000, simulada: false });
+  });
+
+  it('o ciclo atual congelado ignora o override', async () => {
+    const deps = await comCache();
+    deps.ciclos.itens.push(cicloFake({ dataInicio: '2026-11-01', dataFim: '2026-11-30', rendaPrevistaCents: 3_500_000 }));
+
+    const r = await obterProjecao(deps, { numCiclos: 2, taxaMicros: 6_000_000 });
+
+    expect(r.ciclos[0]?.rendaPrevistaCents).toBe(3_500_000);
+    expect(r.ciclos[1]?.rendaPrevistaCents).toBe(4_030_000);
+  });
+
+  it('config em BRL: sem cotação na resposta', async () => {
+    const r = await obterProjecao(criarDeps({ hoje: HOJE }), { numCiclos: 2, taxaMicros: 6_000_000 });
+    expect(r.cotacao).toBeNull();
+  });
+});

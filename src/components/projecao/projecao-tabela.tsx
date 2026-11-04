@@ -80,6 +80,12 @@ function LinhaTabela({ linha }: { linha: LinhaProjecao }) {
         <Td numerico className={cn('font-semibold', deficit ? 'text-negativo' : 'text-fg')}>
           {formatBRL(linha.verbaLivreCents)}
         </Td>
+        <Td numerico className="text-muted">
+          {formatBRL(linha.diaADiaCents)}
+        </Td>
+        <Td numerico className={cn(linha.extrasRestanteCents < 0 ? 'text-negativo' : 'text-muted')}>
+          {formatBRL(linha.extrasRestanteCents)}
+        </Td>
         <Td numerico className={corDoDelta(linha.deltaVerbaLivreCents)}>
           {formatarDelta(linha.deltaVerbaLivreCents)}
         </Td>
@@ -89,7 +95,7 @@ function LinhaTabela({ linha }: { linha: LinhaProjecao }) {
         <Tr>
           {/* Segunda linha em vez de célula extra: o badge pertence ao mês
               inteiro, não a uma coluna, e assim ele não espreme os números. */}
-          <Td colSpan={7} className="pt-0">
+          <Td colSpan={9} className="pt-0">
             <span className="flex flex-wrap gap-2">
               {linha.terminamNesteCiclo.map((fim) => (
                 <Badge key={fim.parcelamentoId} tone="positivo">
@@ -110,8 +116,8 @@ export function ProjecaoTabela({ linhas }: { linhas: readonly LinhaProjecao[] })
   return (
     <div className="hidden lg:block">
       <Table
-        legenda={`Projeção mês a mês, ${String(linhas.length)} ciclos, com renda prevista, custos fixos, provisão, parcelas, verba livre e variação da verba livre.`}
-        className="min-w-[56rem]"
+        legenda={`Projeção mês a mês, ${String(linhas.length)} ciclos, com renda prevista, custos fixos, provisão, parcelas, verba livre, dia a dia, extras restantes e variação da verba livre.`}
+        className="min-w-[68rem]"
       >
         <THead>
           <Tr>
@@ -121,6 +127,8 @@ export function ProjecaoTabela({ linhas }: { linhas: readonly LinhaProjecao[] })
             <Th numerico>Provisão</Th>
             <Th numerico>Parcelas</Th>
             <Th numerico>Verba livre</Th>
+            <Th numerico>Dia a dia</Th>
+            <Th numerico>Extras</Th>
             <Th numerico>Δ</Th>
           </Tr>
         </THead>
