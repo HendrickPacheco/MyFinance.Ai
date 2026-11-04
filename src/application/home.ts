@@ -112,6 +112,7 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
   });
 
   return {
+    categoriasLancamento: painel.categoriasLancamento,
     cabecalho: {
       mesNome: MESES_PT_BR[Number(hoje.slice(5, 7)) - 1] ?? '',
       diaDoCiclo: kpis.diasTotais - kpis.diasRestantes + 1,

@@ -4,6 +4,7 @@
  * centavos (`*Cents`); percentuais são inteiros 0–100; rótulos não monetários
  * ('07/11', '3/5', 'nov/26') já vêm formatados.
  */
+import type { OpcaoCategoria } from './dashboard-tipos';
 import type { DivisaoDiaADia, ItemVencimento } from '@/domain/finance';
 
 /** Uma das maiores despesas de um grupo (fixo ou parcelado). */
@@ -30,6 +31,8 @@ export interface GrupoDespesa {
 }
 
 export interface EstadoHome {
+  /** Categorias do lançamento em texto (VARIAVEL na frente). */
+  categoriasLancamento: OpcaoCategoria[];
   cabecalho: {
     /** Mês de hoje por extenso, ex.: 'Novembro'. */
     mesNome: string;
