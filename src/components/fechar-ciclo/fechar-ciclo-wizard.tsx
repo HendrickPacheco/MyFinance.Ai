@@ -51,6 +51,10 @@ export function FecharCicloWizard({
   const [manual, setManual] = useState({ ativo: false, negativo: false, cents: 0 });
   const [previa, setPrevia] = useState<PreviaPoupanca | null>(resumo);
   const [carregandoPrevia, setCarregandoPrevia] = useState(false);
+  // Falha da prévia bloqueia o passo 5: sem ela, um valor manual venceria em
+  // silêncio o snapshot digitado. O dono tenta de novo.
+  const [erroPrevia, setErroPrevia] = useState<string | null>(null);
+  const [tentativaPrevia, setTentativaPrevia] = useState(0);
 
   const snapshotTotalCents = useMemo(() => {
     const preenchidas = linhas.filter((l) => l.nome.trim().length > 0);
@@ -61,25 +65,34 @@ export function FecharCicloWizard({
   // no passo 4, a medição vem do servidor (mesma regra do fechamento, sem gravar).
   useEffect(() => {
     if (passo !== 5) return;
+    setErroPrevia(null);
     if (snapshotTotalCents == null) {
       setPrevia(resumo);
       return;
     }
     let cancelado = false;
     setCarregandoPrevia(true);
-    previaPoupancaRealAction(ciclo.id, snapshotData, snapshotTotalCents).then((r) => {
-      if (cancelado) return;
-      setPrevia(r.ok ? r.data : null);
-      if (!r.ok) setErro(r.erro);
-      setCarregandoPrevia(false);
-    });
+    previaPoupancaRealAction(ciclo.id, snapshotData, snapshotTotalCents)
+      .then((r) => {
+        if (cancelado) return;
+        setPrevia(r.ok ? r.data : null);
+        setErroPrevia(r.ok ? null : r.erro);
+      })
+      .catch(() => {
+        if (cancelado) return;
+        setPrevia(null);
+        setErroPrevia('Não foi possível calcular a poupança real agora.');
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoPrevia(false);
+      });
     return () => {
       cancelado = true;
     };
-  }, [passo, snapshotTotalCents, snapshotData, ciclo.id, resumo]);
+  }, [passo, snapshotTotalCents, snapshotData, ciclo.id, resumo, tentativaPrevia]);
 
   const medida = previa?.medicao.status === 'MEDIDA';
-  const poupancaPronta = !carregandoPrevia && (medida || manual.ativo);
+  const poupancaPronta = !carregandoPrevia && erroPrevia === null && (medida || manual.ativo);
 
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
@@ -172,6 +185,8 @@ export function FecharCicloWizard({
           manual={manual}
           onChangeManual={setManual}
           onRegistrarSnapshot={() => setPasso(4)}
+          erro={erroPrevia}
+          onTentarDeNovo={() => setTentativaPrevia((n) => n + 1)}
         />
       ) : null}
 

@@ -235,16 +235,29 @@ export async function obterResumoFechamento(
   };
 }
 
+export type PreviaPoupancaReal = Pick<ResumoFechamento, 'medicao' | 'comparacao' | 'alertaFaltando'> & {
+  /** Total digitado == último snapshot salvo: provável cópia sem atualizar os valores. */
+  patrimonioIgualAoUltimoSnapshot: boolean;
+};
+
 /** Prévia da poupança real com o snapshot do fim digitado no wizard (sem gravá-lo). */
 export async function previaPoupancaReal(
   deps: Deps,
   cicloId: string,
   snapshotDoFim: { data: string; totalCents: number },
-): Promise<Pick<ResumoFechamento, 'medicao' | 'comparacao' | 'alertaFaltando'>> {
+): Promise<PreviaPoupancaReal> {
   const ciclo = await deps.ciclos.obter(cicloId);
   if (!ciclo) throw new Error('Ciclo não encontrado.');
-  const { medicao, comparacao, alertaFaltando } = await obterResumoFechamento(deps, ciclo, snapshotDoFim);
-  return { medicao, comparacao, alertaFaltando };
+  const [{ medicao, comparacao, alertaFaltando }, [ultimo]] = await Promise.all([
+    obterResumoFechamento(deps, ciclo, snapshotDoFim),
+    deps.patrimonio.ultimosSnapshots(1),
+  ]);
+  return {
+    medicao,
+    comparacao,
+    alertaFaltando,
+    patrimonioIgualAoUltimoSnapshot: ultimo?.totalCents === snapshotDoFim.totalCents,
+  };
 }
 
 /**

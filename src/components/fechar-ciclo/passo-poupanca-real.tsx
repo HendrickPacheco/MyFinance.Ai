@@ -7,7 +7,9 @@ import { cn } from '@/lib/cn';
 import type { ResumoFechamento } from '@/application/fechamento';
 import { MoneyInput } from './money-input';
 
-export type PreviaPoupanca = Pick<ResumoFechamento, 'medicao' | 'comparacao' | 'alertaFaltando'>;
+export type PreviaPoupanca = Pick<ResumoFechamento, 'medicao' | 'comparacao' | 'alertaFaltando'> & {
+  patrimonioIgualAoUltimoSnapshot?: boolean;
+};
 
 /**
  * Passo 5: quanto o patrimônio de fato cresceu no ciclo. A meta é objetivo
@@ -22,6 +24,8 @@ export function PassoPoupancaReal({
   manual,
   onChangeManual,
   onRegistrarSnapshot,
+  erro,
+  onTentarDeNovo,
 }: {
   metaCents: number;
   previa: PreviaPoupanca | null;
@@ -30,6 +34,8 @@ export function PassoPoupancaReal({
   manual: { ativo: boolean; negativo: boolean; cents: number };
   onChangeManual: (m: { ativo: boolean; negativo: boolean; cents: number }) => void;
   onRegistrarSnapshot: () => void;
+  erro: string | null;
+  onTentarDeNovo: () => void;
 }) {
   const medida = previa?.medicao.status === 'MEDIDA' ? previa.medicao : null;
   const comparacao = previa?.comparacao ?? null;
@@ -41,6 +47,25 @@ export function PassoPoupancaReal({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {carregando ? <p className="text-sm text-muted">Calculando…</p> : null}
+
+        {erro && !carregando ? (
+          <div className="flex flex-wrap items-center gap-3" role="alert">
+            <p className="text-sm text-negativo">{erro}</p>
+            <button
+              type="button"
+              className="min-h-[44px] rounded-xl border border-border px-4 text-sm text-fg"
+              onClick={onTentarDeNovo}
+            >
+              Tentar de novo
+            </button>
+          </div>
+        ) : null}
+
+        {previa?.patrimonioIgualAoUltimoSnapshot && !carregando ? (
+          <p className="text-sm text-recuperacao" role="status">
+            O patrimônio final está igual ao último snapshot — confira se você atualizou os valores.
+          </p>
+        ) : null}
 
         {medida && comparacao ? (
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">

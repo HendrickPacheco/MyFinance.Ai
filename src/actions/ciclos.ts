@@ -10,6 +10,7 @@ import {
   previaPoupancaReal,
   type ResultadoFechamento,
   type ResumoFechamento,
+  type PreviaPoupancaReal,
 } from '@/application/fechamento';
 import {
   previaRecalculoRenda,
@@ -99,7 +100,7 @@ export async function previaPoupancaRealAction(
   cicloId: string,
   snapshotData: string,
   snapshotTotalCents: number,
-): Promise<Resultado<Pick<ResumoFechamento, 'medicao' | 'comparacao' | 'alertaFaltando'>>> {
+): Promise<Resultado<PreviaPoupancaReal>> {
   return executar(async () => {
     const data = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(snapshotData);
     const totalCents = z.number().int().parse(snapshotTotalCents);

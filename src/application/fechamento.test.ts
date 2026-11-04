@@ -750,6 +750,18 @@ describe('previaPoupancaReal — snapshot digitado, ainda não gravado', () => {
     expect(deps.patrimonio.itens).toHaveLength(1);
   });
 
+  it('avisa quando o patrimônio final digitado é igual ao último snapshot salvo', async () => {
+    const deps = criarDeps({
+      hoje: '2026-12-01',
+      ciclos: [cicloFake({ id: 'c-nov', dataInicio: '2026-11-01', dataFim: '2026-11-30' })],
+      snapshots: [{ id: 's0', data: '2026-10-31', totalCents: 25_000_000, itens: [] }],
+    });
+    const igual = await previaPoupancaReal(deps, 'c-nov', { data: '2026-11-30', totalCents: 25_000_000 });
+    expect(igual.patrimonioIgualAoUltimoSnapshot).toBe(true);
+    const diferente = await previaPoupancaReal(deps, 'c-nov', { data: '2026-11-30', totalCents: 25_000_001 });
+    expect(diferente.patrimonioIgualAoUltimoSnapshot).toBe(false);
+  });
+
   it('snapshot fora da tolerância continua sem medição; ciclo inexistente lança', async () => {
     const deps = criarDeps({
       hoje: '2026-12-01',
