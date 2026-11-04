@@ -53,6 +53,7 @@ describe('interpretarLancamentoRapido', () => {
 
   it('prefixo < 3 letras não casa; sem categoria → null', () => {
     expect(i('30 me', cats)).toMatchObject({ categoriaId: null, descricao: 'me' });
+    expect(i('50 mercadorias', cats)).toMatchObject({ categoriaId: null }); // nome-prefixo-do-token não casa
     expect(i('30 cinema', cats)).toMatchObject({ categoriaId: null });
   });
 

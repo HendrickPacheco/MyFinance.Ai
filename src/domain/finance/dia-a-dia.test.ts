@@ -10,9 +10,26 @@ const base: EntradaDiaADia = {
   diasTotais: 30,
   diasRestantes: 26,
   gastoDiaADiaCents: 0,
+  gastoHojeCents: 0,
 };
 
 describe('divisaoDiaADia', () => {
+  it('gasto de hoje abate o hero exatamente, sem ratear nos outros dias', () => {
+    const antes = divisaoDiaADia({ ...base, gastoDiaADiaCents: 10_000 }).possoGastarHojeCents;
+    const depois = divisaoDiaADia({
+      ...base,
+      gastoDiaADiaCents: 10_000 + 8_300,
+      gastoHojeCents: 8_300,
+    }).possoGastarHojeCents;
+    expect(depois).toBe(antes - 8_300);
+  });
+
+  it('gasto de hoje acima do teto zera o hero', () => {
+    expect(
+      divisaoDiaADia({ ...base, gastoDiaADiaCents: 50_000, gastoHojeCents: 50_000 }).possoGastarHojeCents,
+    ).toBe(0);
+  });
+
   it('caso protótipo', () => {
     const r = divisaoDiaADia(base);
     expect(r.gastavelCents).toBe(537_900);

@@ -69,7 +69,24 @@ describe('obterEstadoHome', () => {
     expect(e.reserva.motivoSemDado).toBeTruthy();
   });
 
-  it('próximos 7 dias filtra pago e fora da janela', async () => {
+  it('gasto lançado hoje abate o hero por inteiro', async () => {
+  const base = await obterEstadoHome(montarDeps());
+  const e = await obterEstadoHome(
+    criarDeps({
+      hoje: '2026-11-04',
+      config: { ...CONFIG_PADRAO, diaRecebimento: 1 },
+      ciclos: [CICLO],
+      transacoes: [
+        transacaoFake({ id: 'tx-mercado', data: '2026-11-02', valorCents: 15_000, cicloId: CICLO.id }),
+        transacaoFake({ id: 'tx-hoje', data: '2026-11-04', valorCents: 800, cicloId: CICLO.id }),
+      ],
+    }),
+  );
+  expect(e.hero.possoGastarHojeCents).toBe(Math.floor(30_000 / 27) - 800);
+  expect(base.hero.possoGastarHojeCents).toBe(Math.floor(30_000 / 27));
+});
+
+it('próximos 7 dias filtra pago e fora da janela', async () => {
     const e = await obterEstadoHome(montarDeps());
 
     expect(e.proximos7Dias.total).toBe(3);

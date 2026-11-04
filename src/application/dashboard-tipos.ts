@@ -212,6 +212,8 @@ export interface EstadoPainel {
   transacoesVariaveis: LinhaTransacaoVariavel[];
   /** Soma líquida (DESPESA − ESTORNO) só do que já foi REALIZADO (até hoje). */
   transacoesVariaveisTotalCents: number;
+  /** Idem, mas só até ontem (sem parcelas): base para separar o gasto de hoje. */
+  gastoVariavelAntesDeHojeCents: number;
   /**
    * Soma líquida só das linhas programadas (competência futura). Campo
    * SEPARADO de propósito: não consome verba nem entra em `totalGastosCents` —

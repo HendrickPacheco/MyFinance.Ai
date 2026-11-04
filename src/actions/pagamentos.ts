@@ -16,6 +16,7 @@ const idNaoVazio = z.string().min(1, 'Id inválido.');
 
 function revalidarPainel(): void {
   revalidatePath('/');
+  revalidatePath('/custos/fixos');
 }
 
 /**

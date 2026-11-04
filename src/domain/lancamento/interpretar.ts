@@ -69,7 +69,7 @@ export function interpretarLancamentoRapido(
   for (const tk of semMetodo) {
     const n = semAcento(tk);
     if (n.length < 3) continue;
-    const c = cats.find((x) => x.nome.startsWith(n) || n.startsWith(x.nome));
+    const c = cats.find((x) => x.nome.startsWith(n));
     if (c) {
       categoriaId = c.id;
       break;

@@ -57,6 +57,7 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
     montarVerbaLivre(deps),
   ]);
 
+  const gastoDiaADiaCents = Math.max(0, painel.transacoesVariaveisTotalCents);
   const divisao = divisaoDiaADia({
     verbaVariavelCents: kpis.verbaVariavelCents,
     poupancaAlvoCents: ciclo.poupancaAlvoCents,
@@ -64,7 +65,11 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
     pisoDiarioVerbaCents,
     diasTotais: kpis.diasTotais,
     diasRestantes: kpis.diasRestantes,
-    gastoDiaADiaCents: Math.max(0, painel.transacoesVariaveisTotalCents),
+    gastoDiaADiaCents,
+    gastoHojeCents: Math.max(
+      0,
+      Math.min(gastoDiaADiaCents, painel.transacoesVariaveisTotalCents - painel.gastoVariavelAntesDeHojeCents),
+    ),
   });
 
   const fixos = painel.custosFixos.map((c) => ({

@@ -11,6 +11,7 @@
  * config incompleta).
  */
 import type { Deps } from './deps';
+import { addDias } from '@/shared/data';
 import type {
   Categoria,
   Ciclo,
@@ -150,6 +151,7 @@ async function montar(
     // Soma só o REALIZADO: as linhas programadas do extrato ficam fora, no
     // campo separado abaixo (competência futura não consome verba, SPEC 5.1).
     transacoesVariaveisTotalCents: gastoVariavelSemParcelas,
+    gastoVariavelAntesDeHojeCents: gastoVariavelSemParcelasCents(calc, addDias(hoje, -1)),
     transacoesVariaveisProgramadasCents: somarProgramadosCents(transacoesVariaveis),
     patrimonio,
     metas,

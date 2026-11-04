@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useId, useState, useTransition } from 'react';
+import { useCallback, useId, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import type { OpcaoCategoria } from '@/application/dashboard-tipos';
@@ -18,29 +18,31 @@ export function LancamentoTexto({ categorias }: { categorias: OpcaoCategoria[] }
   const [toast, setToast] = useState<{ id: string; texto: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const variaveis = useMemo(() => categorias.filter((c) => c.grupo === 'VARIAVEL'), [categorias]);
+
   const lancar = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      const r = interpretarLancamentoRapido(texto, categorias);
+      const r = interpretarLancamentoRapido(texto, variaveis);
       if (!r.ok) return setErro(r.erro);
-      const categoriaId = r.categoriaId ?? categorias.find((c) => c.grupo === 'VARIAVEL')?.id;
-      if (!categoriaId) return setErro('Cadastre uma categoria de gasto variável primeiro.');
+      const categoria = variaveis.find((c) => c.id === r.categoriaId) ?? variaveis[0];
+      if (!categoria) return setErro('Cadastre uma categoria de gasto variável primeiro.');
       setErro(null);
       startTransition(async () => {
         const res = await criarTransacao({
           valorCents: r.valorCents,
-          categoriaId,
+          categoriaId: categoria.id,
           descricao: r.descricao,
           metodo: r.metodo,
         });
         if (!res.ok) return setErro(res.erro);
         setTexto('');
-        setToast({ id: res.data.id, texto: `Lançado ${formatBRL(r.valorCents)}` });
+        setToast({ id: res.data.id, texto: `Lançado ${formatBRL(r.valorCents)} em ${categoria.nome}` });
         router.refresh();
         window.setTimeout(() => setToast(null), 5000);
       });
     },
-    [texto, categorias, router],
+    [texto, variaveis, router],
   );
 
   const desfazer = useCallback(() => {

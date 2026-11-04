@@ -13,6 +13,8 @@ export interface EntradaDiaADia {
   diasRestantes: number;
   /** Gasto variável realizado SEM parcelas. */
   gastoDiaADiaCents: number;
+  /** Parte de `gastoDiaADiaCents` lançada hoje (sem parcelas). */
+  gastoHojeCents: number;
 }
 
 export interface DivisaoDiaADia {
@@ -34,6 +36,12 @@ export function divisaoDiaADia(e: EntradaDiaADia): DivisaoDiaADia {
   const diaADiaCents = Math.min(e.pisoDiarioVerbaCents * e.diasTotais, gastavelCents);
   const extrasCents = gastavelCents - diaADiaCents;
   const usadoExtrasCents = Math.min(extrasCents, Math.max(0, gasto - diaADiaCents));
+  // Espelha o teto do motor: o dia a dia restante no início de hoje é rateado
+  // pelos dias restantes; o que se gasta hoje abate o teto de hoje, não o dos outros dias.
+  const gastoAntesDeHoje = gasto - e.gastoHojeCents;
+  const tetoHojeCents = Math.floor(
+    Math.max(0, diaADiaCents - gastoAntesDeHoje) / Math.max(1, e.diasRestantes),
+  );
   const diasPassados = e.diasTotais - e.diasRestantes + 1;
 
   return {
@@ -42,9 +50,7 @@ export function divisaoDiaADia(e: EntradaDiaADia): DivisaoDiaADia {
     extrasCents,
     usadoDiaADiaCents: Math.min(gasto, diaADiaCents),
     extrasDisponivelCents: Math.max(0, extrasCents - usadoExtrasCents),
-    possoGastarHojeCents: Math.floor(
-      Math.max(0, diaADiaCents - gasto) / Math.max(1, e.diasRestantes),
-    ),
+    possoGastarHojeCents: Math.max(0, tetoHojeCents - e.gastoHojeCents),
     ritmoOk: e.diasTotais > 0 && gasto <= Math.floor((diaADiaCents * diasPassados) / e.diasTotais),
   };
 }

@@ -19,7 +19,12 @@ export function VerbaLivreCard({ verbaLivre }: { verbaLivre: EstadoHome['verbaLi
         <span className="text-[13px] font-medium text-muted">projeção</span>
       </div>
       {n < 2 ? (
-        <p className="py-3 text-sm text-faint">Sem projeção disponível.</p>
+        <div className="py-3 text-sm text-faint">
+          Sem projeção disponível.{' '}
+          <Link href="/projecao" className="font-semibold text-accent no-underline">
+            Ver projeção →
+          </Link>
+        </div>
       ) : (
         <Link href="/projecao" className="block text-inherit no-underline">
           <GraficoVerba pontos={pontos} faixa={faixa} ultimoCents={verbaLivre.ultimoCents} ultimoMes={verbaLivre.ultimoMes} />

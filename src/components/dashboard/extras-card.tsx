@@ -8,7 +8,7 @@ export function ExtrasCard({ extras }: { extras: EstadoHome['extras'] }) {
       <div className="mb-0.5 mt-2 text-[32px] font-extrabold tracking-[-0.03em]">
         <Valor cents={extras.disponivelCents} sufixo="disponível" />
       </div>
-      <div className="mt-1.5 text-[13px] text-subtle">para compras pontuais</div>
+      <div className="mt-1.5 text-[13px] text-faint">para compras pontuais</div>
       <Barra fina percent={extras.progressoPercent} opacidade={0.35} className="mt-[18px]" />
     </Card>
   );

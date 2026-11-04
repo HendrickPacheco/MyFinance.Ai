@@ -12,7 +12,7 @@ export function ReservaCard({ reserva }: { reserva: EstadoHome['reserva'] }) {
       <div className="mb-0.5 mt-2 text-[32px] font-extrabold tracking-[-0.03em]">
         <Valor cents={reserva.totalCents} />
       </div>
-      <div className="mt-1.5 text-[13px] text-subtle">{sub}</div>
+      <div className="mt-1.5 text-[13px] text-faint">{sub}</div>
       <Barra fina percent={reserva.progressoPercent} className="mt-[18px]" />
     </Card>
   );

@@ -14,7 +14,7 @@ export function MetaPoupancaCard({ meta }: { meta: EstadoHome['metaPoupanca'] })
         <div className="mb-0.5 mt-2 text-[32px] font-extrabold tracking-[-0.03em]">
           <Valor cents={meta.projetadaCents} sufixo={`de ${formatarNumeroBRL(meta.alvoCents)}`} />
         </div>
-        <div className="mt-1.5 text-[13px] text-subtle">sobra projetada no fechamento</div>
+        <div className="mt-1.5 text-[13px] text-faint">sobra projetada no fechamento</div>
       </div>
       <svg
         width="72"

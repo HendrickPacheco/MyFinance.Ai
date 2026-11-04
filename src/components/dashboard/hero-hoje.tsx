@@ -4,7 +4,7 @@ import { Barra, Card, Valor } from './ui-home';
 
 export function HeroHoje({ hero }: { hero: EstadoHome['hero'] }) {
   return (
-    <Card className="grid grid-cols-2 items-end gap-8 bg-gradient-to-br from-surface from-55% to-accent-light p-8 max-[760px]:grid-cols-1 max-[760px]:gap-5 max-[760px]:p-6">
+    <Card className="grid grid-cols-2 items-end gap-8 bg-gradient-to-br from-surface from-55% to-accent-soft p-8 max-[760px]:grid-cols-1 max-[760px]:gap-5 max-[760px]:p-6">
       <div>
         <div className="text-[13px] font-medium text-muted">Posso gastar hoje</div>
         <div className="mb-3 mt-2.5 text-[76px] font-extrabold leading-none tracking-[-0.04em] max-[760px]:text-[64px]">
