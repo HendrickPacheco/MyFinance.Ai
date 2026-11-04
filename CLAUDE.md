@@ -65,6 +65,16 @@ Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçad
 **Antes de rodar `next build` ou apagar `.next`, verifique se há dev server rodando**
 (`lsof -ti:3000`).
 
+### API do agente externo (04/11/2026)
+
+`app/api/agent/v1/**` sobre o kernel `src/agent-api/` (`rotaAgente` para
+leitura, `rotaEscrita` para escrita). A rota só declara escopo + schemas zod e
+chama o caso de uso; auth Bearer, rate limit, transação, dryRun (rollback),
+auditoria, `Idempotency-Key`, `impactoCiclo` e `*Cents`→`*Fmt` são do kernel.
+Deps do agente vêm de `criarDepsAgente(donoId, db)` — o `donoId` sai do token,
+nunca do corpo. Rota nova precisa de `EndpointDoc` em `src/agent-api/openapi/`
+(um teste cobra a bijeção rota ↔ doc). Testes com banco: `pnpm test:integracao`.
+
 ## Regras invioláveis (SPEC seção 13 — "Não faça")
 
 1. **Dinheiro é sempre `Int` em centavos.** Nunca `Float`/`Decimal`/`Number` decimal
@@ -92,6 +102,12 @@ Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçad
 7b. **A IA nunca grava direto** (decisão D-8, revista em 04/08/2026). O copiloto
    PROPÕE, o dono CONFIRMA, e o caso de uso de sempre EXECUTA. Ferramenta de IA
    que chama `criarTransacao` é bug, não feature — ver `TASKS-IA.md` §12.
+   **Exceção (04/11/2026): a API do agente externo** (`/api/agent/v1`, ver
+   `docs/agent-api.md`) grava direto, autenticada por token com escopo
+   `write`/`admin` que o dono criou em `/config/tokens`. Ela passa SEMPRE pelos
+   mesmos casos de uso de `src/application/*`, dentro de transação, com
+   auditoria (`AuditoriaAgente`) e `?dryRun=true`. O copiloto interno continua
+   sob a 7b.
 7c. **Memória do copiloto NUNCA guarda valor em dinheiro** (Fase E). O número de
    hoje é falso amanhã, e dentro de um embedding ninguém percebe que envelheceu.
    A guarda é `validarTextoMemoria` (`src/domain/memoria/regras.ts`), aplicada

@@ -21,6 +21,7 @@ import {
   type PreviaConfirmacaoRenda,
 } from '@/application/renda-ciclo';
 import { parseTaxaMicros } from '@/shared/dinheiro';
+import { fechamentoSchema } from '@/application/fechamento-schemas';
 import type { Ciclo } from '@/domain/model/entidades';
 import type { ClassePatrimonio } from '@/domain/model/enums';
 
@@ -50,28 +51,6 @@ export async function puxarDaReserva(valorCents: number): Promise<Resultado<Cicl
     return c;
   });
 }
-
-const CLASSE = z.enum(['CONTA', 'RENDA_FIXA', 'RENDA_VARIAVEL', 'CRIPTO', 'IMOVEL', 'OUTRO']);
-
-const fechamentoSchema = z.object({
-  rendaRealizadaCents: z.number().int().nonnegative(),
-  novaMetaPoupancaCents: z.number().int().nonnegative().nullish(),
-  snapshotData: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  snapshotItens: z
-    .array(
-      z.object({
-        nome: z.string().min(1),
-        classe: CLASSE,
-        valorCents: z.number().int(),
-        // Quem valida se este id é do dono é `criarSnapshot`, no caso de uso.
-        contaId: z.string().nullable().default(null),
-      }),
-    )
-    .optional(),
-  observacao: z.string().max(300).nullish(),
-  // Pode ser NEGATIVA: o patrimônio pode ter caído no ciclo.
-  poupancaRealManualCents: z.number().int().nullish(),
-});
 
 export async function fecharCiclo(
   cicloId: string,

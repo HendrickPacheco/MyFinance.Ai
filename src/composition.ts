@@ -3,6 +3,7 @@
  * conecta às portas. Server actions e páginas chamam `criarDeps()` e passam o
  * bag para os casos de uso. O relógio respeita o timezone da Config.
  */
+import type { PrismaClient } from '@prisma/client';
 import { prisma } from '@/infrastructure/persistence/prisma';
 import { RelogioSistema } from '@/infrastructure/relogio/relogio-sistema';
 import {
@@ -29,16 +30,21 @@ import {
   PrismaUsuarioRepository,
   PrismaSessaoRepository,
 } from '@/infrastructure/repositories/prisma-identidade';
+import { PrismaApiTokenRepository } from '@/infrastructure/repositories/prisma-api-tokens';
+import { PrismaAuditoriaAgenteRepository } from '@/infrastructure/repositories/prisma-auditoria';
+import { PrismaIdempotenciaAgenteRepository } from '@/infrastructure/repositories/prisma-idempotencia';
 import { Argon2HashSenha } from '@/infrastructure/auth/argon2';
 import { SessaoCookie } from '@/infrastructure/auth/sessao-cookie';
 import { cookieStoreDoNext } from '@/infrastructure/auth/cookie-next';
 import { RateLimiterMemoria } from '@/infrastructure/seguranca/rate-limiter-memoria';
 import { PrismaUsoIARepository } from '@/infrastructure/repositories/prisma-uso-ia';
 import { semearWorkspace } from '@/infrastructure/onboarding';
-import { ATOR_ANONIMO } from '@/domain/auth/ator';
+import { ATOR_ANONIMO, type Ator } from '@/domain/auth/ator';
+import type { SessaoPort } from '@/domain/ports/sessao';
 import type { Deps } from '@/application/deps';
 
 export { prisma };
+export { clienteEmTransacao } from '@/infrastructure/persistence/prisma';
 
 /**
  * O limiter é in-memory por processo, então precisa ser um SINGLETON de módulo.
@@ -50,6 +56,60 @@ const rateLimiter = new RateLimiterMemoria();
 
 /** Fuso usado antes de a Config do dono ser lida (e default dela). */
 const TIMEZONE_PADRAO = 'America/Bahia';
+
+/**
+ * Todo repositório ESCOPADO POR DONO, montado sobre `db` — compartilhado por
+ * `criarDeps()` (sessão por cookie) e `criarDepsAgente()` (token do agente),
+ * para as duas composições nunca divergirem na lista de repositórios.
+ *
+ * `db` pode ser o `PrismaClient` raiz OU um cliente de transação adaptado
+ * por `clienteEmTransacao` — nenhum repositório aqui sabe a diferença, e é
+ * exatamente isso que torna uma escrita do agente atômica (`rotaEscrita`
+ * constrói esta mesma lista com o `tx` da transação).
+ */
+function construirRepositoriosDoDono(db: PrismaClient, donoId: string) {
+  return {
+    config: new PrismaConfigRepository(db, donoId),
+    contas: new PrismaContaRepository(db, donoId),
+    categorias: new PrismaCategoriaRepository(db, donoId),
+    custosFixos: new PrismaCustoFixoRepository(db, donoId),
+    pagamentosFixos: new PrismaPagamentoFixoRepository(db, donoId),
+    provisoes: new PrismaProvisaoRepository(db, donoId),
+    transacoes: new PrismaTransacaoRepository(db, donoId),
+    parcelamentos: new PrismaParcelamentoRepository(db, donoId),
+    ciclos: new PrismaCicloRepository(db, donoId),
+    patrimonio: new PrismaPatrimonioRepository(db, donoId),
+    usoIA: new PrismaUsoIARepository(db),
+    // Memória do copiloto (Fase E) — escopada por dono como todo o resto.
+    memorias: new PrismaMemoriaRepository(db, donoId),
+    // Histórico persistido do copiloto (Fase 1 da persistência de conversas).
+    conversas: new PrismaConversaRepository(db, donoId),
+    // Rascunho de importação de fatura (I3 do TASKS-IMPORTACAO.md).
+    importacoes: new PrismaImportacaoRepository(db, donoId),
+    // API do agente de IA externo (feat/agent-api-v1).
+    apiTokens: new PrismaApiTokenRepository(db, donoId),
+    auditoria: new PrismaAuditoriaAgenteRepository(db, donoId),
+    idempotencia: new PrismaIdempotenciaAgenteRepository(db, donoId),
+    // Cotação USD→BRL é dado público (PTAX), tabela global sem dono (D4).
+    cotacoes: new PrismaCotacaoRepository(db),
+  };
+}
+
+/**
+ * Sessão por cookie não existe no contexto do agente (ele autentica por
+ * token, em `autenticarAgente` — `src/agent-api/`). `criar`/`invalidar` são
+ * caminhos que nenhuma rota do agente chama; `validar` devolve `null` em vez
+ * de lançar porque é exatamente o que "sem sessão de cookie" significa.
+ */
+const SESSAO_INDISPONIVEL_NO_AGENTE: SessaoPort = {
+  async criar() {
+    throw new Error('Sessão por cookie não se aplica à API do agente.');
+  },
+  async validar() {
+    return null;
+  },
+  async invalidar() {},
+};
 
 export async function criarDeps(): Promise<Deps> {
   const usuarios = new PrismaUsuarioRepository(prisma);
@@ -80,8 +140,8 @@ export async function criarDeps(): Promise<Deps> {
   // última rede.
   const donoId = ator.id;
 
-  const config = new PrismaConfigRepository(prisma, donoId);
-  let cfg = await config.obter();
+  const repositorios = construirRepositoriosDoDono(prisma, donoId);
+  let cfg = await repositorios.config.obter();
 
   // Onboarding preguiçoso: um usuário recém-criado não tem Config, categorias
   // nem contas — ele nasceria numa tela quebrada. Como a consulta acima já
@@ -90,7 +150,7 @@ export async function criarDeps(): Promise<Deps> {
   // workspace vazio por alguém ter esquecido de rodar um comando.
   if (!cfg && donoId) {
     await semearWorkspace(prisma, donoId);
-    cfg = await config.obter();
+    cfg = await repositorios.config.obter();
   }
 
   const relogio = new RelogioSistema(cfg?.timezone ?? TIMEZONE_PADRAO);
@@ -102,29 +162,53 @@ export async function criarDeps(): Promise<Deps> {
     hashSenha: new Argon2HashSenha(),
     rateLimiter,
     relogio,
-    config,
-    contas: new PrismaContaRepository(prisma, donoId),
-    categorias: new PrismaCategoriaRepository(prisma, donoId),
-    custosFixos: new PrismaCustoFixoRepository(prisma, donoId),
-    pagamentosFixos: new PrismaPagamentoFixoRepository(prisma, donoId),
-    provisoes: new PrismaProvisaoRepository(prisma, donoId),
-    transacoes: new PrismaTransacaoRepository(prisma, donoId),
-    parcelamentos: new PrismaParcelamentoRepository(prisma, donoId),
-    ciclos: new PrismaCicloRepository(prisma, donoId),
-    patrimonio: new PrismaPatrimonioRepository(prisma, donoId),
+    ...repositorios,
     // Com IA_HABILITADA=false o campo fica `undefined` e nenhuma tela muda.
     ia: iaHabilitada() ? criarProvedorIA() : undefined,
-    usoIA: new PrismaUsoIARepository(prisma),
-    // Memória do copiloto (Fase E) — escopada por dono como todo o resto.
-    memorias: new PrismaMemoriaRepository(prisma, donoId),
-    // Histórico persistido do copiloto (Fase 1 da persistência de conversas).
-    conversas: new PrismaConversaRepository(prisma, donoId),
-    // Rascunho de importação de fatura (I3 do TASKS-IMPORTACAO.md).
-    importacoes: new PrismaImportacaoRepository(prisma, donoId),
-    cotacoes: new PrismaCotacaoRepository(prisma),
     fonteCotacao: new PtaxBcb(),
     // Independente de `ia`: sem OPENAI_MODEL_EMBEDDING a memória continua
     // gravando e listando, só a busca semântica degrada.
+    embeddings: embeddingHabilitado() ? criarEmbeddingIA() : undefined,
+  };
+}
+
+/**
+ * Composição para a API do agente (`src/agent-api/`, feat/agent-api-v1).
+ * Mesma forma de `Deps` que `criarDeps()`, mas:
+ *
+ *  - `donoId` vem do TOKEN já autenticado (`autenticarAgente`), nunca de um
+ *    cookie — o agente não tem sessão por cookie, por isso `sessoes` aqui é
+ *    `SESSAO_INDISPONIVEL_NO_AGENTE`;
+ *  - `ator` é sempre `{ id: donoId, papel: 'OWNER' }`: a permissão real de
+ *    uma requisição de agente é o ESCOPO do token (`read`/`write`/`admin`,
+ *    checado por `autenticarAgente` antes de chegar aqui), não o papel
+ *    OWNER/VIEWER do app — um agente com escopo `write` deve poder criar uma
+ *    transação mesmo que, no futuro, o produto venha a ter um usuário humano
+ *    VIEWER (`exigirEscrita` já exigiria OWNER, e é exatamente isso que o
+ *    agente sempre é aqui);
+ *  - `db` pode ser `prisma` (rotas de leitura) OU um cliente de transação
+ *    adaptado por `clienteEmTransacao` (rotas de escrita, para a operação
+ *    inteira ser atômica — ver `rotaEscrita` em `src/agent-api/`).
+ *
+ * Não resolve onboarding (`semearWorkspace`): um token só existe para um
+ * dono que já passou pelo onboarding normal via `criarDeps()`.
+ */
+export async function criarDepsAgente(donoId: string, db: PrismaClient): Promise<Deps> {
+  const ator: Ator = { id: donoId, papel: 'OWNER' };
+  const repositorios = construirRepositoriosDoDono(db, donoId);
+  const cfg = await repositorios.config.obter();
+  const relogio = new RelogioSistema(cfg?.timezone ?? TIMEZONE_PADRAO);
+
+  return {
+    ator,
+    usuarios: new PrismaUsuarioRepository(db),
+    sessoes: SESSAO_INDISPONIVEL_NO_AGENTE,
+    hashSenha: new Argon2HashSenha(),
+    rateLimiter,
+    relogio,
+    ...repositorios,
+    fonteCotacao: new PtaxBcb(),
+    ia: iaHabilitada() ? criarProvedorIA() : undefined,
     embeddings: embeddingHabilitado() ? criarEmbeddingIA() : undefined,
   };
 }

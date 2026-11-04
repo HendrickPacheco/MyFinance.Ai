@@ -16,6 +16,8 @@ import {
   type PagamentoFixoRepository,
   type ProvisaoRepository,
   type TransacaoRepository,
+  type FiltroTransacoes,
+  type PaginaTransacoes,
   type ParcelamentoRepository,
   type CicloRepository,
   type PatrimonioRepository,
@@ -64,6 +66,24 @@ import type {
   ImportacaoRepository,
   NovaImportacao,
 } from '@/domain/ports/importacao';
+import {
+  ApiTokenNaoEncontradoError,
+  type ApiTokenRegistro,
+  type ApiTokenRepository,
+  type NovoApiToken,
+} from '@/domain/ports/api-tokens';
+import type {
+  AuditoriaAgentePort,
+  FiltroAuditoriaAgente,
+  NovaAuditoriaAgente,
+  PaginaAuditoriaAgente,
+  RegistroAuditoriaAgente,
+} from '@/domain/ports/auditoria';
+import type {
+  IdempotenciaPort,
+  NovoRegistroIdempotencia,
+  RegistroIdempotenciaSalvo,
+} from '@/domain/ports/idempotencia';
 
 function clone<T>(v: T): T {
   return structuredClone(v);
@@ -571,6 +591,65 @@ export class FakeTransacaoRepo implements TransacaoRepository {
     this.itens[i] = atualizada;
     return clone(atualizada);
   }
+
+  /**
+   * Espelho em memória do keyset pagination do adapter Prisma (API do
+   * agente) — sem nome de categoria/conta (o fake não tem acesso aos
+   * repositórios delas; nenhum teste de filtro depende disso).
+   */
+  async listarFiltrado(filtro: FiltroTransacoes): Promise<PaginaTransacoes> {
+    const direcao = filtro.direcao === 'asc' ? 1 : -1;
+    const campo = filtro.ordem === 'valor' ? 'valorCents' : 'data';
+
+    const filtrados = this.itens.filter((t) => {
+      if (filtro.de !== undefined && t.data < filtro.de) return false;
+      if (filtro.ate !== undefined && t.data > filtro.ate) return false;
+      if (filtro.tipo && t.tipo !== filtro.tipo) return false;
+      if (filtro.metodo && t.metodo !== filtro.metodo) return false;
+      if (filtro.categoriaId && t.categoriaId !== filtro.categoriaId) return false;
+      if (filtro.contaId && t.contaId !== filtro.contaId) return false;
+      if (filtro.cicloId && t.cicloId !== filtro.cicloId) return false;
+      if (filtro.parcelamentoId && t.parcelamentoId !== filtro.parcelamentoId) return false;
+      if (filtro.origem && t.origem !== filtro.origem) return false;
+      if (filtro.texto && !(t.descricao ?? '').toLowerCase().includes(filtro.texto.toLowerCase())) {
+        return false;
+      }
+      if (filtro.valorMinCents !== undefined && t.valorCents < filtro.valorMinCents) return false;
+      if (filtro.valorMaxCents !== undefined && t.valorCents > filtro.valorMaxCents) return false;
+      return true;
+    });
+
+    const ordenados = [...filtrados].sort((a, b) => {
+      const chaveA = campo === 'valorCents' ? a.valorCents : a.data;
+      const chaveB = campo === 'valorCents' ? b.valorCents : b.data;
+      const cmp = chaveA < chaveB ? -1 : chaveA > chaveB ? 1 : a.id.localeCompare(b.id);
+      return cmp * direcao;
+    });
+
+    const cursor = filtro.cursor ? JSON.parse(Buffer.from(filtro.cursor, 'base64url').toString('utf8')) : null;
+    const apartirDoCursor = cursor
+      ? ordenados.filter((t) => {
+          const chave = filtro.ordem === 'valor' ? t.valorCents : t.data;
+          if (chave !== cursor.valor) return filtro.direcao === 'asc' ? chave > cursor.valor : chave < cursor.valor;
+          return filtro.direcao === 'asc' ? t.id > cursor.id : t.id < cursor.id;
+        })
+      : ordenados;
+
+    const temMais = apartirDoCursor.length > filtro.limite;
+    const pagina = apartirDoCursor.slice(0, filtro.limite);
+    const ultima = pagina.at(-1);
+    const proximoCursor =
+      temMais && ultima
+        ? Buffer.from(
+            JSON.stringify({ valor: filtro.ordem === 'valor' ? ultima.valorCents : ultima.data, id: ultima.id }),
+          ).toString('base64url')
+        : null;
+
+    return {
+      itens: pagina.map((t) => ({ ...clone(t), categoriaNome: null, contaNome: null })),
+      proximoCursor,
+    };
+  }
 }
 
 export class FakeParcelamentoRepo implements ParcelamentoRepository {
@@ -768,6 +847,121 @@ export interface FakeDeps extends Deps {
   conversas: FakeConversaRepo;
   /** Concreto para os testes poderem inspecionar rascunhos de importação gravados. */
   importacoes: FakeImportacaoRepo;
+  /** Concreto — API do agente (feat/agent-api-v1). Nenhum teste existente semeia isto. */
+  apiTokens: FakeApiTokenRepo;
+  auditoria: FakeAuditoriaAgenteRepo;
+  idempotencia: FakeIdempotenciaAgenteRepo;
+}
+
+/** Fake em memória de `ApiTokenRepository` — ignora escopo por dono (cada teste tem um só). */
+export class FakeApiTokenRepo implements ApiTokenRepository {
+  private seq = 0;
+
+  constructor(private readonly itens: ApiTokenRegistro[] = []) {}
+
+  async criar(dados: NovoApiToken): Promise<ApiTokenRegistro> {
+    this.seq += 1;
+    const criado: ApiTokenRegistro = {
+      id: `token-${this.seq}`,
+      donoId: 'fake-dono',
+      nome: dados.nome,
+      prefixo: dados.prefixo,
+      hash: dados.hash,
+      escopos: dados.escopos,
+      criadoEm: new Date(),
+      ultimoUsoEm: null,
+      expiraEm: dados.expiraEm,
+      revogadoEm: null,
+    };
+    this.itens.push(criado);
+    return clone(criado);
+  }
+
+  async listar(): Promise<ApiTokenRegistro[]> {
+    return clone(this.itens);
+  }
+
+  async revogar(id: string, revogadoEm: Date): Promise<void> {
+    const item = this.itens.find((t) => t.id === id);
+    if (!item) throw new ApiTokenNaoEncontradoError();
+    item.revogadoEm = revogadoEm;
+  }
+
+  async marcarUsoAgora(id: string, usadoEm: Date): Promise<void> {
+    const item = this.itens.find((t) => t.id === id);
+    if (item) item.ultimoUsoEm = usadoEm;
+  }
+
+  async buscarPorHashParaAutenticar(hash: string): Promise<ApiTokenRegistro | null> {
+    const item = this.itens.find((t) => t.hash === hash);
+    return item ? clone(item) : null;
+  }
+}
+
+/** Fake em memória de `AuditoriaAgentePort`. */
+export class FakeAuditoriaAgenteRepo implements AuditoriaAgentePort {
+  private seq = 0;
+  registros: RegistroAuditoriaAgente[] = [];
+
+  async registrar(entrada: NovaAuditoriaAgente): Promise<void> {
+    this.seq += 1;
+    this.registros.unshift({
+      id: `aud-${this.seq}`,
+      donoId: 'fake-dono',
+      tokenId: entrada.tokenId,
+      metodo: entrada.metodo,
+      rota: entrada.rota,
+      entidade: entrada.entidade,
+      entidadeId: entrada.entidadeId,
+      acao: entrada.acao,
+      antes: entrada.antes ?? null,
+      depois: entrada.depois ?? null,
+      dryRun: entrada.dryRun,
+      criadoEm: new Date(),
+    });
+  }
+
+  async listar(filtro: FiltroAuditoriaAgente): Promise<PaginaAuditoriaAgente> {
+    const filtrados = this.registros.filter(
+      (r) =>
+        (!filtro.entidade || r.entidade === filtro.entidade) &&
+        (!filtro.acao || r.acao === filtro.acao) &&
+        (!filtro.tokenId || r.tokenId === filtro.tokenId) &&
+        (!filtro.de || r.criadoEm >= filtro.de) &&
+        (!filtro.ate || r.criadoEm <= filtro.ate),
+    );
+    const inicio = filtro.cursor ? filtrados.findIndex((r) => r.id === filtro.cursor) + 1 : 0;
+    const pagina = filtrados.slice(inicio, inicio + filtro.limite);
+    const ultimo = pagina.at(-1);
+    const proximoCursor = inicio + filtro.limite < filtrados.length && ultimo ? ultimo.id : null;
+    return { itens: pagina, proximoCursor };
+  }
+}
+
+/** Fake em memória de `IdempotenciaPort`, chaveado por `chave` (um dono só por teste). */
+export class FakeIdempotenciaAgenteRepo implements IdempotenciaPort {
+  private readonly registros = new Map<string, NovoRegistroIdempotencia>();
+
+  async buscar(chave: string): Promise<RegistroIdempotenciaSalvo | null> {
+    const registro = this.registros.get(chave);
+    if (!registro) return null;
+    return {
+      statusHttp: registro.statusHttp,
+      resposta: registro.resposta,
+      hashCorpo: registro.hashCorpo,
+    };
+  }
+
+  async salvar(registro: NovoRegistroIdempotencia): Promise<void> {
+    this.registros.set(registro.chave, registro);
+    await this.removerExpiradas(new Date());
+  }
+
+  async removerExpiradas(agora: Date): Promise<void> {
+    for (const [chave, registro] of this.registros) {
+      if (registro.expiraEm.getTime() < agora.getTime()) this.registros.delete(chave);
+    }
+  }
 }
 
 export const CONFIG_PADRAO: Config = {
@@ -1226,6 +1420,9 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     conversas: new FakeConversaRepo(),
     importacoes: new FakeImportacaoRepo(),
     cotacoes: new FakeCotacaoRepo(),
+    apiTokens: new FakeApiTokenRepo(),
+    auditoria: new FakeAuditoriaAgenteRepo(),
+    idempotencia: new FakeIdempotenciaAgenteRepo(),
   };
 }
 

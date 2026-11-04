@@ -16,6 +16,9 @@ import type { EmbeddingPort } from '@/domain/ports/embeddings';
 import type { ConversaPort } from '@/domain/ports/conversa';
 import type { ImportacaoRepository } from '@/domain/ports/importacao';
 import type { CotacaoRepository, FonteCotacaoPort } from '@/domain/ports/cotacao';
+import type { ApiTokenRepository } from '@/domain/ports/api-tokens';
+import type { AuditoriaAgentePort } from '@/domain/ports/auditoria';
+import type { IdempotenciaPort } from '@/domain/ports/idempotencia';
 import type {
   ConfigRepository,
   ContaRepository,
@@ -92,4 +95,13 @@ export interface Deps {
   cotacoes: CotacaoRepository;
   /** Fonte externa (PTAX). Opcional: sem ela só vale o que já foi salvo. */
   fonteCotacao?: FonteCotacaoPort;
+  /**
+   * API do agente de IA externo (feat/agent-api-v1). Não é opcional como
+   * `memorias`/`embeddings`: não depende de nenhuma extensão externa (são
+   * tabelas comuns), então toda instalação as tem — mesmo raciocínio de
+   * `conversas`/`importacoes` acima.
+   */
+  apiTokens: ApiTokenRepository;
+  auditoria: AuditoriaAgentePort;
+  idempotencia: IdempotenciaPort;
 }

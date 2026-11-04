@@ -11,6 +11,7 @@ import {
   previaPoupancaReal,
   PoupancaRealNaoMedidaError,
   type FechamentoInput,
+  descreverDestinoSobra,
 } from './fechamento';
 import {
   criarDeps,
@@ -771,5 +772,46 @@ describe('previaPoupancaReal — snapshot digitado, ainda não gravado', () => {
     const r = await previaPoupancaReal(deps, 'c-nov', { data: '2026-12-20', totalCents: 1 });
     expect(r.medicao.status).toBe('SEM_FIM');
     await expect(previaPoupancaReal(deps, 'x', { data: '2026-11-30', totalCents: 1 })).rejects.toThrow('Ciclo não encontrado.');
+  });
+});
+
+describe('descreverDestinoSobra — preview para a API do agente (nunca lança)', () => {
+  it('ROLLOVER: nenhuma conta, mesmo com sobra positiva', async () => {
+    const deps = cenario();
+    deps.config.mutar({ destinoSobra: 'ROLLOVER', destinoSobraContaId: null });
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino).toEqual({ tipo: 'ROLLOVER', contaId: null, contaNome: null });
+  });
+
+  it('sobra zero: SEM_DESTINO mesmo com conta configurada', async () => {
+    const deps = cenario();
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 0);
+
+    expect(destino).toEqual({ tipo: 'SEM_DESTINO', contaId: null, contaNome: null });
+  });
+
+  it('CONTA: resolve a configurada e devolve o nome', async () => {
+    const deps = cenario();
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino.tipo).toBe('CONTA');
+    expect(destino.contaId).toBe('reserva');
+  });
+
+  it('SEM_DESTINO quando não há conta RESERVA de fallback nem configurada', async () => {
+    const deps = cenario({ contas: [] });
+    deps.config.mutar({ destinoSobraContaId: null });
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino).toEqual({ tipo: 'SEM_DESTINO', contaId: null, contaNome: null });
   });
 });

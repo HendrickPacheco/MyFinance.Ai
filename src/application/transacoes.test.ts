@@ -18,6 +18,8 @@ import {
   editarTransacao,
   excluirTransacao,
   estornarTransacao,
+  criarTransacoesEmLote,
+  LoteTransacaoFalhouError,
   CicloFechadoError,
 } from './transacoes';
 
@@ -238,5 +240,36 @@ describe('tipoVerbaOverride por lançamento', () => {
     const deps = fixture();
     const t = await criarTransacao(deps, { valorCents: 5_000, tipoVerbaOverride: 'EXTRA' });
     expect(t.tipoVerbaOverride).toBe('EXTRA');
+  });
+});
+
+describe('criarTransacoesEmLote — POST /agent/v1/transacoes/lote', () => {
+  it('cria todas as transações do lote, na ordem, quando nenhuma falha', async () => {
+    const deps = fixture();
+
+    const criadas = await criarTransacoesEmLote(deps, [
+      { valorCents: 10_000, data: '2026-07-10' },
+      { valorCents: 20_000, data: '2026-07-11' },
+      { valorCents: 30_000, data: '2026-07-12' },
+    ]);
+
+    expect(criadas).toHaveLength(3);
+    expect(criadas.map((t) => t.valorCents)).toEqual([10_000, 20_000, 30_000]);
+  });
+
+  it('item que falha no índice k lança LoteTransacaoFalhouError.indice === k', async () => {
+    const deps = fixture();
+
+    const erro = await criarTransacoesEmLote(deps, [
+      { valorCents: 10_000, data: '2026-07-10', itemImportadoId: 'fatura-linha-1' },
+      { valorCents: 20_000, data: '2026-07-11' },
+      // Mesmo `itemImportadoId` da linha 0 — o fake (espelhando a constraint
+      // `@unique` do Postgres) recusa com `ItemImportadoJaGravadoError`.
+      { valorCents: 30_000, data: '2026-07-12', itemImportadoId: 'fatura-linha-1' },
+    ]).catch((e: unknown) => e);
+
+    expect(erro).toBeInstanceOf(LoteTransacaoFalhouError);
+    expect((erro as LoteTransacaoFalhouError).indice).toBe(2);
+    expect((erro as LoteTransacaoFalhouError).causa.name).toBe('ItemImportadoJaGravadoError');
   });
 });

@@ -28,6 +28,9 @@ import {
 import { PrismaMemoriaRepository } from '../src/infrastructure/repositories/prisma-memoria';
 import { PrismaConversaRepository } from '../src/infrastructure/repositories/prisma-conversa';
 import { PrismaImportacaoRepository } from '../src/infrastructure/repositories/prisma-importacao';
+import { PrismaApiTokenRepository } from '../src/infrastructure/repositories/prisma-api-tokens';
+import { PrismaAuditoriaAgenteRepository } from '../src/infrastructure/repositories/prisma-auditoria';
+import { PrismaIdempotenciaAgenteRepository } from '../src/infrastructure/repositories/prisma-idempotencia';
 import { semearWorkspace } from '../src/infrastructure/onboarding';
 import { exportarTudo } from '../src/infrastructure/backup';
 import { validarCategoriaDeCustoFixo } from '../src/application/categoria-custo-fixo';
@@ -758,6 +761,120 @@ async function main(): Promise<void> {
   );
   checar('e NÃO leva o rascunho não confirmado dele', !dumpB.includes(rascunhoDoB.id));
   checar('o dump do B não carrega donoId nenhum', !dumpB.includes('donoId'));
+
+  // ── API do agente (feat/agent-api-v1) — token, auditoria, idempotência ───
+  // Tabelas novas, sem noção de dono implícita no Postgres: `ApiToken.hash` é
+  // `@unique` GLOBALMENTE (precisa ser, para o lookup de autenticação achar
+  // no máximo uma linha sem saber o dono ainda — ver `buscarPorHashParaAutenticar`),
+  // então o vazamento aqui não é "o mesmo hash em dois donos", é "B lista,
+  // revoga ou lê a credencial/trilha/idempotência de A por engano".
+  console.log('\nAPI DO AGENTE — token, auditoria e idempotência não cruzam donos:');
+  const apiTokensA = new PrismaApiTokenRepository(prisma, a.id);
+  const apiTokensB = new PrismaApiTokenRepository(prisma, b.id);
+
+  const tokenA = await apiTokensA.criar({
+    nome: 'token secreto do A',
+    prefixo: 'mfa_AAAAAAAA',
+    hash: 'hash-do-token-do-dono-a',
+    escopos: ['admin'],
+    expiraEm: null,
+  });
+
+  checar(
+    'listar() do B não traz o token do A',
+    (await apiTokensB.listar()).every((t) => t.id !== tokenA.id),
+  );
+  checar(
+    'listar() do A enxerga o próprio token',
+    (await apiTokensA.listar()).some((t) => t.id === tokenA.id),
+  );
+  await esperaErro('revogar(token do A) pelo repositório do B é recusado (zero linhas afetadas)', () =>
+    apiTokensB.revogar(tokenA.id, new Date()),
+  );
+  const tokenANoBanco = await prisma.apiToken.findUniqueOrThrow({ where: { id: tokenA.id } });
+  checar('o token do A segue ATIVO depois da tentativa de revogação do B', tokenANoBanco.revogadoEm === null);
+  // `marcarUsoAgora` usa `updateMany` (nunca lança) — a prova é no ESTADO
+  // depois da chamada, não numa exceção.
+  await apiTokensB.marcarUsoAgora(tokenA.id, new Date());
+  checar(
+    'marcarUsoAgora(token do A) pelo repositório do B afeta zero linhas (ultimoUsoEm continua null)',
+    (await prisma.apiToken.findUniqueOrThrow({ where: { id: tokenA.id } })).ultimoUsoEm === null,
+  );
+
+  // `buscarPorHashParaAutenticar` é a ÚNICA exceção documentada (sem filtro de
+  // dono — ver o adapter) porque o hash é único globalmente; confirma que ela
+  // devolve o registro certo, com o `donoId` certo, para quem quer que pergunte.
+  checar(
+    'buscarPorHashParaAutenticar devolve o token do A com o donoId do A (única exceção documentada)',
+    (await apiTokensA.buscarPorHashParaAutenticar('hash-do-token-do-dono-a'))?.donoId === a.id,
+  );
+
+  const auditoriaA = new PrismaAuditoriaAgenteRepository(prisma, a.id);
+  const auditoriaB = new PrismaAuditoriaAgenteRepository(prisma, b.id);
+  await auditoriaA.registrar({
+    tokenId: tokenA.id,
+    metodo: 'POST',
+    rota: '/api/agent/v1/transacoes',
+    entidade: 'Transacao',
+    entidadeId: 'tx-secreta-do-a',
+    acao: 'CREATE',
+    depois: { segredo: 'do dono A' },
+    dryRun: false,
+  });
+  const paginaAuditoriaB = await auditoriaB.listar({ limite: 50 });
+  checar(
+    'auditoria.listar() do B não traz o registro do A',
+    paginaAuditoriaB.itens.every((r) => r.entidadeId !== 'tx-secreta-do-a'),
+  );
+  const paginaAuditoriaA = await auditoriaA.listar({ limite: 50 });
+  checar(
+    'auditoria.listar() do A enxerga o próprio registro',
+    paginaAuditoriaA.itens.some((r) => r.entidadeId === 'tx-secreta-do-a'),
+  );
+
+  // Idempotência: a unicidade é COMPOSTA (donoId, chave) — os dois donos
+  // podem (e devem poder) reusar o MESMO texto de chave sem colidir.
+  const idempotenciaA = new PrismaIdempotenciaAgenteRepository(prisma, a.id);
+  const idempotenciaB = new PrismaIdempotenciaAgenteRepository(prisma, b.id);
+  const CHAVE_IGUAL_NOS_DOIS = 'chave-idempotencia-mesmo-texto';
+  await idempotenciaA.salvar({
+    tokenId: tokenA.id,
+    metodo: 'POST',
+    rota: '/api/agent/v1/transacoes',
+    chave: CHAVE_IGUAL_NOS_DOIS,
+    hashCorpo: 'hash-do-corpo-do-a',
+    statusHttp: 201,
+    resposta: { transacao: { id: 'tx-secreta-do-a' } },
+    expiraEm: new Date(Date.now() + 86_400_000),
+  });
+  checar(
+    'buscar() do B com a MESMA chave não vê o registro do A (unicidade composta por donoId)',
+    (await idempotenciaB.buscar(CHAVE_IGUAL_NOS_DOIS)) === null,
+  );
+  checar(
+    'buscar() do A com a própria chave enxerga o próprio registro',
+    (await idempotenciaA.buscar(CHAVE_IGUAL_NOS_DOIS))?.hashCorpo === 'hash-do-corpo-do-a',
+  );
+  // E o B consegue gravar a MESMA chave para si mesmo sem conflito nenhum —
+  // prova direta de que a constraint é (donoId, chave), não (chave) sozinha.
+  await idempotenciaB.salvar({
+    tokenId: tokenA.id, // irrelevante para o teste de unicidade; só precisa existir
+    metodo: 'POST',
+    rota: '/api/agent/v1/transacoes',
+    chave: CHAVE_IGUAL_NOS_DOIS,
+    hashCorpo: 'hash-do-corpo-do-b',
+    statusHttp: 201,
+    resposta: { transacao: { id: 'tx-do-b' } },
+    expiraEm: new Date(Date.now() + 86_400_000),
+  });
+  checar(
+    'B grava a MESMA chave para si mesmo sem conflito (constraint é por dono)',
+    (await idempotenciaB.buscar(CHAVE_IGUAL_NOS_DOIS))?.hashCorpo === 'hash-do-corpo-do-b',
+  );
+  checar(
+    'e o registro do A não foi sobrescrito pelo write do B',
+    (await idempotenciaA.buscar(CHAVE_IGUAL_NOS_DOIS))?.hashCorpo === 'hash-do-corpo-do-a',
+  );
 
   console.log('\nCONFIG — uma por dono:');
   const cfgA = await repoA.config.obter();

@@ -19,7 +19,7 @@ describe('atualizarConfig preserva a renda em moeda de origem', () => {
 
     const salva = await atualizarConfig(deps, { ...semCampos, metaPoupancaCents: 150_000 });
 
-    expect(salva).toMatchObject({
+    expect(salva.config).toMatchObject({
       metaPoupancaCents: 150_000,
       moedaRenda: 'USD',
       rendaBrutaMoedaOrigemCents: 730_000,
@@ -44,7 +44,7 @@ describe('atualizarConfig com renda em USD', () => {
       impostoEstimadoCents: 350_000,
     });
 
-    expect(salva.rendaBaseCents).toBe(3_613_900);
+    expect(salva.config.rendaBaseCents).toBe(3_613_900);
   });
 });
 

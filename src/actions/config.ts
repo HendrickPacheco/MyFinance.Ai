@@ -68,6 +68,8 @@ export async function atualizarConfig(
   return executar(async () => {
     const d = configSchema.parse(input);
     const deps = await criarDeps();
+    // `efeito` existe na resposta do caso de uso (D-15) mas esta Action nunca
+    // o usou — comportamento inalterado.
     await ucConfig(deps, {
       rendaBaseCents: d.rendaBaseCents,
       rendaVariavel: d.rendaVariavel,
