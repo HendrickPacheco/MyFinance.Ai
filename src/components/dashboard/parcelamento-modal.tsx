@@ -31,11 +31,12 @@ import { X } from 'lucide-react';
 import { formatBRL } from '@/shared/dinheiro';
 import { cn } from '@/lib/cn';
 import { criarParcelamento } from '@/actions/transacoes';
-import { editarParcelamento } from '@/actions/parcelamentos';
+import { editarParcelamento, simularParcelamentoAction } from '@/actions/parcelamentos';
+import type { SimulacaoParcelamento } from '@/application/simulacao-parcelamento';
 import { Button, Input, Label, Modal, Select } from '@/components/ui';
 import { METODO_PAGAMENTO, type MetodoPagamento } from '@/domain/model/enums';
 import type { OpcaoCategoria } from '@/application/dashboard-tipos';
-import type { DataCivil } from '@/shared/data';
+import { formatarMesAno, type DataCivil } from '@/shared/data';
 import { usePodeEscrever } from '@/components/auth/ator-contexto';
 
 const TETO_CENTAVOS = 99_999_999; // R$ 999.999,99 — mesmo teto do lançamento de gasto
@@ -134,6 +135,10 @@ export function ParcelamentoModal({ hoje, categorias, edicao }: ParcelamentoModa
    */
   const [ciclosRetroativos, setCiclosRetroativos] = React.useState<string[] | null>(null);
 
+  // Simulação do impacto nas verbas. Falha dela NUNCA bloqueia o salvar (regra 8).
+  const [simulacao, setSimulacao] = React.useState<SimulacaoParcelamento | null>(null);
+  const [simulacaoFalhou, setSimulacaoFalhou] = React.useState(false);
+
   const semCategorias = categorias.length === 0;
   const alvo = edicao?.alvo ?? null;
   const editando = alvo != null;
@@ -167,6 +172,48 @@ export function ParcelamentoModal({ hoje, categorias, edicao }: ParcelamentoModa
     setCiclosRetroativos(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alvo?.id]);
+
+  const modalAberto = edicao ? edicao.alvo != null : open;
+  const simularLiberado = modalAberto && !(edicao?.alvo?.travadoPor);
+  React.useEffect(() => {
+    const n = Number(numParcelas);
+    if (
+      !simularLiberado ||
+      centavos <= 0 ||
+      !Number.isInteger(n) ||
+      n < MIN_PARCELAS ||
+      n > MAX_PARCELAS
+    ) {
+      setSimulacao(null);
+      setSimulacaoFalhou(false);
+      return;
+    }
+    let cancelado = false;
+    const t = setTimeout(() => {
+      simularParcelamentoAction({
+        descricao: descricao.trim() || 'Simulação',
+        valorTotalCents: centavos,
+        numParcelas: n,
+        dataCompra,
+      })
+        .then((r) => {
+          if (cancelado) return;
+          setSimulacao(r.ok ? r.data : null);
+          setSimulacaoFalhou(!r.ok);
+        })
+        .catch(() => {
+          if (cancelado) return;
+          setSimulacao(null);
+          setSimulacaoFalhou(true);
+        });
+    }, 300);
+    return () => {
+      cancelado = true;
+      clearTimeout(t);
+    };
+    // `descricao` fica de fora de propósito: não muda o impacto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simularLiberado, centavos, numParcelas, dataCompra]);
 
   const resetarFormulario = React.useCallback(() => {
     setCentavos(0);
@@ -504,6 +551,38 @@ export function ParcelamentoModal({ hoje, categorias, edicao }: ParcelamentoModa
               </Button>
             </div>
           </div>
+        ) : null}
+
+        {simulacao && simulacao.meses.length > 0 ? (
+          <div className="col-span-2 rounded-xl border border-border bg-surface-2 p-3">
+            <table className="w-full text-xs tnum">
+              <thead className="text-muted">
+                <tr>
+                  <th className="text-left font-medium">Mês</th>
+                  <th className="text-right font-medium">Parcela</th>
+                  <th className="text-right font-medium">Extras restantes</th>
+                  <th className="text-right font-medium">Dia a dia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {simulacao.meses.map((m) => (
+                  <tr key={m.inicio}>
+                    <td>{formatarMesAno(m.inicio)}</td>
+                    <td className="text-right">{formatBRL(m.parcelaCents)}</td>
+                    <td className="text-right">{formatBRL(m.extrasRestanteDepoisCents)}</td>
+                    <td className="text-right">{formatBRL(m.diaADiaDiarioDepoisCents)}/dia</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {simulacao.alerta ? (
+              <p role="status" className="mt-2 text-sm text-negativo">
+                {simulacao.alerta}
+              </p>
+            ) : null}
+          </div>
+        ) : simulacaoFalhou ? (
+          <p className="col-span-2 text-xs text-muted">Não foi possível simular o impacto.</p>
         ) : null}
 
         <div className="col-span-2 mt-1 flex justify-end">
