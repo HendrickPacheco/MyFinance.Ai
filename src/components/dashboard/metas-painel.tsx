@@ -59,7 +59,7 @@ export function MetasPainel({ metas }: { metas: ResumoMetas }) {
           </p>
         ) : metas.fonte === 'SALDO_CONTAS' ? (
           <p className="mt-2 text-xs text-muted">
-            Estimado pelo saldo das contas; um snapshot de patrimônio deixa o número exato.
+            Estimado pelo que as transações do ciclo moveram nas contas; um snapshot de patrimônio deixa o número exato.
           </p>
         ) : null}
 

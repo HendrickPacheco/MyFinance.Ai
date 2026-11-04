@@ -74,27 +74,42 @@ describe('medirPoupancaReal', () => {
 
 describe('estimarPoupancaEmCurso', () => {
   const p = { dataInicio: '2026-11-01', hoje: '2026-11-15', patrimonioFinalCicloAnteriorCents: null };
-  it('sem snapshot no ciclo usa saldo das contas', () => {
+  it('sem snapshot no ciclo usa o efeito líquido das transações do ciclo no razão', () => {
     expect(
-      estimarPoupancaEmCurso({ ...p, snapshots: [base[0]!], saldoContasCents: 25_200_000 }),
+      estimarPoupancaEmCurso({ ...p, snapshots: [base[0]!], deltaLedgerCicloCents: 200_000 }),
     ).toEqual({ realCents: 200_000, fonte: 'SALDO_CONTAS', estimado: true });
+  });
+  it('D-13: snapshot inicial (realidade) acima do razão sem movimento no ciclo → 0, não a divergência', () => {
+    // Reserva: snapshot R$ 60.000,00 vs razão R$ 49.550,32 — a diferença é conciliação, não poupança.
+    expect(
+      estimarPoupancaEmCurso({
+        ...p,
+        snapshots: [snap('2026-10-31', 6_000_000)],
+        deltaLedgerCicloCents: 0,
+      }),
+    ).toEqual({ realCents: 0, fonte: 'SALDO_CONTAS', estimado: true });
   });
   it('com snapshot no ciclo usa o mais recente', () => {
     expect(
       estimarPoupancaEmCurso({
         ...p,
         snapshots: [base[0]!, snap('2026-11-14', 25_300_000)],
-        saldoContasCents: 1,
+        deltaLedgerCicloCents: 1,
       }),
     ).toEqual({ realCents: 300_000, fonte: 'SNAPSHOT', estimado: true });
   });
   it('snapshot após hoje não conta', () => {
     expect(
-      estimarPoupancaEmCurso({ ...p, snapshots: base, saldoContasCents: 25_200_000 }),
+      estimarPoupancaEmCurso({ ...p, snapshots: base, deltaLedgerCicloCents: 200_000 }),
     ).toMatchObject({ realCents: 200_000, fonte: 'SALDO_CONTAS' });
   });
-  it('sem inicial → null com motivo', () => {
-    const r = estimarPoupancaEmCurso({ ...p, snapshots: [], saldoContasCents: 1 });
+  it('sem inicial, snapshot no ciclo não vale: cai no razão', () => {
+    expect(
+      estimarPoupancaEmCurso({ ...p, snapshots: [snap('2026-11-14', 9)], deltaLedgerCicloCents: 7 }),
+    ).toEqual({ realCents: 7, fonte: 'SALDO_CONTAS', estimado: true });
+  });
+  it('nenhum dos dois calculável → null com motivo', () => {
+    const r = estimarPoupancaEmCurso({ ...p, snapshots: [], deltaLedgerCicloCents: null });
     expect(r.realCents).toBeNull();
     expect('motivo' in r && r.motivo).toBeTruthy();
   });

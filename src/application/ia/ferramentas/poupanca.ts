@@ -25,7 +25,8 @@ const ULTIMOS_FECHADOS = 12;
 
 const COMO_FOI_ESTIMADO = {
   SNAPSHOT: 'snapshot de patrimônio mais recente do ciclo menos o patrimônio do início do ciclo',
-  SALDO_CONTAS: 'saldo atual das contas que entram no patrimônio menos o patrimônio do início do ciclo',
+  SALDO_CONTAS:
+    'sem snapshot no ciclo: efeito líquido das transações do ciclo nas contas que entram no patrimônio (razão contra razão; o snapshot inicial não entra, para não misturar razão com realidade)',
 } as const;
 
 /** `{ <nome>Cents, <nome>Formatado }` ou `{ <nome>: null, motivo }` (D-14). */

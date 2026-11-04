@@ -441,26 +441,37 @@ describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10
     expect(kpis.saldoDiaADiaCents).toBe(verbas.tetoDiaADia.saldoDisponivelCents);
   });
 
-  it('guardado de verdade = saldo das contas − patrimônio de partida (estimado)', async () => {
-    const { metas } = await obterEstadoPainel(depsNov());
-    expect(metas.guardadoCents).toBe(200_000);
+  it('guardado sem snapshot no ciclo = efeito das transações do ciclo no razão (estimado)', async () => {
+    const deps = depsNov();
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-aporte', tipo: 'RENDA', data: '2026-11-02', valorCents: 200_000, contaId: 'conta-x', cicloId: CICLO_NOV.id }),
+      // transferência para conta fora do patrimônio sai do guardado
+      transacaoFake({ id: 'tx-fora', tipo: 'TRANSFERENCIA', data: '2026-11-03', valorCents: 50_000, contaId: 'conta-x', contaDestinoId: 'conta-fora', cicloId: CICLO_NOV.id }),
+      // transação de outro ciclo não entra
+      transacaoFake({ id: 'tx-out', tipo: 'RENDA', data: '2026-10-20', valorCents: 999_999, contaId: 'conta-x', cicloId: 'ciclo-out' }),
+    );
+    deps.contas.itens.push(contaFake({ id: 'conta-fora', incluiPatrimonio: false }));
+    const { metas } = await obterEstadoPainel(deps);
+    expect(metas.guardadoCents).toBe(150_000);
     expect(metas.fonte).toBe('SALDO_CONTAS');
     expect(metas.estimado).toBe(true);
-    expect(metas.diferencaCents).toBe(200_000 - 1_800_000);
-    expect(metas.percentualReal).toBe(11.1);
+    expect(metas.diferencaCents).toBe(150_000 - 1_800_000);
     expect(metas.motivoSemGuardado).toBeNull();
   });
 
-  it('sem snapshot inicial nem ciclo anterior: guardado null com motivo', async () => {
-    const { metas } = await obterEstadoPainel(depsNov({ snapshots: [] }));
-    expect(metas.guardadoCents).toBeNull();
-    expect(metas.fonte).toBeNull();
-    expect(metas.motivoSemGuardado).toMatch(/Sem patrimônio de partida/);
-    expect(metas.diferencaCents).toBeNull();
-    expect(metas.percentualReal).toBeNull();
+  it('D-13: razão abaixo do snapshot inicial sem movimento no ciclo → guardado 0, não a divergência', async () => {
+    const { metas } = await obterEstadoPainel(
+      depsNov({
+        transacoes: [],
+        contas: [contaFake({ saldoCents: 4_955_032 })],
+        snapshots: [{ id: 's', data: '2026-10-31', totalCents: 6_000_000, itens: [] }],
+      }),
+    );
+    expect(metas.guardadoCents).toBe(0);
+    expect(metas.fonte).toBe('SALDO_CONTAS');
   });
 
-  it('sem snapshot: cai no patrimônio final do ciclo anterior adjacente', async () => {
+  it('com snapshot no ciclo: cai no patrimônio final do ciclo anterior adjacente como partida', async () => {
     const outubro = cicloFake({
       id: 'ciclo-out',
       dataInicio: '2026-10-01',
@@ -468,8 +479,15 @@ describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10
       fechado: true,
       patrimonioFinalCents: 25_100_000,
     });
-    const { metas } = await obterEstadoPainel(depsNov({ snapshots: [], ciclos: [outubro, CICLO_NOV] }));
+    const { metas } = await obterEstadoPainel(
+      depsNov({
+        hoje: '2026-11-20',
+        snapshots: [{ id: 's', data: '2026-11-20', totalCents: 25_200_000, itens: [] }],
+        ciclos: [outubro, CICLO_NOV],
+      }),
+    );
     expect(metas.guardadoCents).toBe(100_000);
+    expect(metas.fonte).toBe('SNAPSHOT');
   });
 
   it('ciclo USD: decomposição da renda prevista em dólar', async () => {

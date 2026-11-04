@@ -72,29 +72,37 @@ export function medirPoupancaReal(p: {
   };
 }
 
+/**
+ * Guardado em curso. Compara realidade com realidade OU razão com razão — nunca
+ * os dois misturados (D-13): snapshot no ciclo − patrimônio inicial; sem ele, o
+ * efeito líquido das transações do ciclo no razão (`deltaLedgerCicloCents`,
+ * calculado pela aplicação). Subtrair o snapshot inicial do saldo do razão
+ * transformaria a divergência de conciliação em "guardado".
+ */
 export function estimarPoupancaEmCurso(p: {
   dataInicio: DataCivil;
   hoje: DataCivil;
   snapshots: readonly Snap[];
-  saldoContasCents: number;
+  deltaLedgerCicloCents: number | null;
   patrimonioFinalCicloAnteriorCents: number | null;
 }): { realCents: number; fonte: 'SNAPSHOT' | 'SALDO_CONTAS'; estimado: true } | { realCents: null; motivo: string } {
   const inicialCents =
     snapshotMaisProximo(p.snapshots, p.dataInicio)?.totalCents ?? p.patrimonioFinalCicloAnteriorCents;
-  if (inicialCents === null) {
-    return {
-      realCents: null,
-      motivo: `Sem patrimônio de partida: nenhum snapshot a até ${TOLERANCIA_SNAPSHOT_DIAS} dias do início do ciclo (${p.dataInicio}) e sem patrimônio final do ciclo anterior.`,
-    };
-  }
   // "Atual" = snapshot mais recente em [dataInicio, hoje]. Um snapshot anterior ao ciclo nunca é
   // "atual"; se o único snapshot do ciclo também foi o inicial, ele vale como atual (estimativa 0).
   const atual = p.snapshots
     .filter((s) => s.data >= p.dataInicio && s.data <= p.hoje)
     .reduce<Snap | null>((m, s) => (m === null || s.data > m.data ? s : m), null);
-  return atual
-    ? { realCents: atual.totalCents - inicialCents, fonte: 'SNAPSHOT', estimado: true }
-    : { realCents: p.saldoContasCents - inicialCents, fonte: 'SALDO_CONTAS', estimado: true };
+  if (atual && inicialCents !== null) {
+    return { realCents: atual.totalCents - inicialCents, fonte: 'SNAPSHOT', estimado: true };
+  }
+  if (p.deltaLedgerCicloCents !== null) {
+    return { realCents: p.deltaLedgerCicloCents, fonte: 'SALDO_CONTAS', estimado: true };
+  }
+  return {
+    realCents: null,
+    motivo: `Sem patrimônio de partida (nenhum snapshot a até ${TOLERANCIA_SNAPSHOT_DIAS} dias do início do ciclo, ${p.dataInicio}, nem patrimônio final do ciclo anterior) e sem movimento das contas no ciclo para estimar.`,
+  };
 }
 
 export function compararComMeta(

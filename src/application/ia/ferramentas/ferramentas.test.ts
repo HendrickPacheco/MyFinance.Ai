@@ -871,22 +871,19 @@ describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
     });
   }
 
-  it('poupanca_real sem snapshot inicial: guardadoEstimado null com motivo (D-14)', async () => {
-    const saida = await executarFerramenta(depsNov(), 'poupanca_real', {});
-    const atual = saida.cicloAtual as Record<string, unknown>;
-
-    expect(atual.guardadoEstimado).toBeNull();
-    expect(atual.motivo).toEqual(expect.any(String));
-    expect((atual.motivo as string).length).toBeGreaterThan(0);
-    expect(atual.metaCents).toBe(1_800_000);
-  });
-
-  it('poupanca_real com snapshot inicial estima pelo saldo das contas', async () => {
-    const deps = depsNov({ snapshots: [{ id: 's', data: '2026-10-31', totalCents: 25_000_000, itens: [] }] });
+  it('poupanca_real sem snapshot no ciclo estima pelo razão: efeito das transações do ciclo, não saldo − snapshot (D-13)', async () => {
+    const deps = depsNov({
+      contas: [contaFake({ saldoCents: 4_955_032 })],
+      snapshots: [{ id: 's', data: '2026-10-31', totalCents: 6_000_000, itens: [] }],
+    });
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-aporte', tipo: 'RENDA', data: '2026-11-02', valorCents: 200_000, contaId: 'conta-x', cicloId: CICLO_NOV.id }),
+    );
     const atual = (await executarFerramenta(deps, 'poupanca_real', {})).cicloAtual as Record<string, unknown>;
 
     expect(atual.guardadoEstimadoCents).toBe(200_000);
     expect(atual.fonte).toBe('SALDO_CONTAS');
+    expect(atual.comoFoiEstimado).toMatch(/transações do ciclo/);
     expect(atual.diferencaParaMetaCents).toBe(200_000 - 1_800_000);
   });
 

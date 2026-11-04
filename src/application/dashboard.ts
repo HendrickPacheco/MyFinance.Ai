@@ -52,6 +52,7 @@ import {
 } from '@/domain/finance';
 import { consumoVerbasDoCiclo } from './hoje';
 import { lerInsumosPoupanca } from './fechamento';
+import { efeitosDe } from './transacoes';
 import { formatBRL } from '@/shared/dinheiro';
 import { garantirCicloAtual, lerCicloAtual, type CicloResolvido } from './ciclos';
 import { obterPatrimonio } from './patrimonio';
@@ -469,28 +470,40 @@ function metasVazias(ciclo: Ciclo): ResumoMetas {
   };
 }
 
-/** Guardado em curso do ciclo (D3) — o mesmo número no painel e no copiloto. */
+/**
+ * Guardado em curso do ciclo (D3) — o mesmo número no painel e no copiloto.
+ * Sem snapshot no ciclo, a estimativa é razão contra razão (D-13): o efeito
+ * líquido das transações DESTE ciclo nas contas do patrimônio, pelo mesmo
+ * `efeitosDe` que move `Conta.saldoCents`.
+ */
 export async function estimarGuardadoDoCiclo(
   deps: Deps,
-  ciclo: Pick<Ciclo, 'dataInicio'>,
+  ciclo: Pick<Ciclo, 'id' | 'dataInicio'>,
   hoje: string,
 ): Promise<ReturnType<typeof estimarPoupancaEmCurso>> {
-  const [insumos, contas] = await Promise.all([lerInsumosPoupanca(deps, ciclo), deps.contas.listar()]);
+  const [insumos, contas, transacoes] = await Promise.all([
+    lerInsumosPoupanca(deps, ciclo),
+    deps.contas.listar(),
+    deps.transacoes.listarPorCiclo(ciclo.id),
+  ]);
+  const doPatrimonio = new Set(contas.filter((c) => c.incluiPatrimonio && !c.arquivada).map((c) => c.id));
+  const deltaLedgerCicloCents = transacoes
+    .flatMap((t) => efeitosDe(t, 1).contas)
+    .filter((a) => doPatrimonio.has(a.contaId))
+    .reduce((total, a) => total + a.deltaCents, 0);
   return estimarPoupancaEmCurso({
     dataInicio: ciclo.dataInicio,
     hoje,
     snapshots: insumos.snapshots,
-    saldoContasCents: contas
-      .filter((c) => c.incluiPatrimonio && !c.arquivada)
-      .reduce((total, c) => total + c.saldoCents, 0),
+    deltaLedgerCicloCents,
     patrimonioFinalCicloAnteriorCents: insumos.patrimonioFinalCicloAnteriorCents,
   });
 }
 
 /**
  * Meta vs. guardado de verdade (D3): variação do patrimônio desde o início do
- * ciclo, estimada pelo snapshot mais recente ou, sem ele, pelo saldo das
- * contas que entram no patrimônio. A meta é só a régua (D-16).
+ * ciclo, estimada pelo snapshot mais recente ou, sem ele, pelo efeito das
+ * transações do ciclo nas contas do patrimônio. A meta é só a régua (D-16).
  */
 async function montarMetas(
   deps: Deps,
