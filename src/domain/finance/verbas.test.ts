@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatBRL } from '@/shared/dinheiro';
 import {
-  consumirVerbas, dividirVerba, explicarPiso, projetarDiaADiaDiarioCents, tipoVerbaEfetivo,
+  consumirVerbas, dividirVerba, explicarPiso, projetarDiaADiaDiarioCents, ritmoDiaADiaOk, tipoVerbaEfetivo,
   type TransacaoVerba,
 } from './verbas';
 
@@ -91,4 +91,17 @@ describe('explicarPiso', () => {
   it('null sem parcelas', () => expect(explicarPiso({ ...p, parcelasCents: 0 })).toBeNull());
   it('renda menor', () =>
     expect(explicarPiso({ ...p, rendaRealLiquidaCents: 2_800_000 })!.causas).toContainEqual({ causa: 'RENDA_MENOR', cents: 200_000 }));
+});
+
+describe('ritmoDiaADiaOk', () => {
+  const r = { totalCents: 45_000, diasTotais: 30, diasRestantes: 27 }; // dia 4: fatia = 6.000
+  it('ok até a fatia proporcional dos dias vividos, acima dela não', () => {
+    expect(ritmoDiaADiaOk({ ...r, usadoCents: 6_000 })).toBe(true);
+    expect(ritmoDiaADiaOk({ ...r, usadoCents: 6_001 })).toBe(false);
+  });
+  it('dia a dia zerado/negativo só está ok sem gasto; ciclo sem dias nunca', () => {
+    expect(ritmoDiaADiaOk({ ...r, totalCents: -10, usadoCents: 0 })).toBe(true);
+    expect(ritmoDiaADiaOk({ ...r, totalCents: 0, usadoCents: 1 })).toBe(false);
+    expect(ritmoDiaADiaOk({ ...r, diasTotais: 0, usadoCents: 0 })).toBe(false);
+  });
 });

@@ -5,7 +5,7 @@
  * ('07/11', '3/5', 'nov/26') já vêm formatados.
  */
 import type { OpcaoCategoria } from './dashboard-tipos';
-import type { DivisaoDiaADia, ItemVencimento } from '@/domain/finance';
+import type { ItemVencimento } from '@/domain/finance';
 
 /** Uma das maiores despesas de um grupo (fixo ou parcelado). */
 export interface LinhaDespesa {
@@ -41,24 +41,37 @@ export interface EstadoHome {
     /** Iniciais do nome (ou email) do usuário; '?' sem dado. */
     iniciais: string;
   };
-  /** Divisão dia a dia/extras (D-16: a meta é objetivo; aqui só limita o gastável). */
-  hero: DivisaoDiaADia & {
+  /** Dia a dia (D1, `EstadoPainel.verbas`): "Posso gastar hoje" é o mesmo número do app inteiro. */
+  hero: {
+    /** `kpis.podeGastarHojeCents` (nunca negativo). */
+    possoGastarHojeCents: number;
+    /** Dia a dia usado no ciclo até hoje. */
+    usadoDiaADiaCents: number;
+    /** Dia a dia efetivo do ciclo (já descontado o estouro dos extras). */
+    diaADiaCents: number;
     diasRestantes: number;
     /** usadoDiaADia / diaADia. */
     progressoPercent: number;
+    /** Usado ≤ fatia proporcional dos dias já vividos (`ritmoDiaADiaOk`). */
+    ritmoOk: boolean;
     emRecuperacao: boolean;
   };
   extras: {
+    /** Extras restantes no ciclo; NEGATIVO quando estourados (o excedente reduz o dia a dia). */
     disponivelCents: number;
     totalCents: number;
-    /** disponível / total. */
+    /** disponível / total, 0–100 (0 quando estourados). */
     progressoPercent: number;
   };
+  /** Poupança real estimada (D3). A meta é objetivo (D-16), nunca "reservada". */
   metaPoupanca: {
-    /** Sobra projetada no fechamento. */
-    projetadaCents: number;
+    /** Guardado no ciclo (estimado); null sem patrimônio de partida. */
+    guardadoCents: number | null;
     alvoCents: number;
+    /** `percentualReal` limitado a 0–100, inteiro; 0 sem guardado. */
     progressoPercent: number;
+    /** Por que `guardadoCents` é null (D-14); null quando há dado. */
+    motivoSemGuardado: string | null;
   };
   reserva: {
     /** Saldo das contas tipo RESERVA (numerador de `meses`). */

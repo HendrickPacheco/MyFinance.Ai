@@ -6,15 +6,25 @@ const R = 30;
 const CIRC = 2 * Math.PI * R;
 
 export function MetaPoupancaCard({ meta }: { meta: EstadoHome['metaPoupanca'] }) {
-  const p = Math.min(100, Math.max(0, meta.progressoPercent));
+  const p = meta.progressoPercent;
+  const semDado = meta.guardadoCents === null;
   return (
     <Card className="flex items-center justify-between">
       <div>
         <div className="text-[13px] font-medium text-muted">Meta de poupança</div>
         <div className="mb-0.5 mt-2 text-[32px] font-extrabold tracking-[-0.03em]">
-          <Valor cents={meta.projetadaCents} sufixo={`de ${formatarNumeroBRL(meta.alvoCents)}`} />
+          {semDado ? (
+            <>
+              <span className="text-faint">—</span>
+              <span className="text-base font-semibold text-faint"> de {formatarNumeroBRL(meta.alvoCents)}</span>
+            </>
+          ) : (
+            <Valor cents={meta.guardadoCents ?? 0} sufixo={`de ${formatarNumeroBRL(meta.alvoCents)}`} />
+          )}
         </div>
-        <div className="mt-1.5 text-[13px] text-faint">sobra projetada no fechamento</div>
+        <div className="mt-1.5 text-[13px] text-faint">
+          {meta.motivoSemGuardado ?? 'guardado no ciclo (estimado)'}
+        </div>
       </div>
       <svg
         width="72"
@@ -22,7 +32,7 @@ export function MetaPoupancaCard({ meta }: { meta: EstadoHome['metaPoupanca'] })
         viewBox="0 0 72 72"
         className="flex-none"
         role="img"
-        aria-label={`${p}% da meta de poupança`}
+        aria-label={semDado ? 'Guardado no ciclo indisponível' : `${p}% da meta de poupança`}
       >
         <circle cx="36" cy="36" r={R} fill="none" strokeWidth="8" className="stroke-track" />
         <circle
@@ -37,7 +47,7 @@ export function MetaPoupancaCard({ meta }: { meta: EstadoHome['metaPoupanca'] })
           className="stroke-accent"
         />
         <text x="36" y="41" textAnchor="middle" className="fill-fg text-[14px] font-bold">
-          {p}%
+          {semDado ? '—' : `${p}%`}
         </text>
       </svg>
     </Card>

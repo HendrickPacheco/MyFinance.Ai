@@ -8,10 +8,10 @@
  */
 import {
   dataVencimentoNoCiclo,
-  divisaoDiaADia,
   percentualDeAlvo,
   proximosVencimentos,
   resumoPagamentosCents,
+  ritmoDiaADiaOk,
   type CompromissoComData,
 } from '@/domain/finance';
 import { addDias, formatarMesAno, MESES_ABREVIADOS_PT_BR, type DataCivil } from '@/shared/data';
@@ -50,27 +50,13 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
   const painel = await obterEstadoPainel(deps);
   const { kpis, ciclo, hoje } = painel;
 
-  const [pisoDiarioVerbaCents, iniciais, reserva, verbaLivre] = await Promise.all([
-    lerPiso(deps),
+  const { verbas, metas } = painel;
+
+  const [iniciais, reserva, verbaLivre] = await Promise.all([
     lerIniciais(deps),
     montarReserva(deps),
     montarVerbaLivre(deps),
   ]);
-
-  const gastoDiaADiaCents = Math.max(0, painel.transacoesVariaveisTotalCents);
-  const divisao = divisaoDiaADia({
-    verbaVariavelCents: kpis.verbaVariavelCents,
-    poupancaAlvoCents: ciclo.poupancaAlvoCents,
-    parcelasCicloCents: kpis.parceladosCicloCents,
-    pisoDiarioVerbaCents,
-    diasTotais: kpis.diasTotais,
-    diasRestantes: kpis.diasRestantes,
-    gastoDiaADiaCents,
-    gastoHojeCents: Math.max(
-      0,
-      Math.min(gastoDiaADiaCents, painel.transacoesVariaveisTotalCents - painel.gastoVariavelAntesDeHojeCents),
-    ),
-  });
 
   const fixos = painel.custosFixos.map((c) => ({
     id: c.custoFixoId,
@@ -125,20 +111,29 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
       iniciais,
     },
     hero: {
-      ...divisao,
+      possoGastarHojeCents: kpis.podeGastarHojeCents,
+      usadoDiaADiaCents: verbas.diaADiaUsadoCents,
+      diaADiaCents: verbas.diaADiaEfetivoCents,
       diasRestantes: kpis.diasRestantes,
-      progressoPercent: pct(divisao.usadoDiaADiaCents, divisao.diaADiaCents),
+      progressoPercent: pct(verbas.diaADiaUsadoCents, verbas.diaADiaEfetivoCents),
+      ritmoOk: ritmoDiaADiaOk({
+        usadoCents: verbas.diaADiaUsadoCents,
+        totalCents: verbas.diaADiaEfetivoCents,
+        diasTotais: kpis.diasTotais,
+        diasRestantes: kpis.diasRestantes,
+      }),
       emRecuperacao: kpis.emRecuperacao,
     },
     extras: {
-      disponivelCents: divisao.extrasDisponivelCents,
-      totalCents: divisao.extrasCents,
-      progressoPercent: pct(divisao.extrasDisponivelCents, divisao.extrasCents),
+      disponivelCents: verbas.extrasRestanteCents,
+      totalCents: verbas.extrasCents,
+      progressoPercent: pct(verbas.extrasRestanteCents, verbas.extrasCents),
     },
     metaPoupanca: {
-      projetadaCents: painel.metas.poupancaProjetadaCents,
-      alvoCents: painel.metas.poupancaAlvoCents,
-      progressoPercent: Math.round(painel.metas.progressoPercentual),
+      guardadoCents: metas.guardadoCents,
+      alvoCents: metas.poupancaAlvoCents,
+      progressoPercent: Math.round(Math.min(100, Math.max(0, metas.percentualReal ?? 0))),
+      motivoSemGuardado: metas.guardadoCents === null ? metas.motivoSemGuardado : null,
     },
     reserva,
     despesas: {
@@ -182,15 +177,6 @@ function resumirGrupo(linhas: readonly LinhaDespesa[]): GrupoDespesa {
     maiores: [...linhas].sort((a, b) => b.valorCents - a.valorCents).slice(0, 4),
     restantes: Math.max(0, linhas.length - 4),
   };
-}
-
-async function lerPiso(deps: Deps): Promise<number> {
-  try {
-    return (await deps.config.obter())?.pisoDiarioVerbaCents ?? 0;
-  } catch (erro) {
-    console.error('[home] falha ao ler a config:', erro);
-    return 0;
-  }
 }
 
 /** Iniciais do nome (primeira e última palavra) ou a 1ª letra do email; '?' sem dado. */

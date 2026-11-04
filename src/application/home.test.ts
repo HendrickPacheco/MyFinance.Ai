@@ -49,22 +49,23 @@ function montarDeps() {
 }
 
 describe('obterEstadoHome', () => {
-  it('hero e extras saem coerentes de divisaoDiaADia', async () => {
+  it('hero, extras e meta saem do D1 (`verbas`) e da poupança real (`metas`) do painel', async () => {
     const e = await obterEstadoHome(montarDeps());
 
     expect(e.cabecalho).toEqual({ mesNome: 'Novembro', diaDoCiclo: 4, diasTotais: 30, iniciais: 'HP' });
-    // gastável = 300k − 100k (meta) − 40k (parcelas) = 160k; dia a dia = 15 × 30 = 45k.
-    expect(e.hero).toMatchObject({
-      gastavelCents: 160_000,
-      diaADiaCents: 45_000,
-      extrasCents: 115_000,
-      usadoDiaADiaCents: 15_000,
+    // gastável = 300k − 100k (meta) = 200k; dia a dia = R$ 15 × 30 = 45k; extras = 155k.
+    // Mercado (15k) é dia a dia; as parcelas (40k) consomem os extras.
+    expect(e.hero).toEqual({
       possoGastarHojeCents: Math.floor(30_000 / 27),
+      usadoDiaADiaCents: 15_000,
+      diaADiaCents: 45_000,
       diasRestantes: 27,
       progressoPercent: 33,
+      ritmoOk: false, // 15k usados no dia 4 > fatia de 6k
       emRecuperacao: false,
     });
-    expect(e.extras).toEqual({ disponivelCents: 115_000, totalCents: 115_000, progressoPercent: 100 });
+    expect(e.extras).toEqual({ disponivelCents: 115_000, totalCents: 155_000, progressoPercent: 74 });
+    expect(e.metaPoupanca.alvoCents).toBe(100_000);
     expect(e.reserva).toMatchObject({ totalCents: 6_000_000, meses: null, metaMeses: 6, progressoPercent: 0 });
     expect(e.reserva.motivoSemDado).toBeTruthy();
   });

@@ -29,7 +29,6 @@ export * from './agregacoes';
 export * from './historico';
 export * from './pagamentos';
 export * from './categorias';
-export * from './dia-a-dia';
 export * from './proximos-vencimentos';
 export * from './renda';
 export * from './verbas';
