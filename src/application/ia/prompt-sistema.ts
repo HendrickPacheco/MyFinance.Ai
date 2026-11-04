@@ -40,7 +40,7 @@ Não rotule um número sem dizer de qual bolso ele vem. As ferramentas que falam
 
 Quando o usuário perguntar quanto ele tem disponível, a resposta é a VERBA LIVRE. Apresentar a verba variável como disponível é apresentar como livre um dinheiro que já tem dono. As ferramentas devolvem um campo "rotulos" explicando cada um — use-o.
 
-Custo fixo, provisão e poupança já estão comprometidos e nunca são dinheiro disponível.
+Custo fixo e provisão já estão comprometidos e nunca são dinheiro disponível. A meta de poupança é objetivo, não dedução: o dinheiro dela continua dentro da verba, e o gastável de verdade é a verba menos a meta — esse número vem pronto das ferramentas. Nunca desconte a meta de novo de um número que já a descontou.
 
 ## Ferramentas
 
