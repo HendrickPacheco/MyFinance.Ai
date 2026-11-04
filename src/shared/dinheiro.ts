@@ -140,3 +140,36 @@ export function ratearCents(totalCents: number, partes: number): number[] {
     i === partes - 1 ? base + resto : base,
   );
 }
+
+/**
+ * Número BRL sem símbolo, omitindo ",00" quando redondo: 287900 -> "2.879";
+ * 91755 -> "917,55". Para telas que mostram o "R$" à parte (menor, apagado).
+ */
+export function formatarNumeroBRL(cents: number): string {
+  assertCentavos(cents, 'cents');
+  const inteiro = cents % CENTAVOS_POR_UNIDADE === 0;
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: inteiro ? 0 : 2,
+    maximumFractionDigits: inteiro ? 0 : 2,
+  }).format(cents / CENTAVOS_POR_UNIDADE);
+}
+
+/** Reais inteiros (half-up, só exibição): 287950 -> "2.880"; 8349 -> "83". */
+export function formatarReaisInteiros(cents: number): string {
+  assertCentavos(cents, 'cents');
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(
+    Math.floor(cents / CENTAVOS_POR_UNIDADE + 0.5),
+  );
+}
+
+/**
+ * Rótulo curto de ponto de gráfico, em reais inteiros: >= 10.000 vira "10,6k"
+ * (exceto quando `completo`, ex.: primeiro e último pontos -> "11.300"); abaixo, "5.379".
+ */
+export function formatarRotuloGrafico(cents: number, completo = false): string {
+  const reais = Math.round(cents / CENTAVOS_POR_UNIDADE);
+  if (reais >= 10_000 && !completo) {
+    return `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(reais / 1000)}k`;
+  }
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(reais);
+}

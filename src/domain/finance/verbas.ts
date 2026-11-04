@@ -147,3 +147,18 @@ export function explicarPiso(p: {
     (causas.length ? ` Pesam: ${causas.map((c) => ROTULO[c.causa]).join(', ')}.` : '');
   return { faltaCents, necessarioCents, disponivelCents, causas, texto };
 }
+
+/**
+ * Ritmo do dia a dia: o usado até hoje cabe na fatia proporcional dos dias já
+ * vividos (hoje incluso)? `diasRestantes` inclui hoje.
+ */
+export function ritmoDiaADiaOk(p: {
+  usadoCents: number;
+  totalCents: number;
+  diasTotais: number;
+  diasRestantes: number;
+}): boolean {
+  if (p.diasTotais <= 0) return false;
+  const diasVividos = p.diasTotais - p.diasRestantes + 1;
+  return p.usadoCents <= Math.floor((Math.max(p.totalCents, 0) * diasVividos) / p.diasTotais);
+}

@@ -8,6 +8,9 @@ import {
   formatUSD,
   formatTaxaBRL,
   converterParaBrlCents,
+  formatarNumeroBRL,
+  formatarRotuloGrafico,
+  formatarReaisInteiros,
 } from './dinheiro';
 
 describe('formatBRL', () => {
@@ -75,6 +78,23 @@ describe('assertCentavos', () => {
   });
 });
 
+describe('formatarNumeroBRL', () => {
+  it('omite ,00 quando redondo e mantém centavos quando não', () => {
+    expect(formatarNumeroBRL(287900)).toBe('2.879');
+    expect(formatarNumeroBRL(0)).toBe('0');
+    expect(formatarNumeroBRL(91755)).toBe('917,55');
+    expect(formatarNumeroBRL(-8300)).toBe('-83');
+  });
+});
+
+describe('formatarRotuloGrafico', () => {
+  it('inteiro abaixo de 10 mil, compacto acima, completo no último', () => {
+    expect(formatarRotuloGrafico(537_900)).toBe('5.379');
+    expect(formatarRotuloGrafico(1_060_000)).toBe('10,6k');
+    expect(formatarRotuloGrafico(1_130_000, true)).toBe('11.300');
+  });
+});
+
 describe('formatUSD / formatTaxaBRL / converterParaBrlCents', () => {
   const n = (s: string) => s.replace(/\u00a0/g, ' ');
   it('formatUSD', () => {
@@ -100,5 +120,14 @@ describe('parseTaxaMicros', () => {
     expect(parseTaxaMicros('4,35')).toBe(4_350_000);
     expect(() => parseTaxaMicros('5,1234567')).toThrow();
     expect(() => parseTaxaMicros('abc')).toThrow();
+  });
+});
+
+describe('formatarReaisInteiros', () => {
+  it('arredonda half-up para reais inteiros', () => {
+    expect(formatarReaisInteiros(8349)).toBe('83');
+    expect(formatarReaisInteiros(8350)).toBe('84');
+    expect(formatarReaisInteiros(287_900)).toBe('2.879');
+    expect(formatarReaisInteiros(0)).toBe('0');
   });
 });

@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/cn';
 import { Button, TooltipPortal, type TooltipAnchorRect } from '@/components/ui';
 import { EVENTO_ABRIR_LANCAMENTO } from '@/components/dashboard/lancamento-painel';
+import { TemaToggle } from '@/components/layout/tema-toggle';
 import { sair } from '@/actions/auth';
 import type { Papel } from '@/domain/auth/ator';
 
@@ -251,7 +252,7 @@ export function Sidebar({
   }, []);
 
   return (
-    <aside className="app-sidebar sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-border bg-surface lg:flex">
+    <aside className="app-sidebar sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-border bg-bg lg:flex">
       <div className="px-5 py-6">
         <p className="sidebar-label truncate text-sm font-semibold uppercase tracking-widest text-muted">
           Controle financeiro
@@ -277,6 +278,9 @@ export function Sidebar({
         })}
       </nav>
 
+      <div className="px-3 pb-2">
+        <TemaToggle />
+      </div>
       <RodapeSessao papel={papel} collapsed={collapsed} />
     </aside>
   );
