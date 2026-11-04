@@ -5,7 +5,12 @@ import { z } from 'zod';
 import { criarDeps } from '@/composition';
 import { executar, type Resultado } from './resultado';
 import { recalcularCicloAtual as ucRecalcular, puxarDaReserva as ucPuxarDaReserva } from '@/application/ciclos';
-import { fecharCiclo as ucFechar, type ResultadoFechamento } from '@/application/fechamento';
+import {
+  fecharCiclo as ucFechar,
+  previaPoupancaReal,
+  type ResultadoFechamento,
+  type ResumoFechamento,
+} from '@/application/fechamento';
 import {
   previaRecalculoRenda,
   recalcularRendaDoCiclo,
@@ -63,6 +68,8 @@ const fechamentoSchema = z.object({
     )
     .optional(),
   observacao: z.string().max(300).nullish(),
+  // Pode ser NEGATIVA: o patrimônio pode ter caído no ciclo.
+  poupancaRealManualCents: z.number().int().nullish(),
 });
 
 export async function fecharCiclo(
@@ -80,9 +87,23 @@ export async function fecharCiclo(
         | { nome: string; classe: ClassePatrimonio; valorCents: number; contaId: string | null }[]
         | undefined,
       observacao: dados.observacao ?? null,
+      poupancaRealManualCents: dados.poupancaRealManualCents ?? null,
     });
     for (const p of ['/', '/ciclo', '/analise', '/patrimonio', '/fechar-ciclo']) revalidatePath(p);
     return r;
+  });
+}
+
+/** Prévia da poupança real com o snapshot do fim ainda não gravado (passo de poupança do wizard). */
+export async function previaPoupancaRealAction(
+  cicloId: string,
+  snapshotData: string,
+  snapshotTotalCents: number,
+): Promise<Resultado<Pick<ResumoFechamento, 'medicao' | 'comparacao' | 'alertaFaltando'>>> {
+  return executar(async () => {
+    const data = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(snapshotData);
+    const totalCents = z.number().int().parse(snapshotTotalCents);
+    return previaPoupancaReal(await criarDeps(), cicloId, { data, totalCents });
   });
 }
 

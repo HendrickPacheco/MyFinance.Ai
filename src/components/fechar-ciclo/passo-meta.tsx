@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
 import { formatBRL } from '@/shared/dinheiro';
 
 /**
- * Passo 5: recalibração de meta — o mecanismo de progresso do app. Só se
+ * Passo 6: recalibração de meta — o mecanismo de progresso do app. Só se
  * aplica se `metaSugeridaCents` existir (dois ciclos seguidos com folga).
  */
 export function PassoMeta({
@@ -21,7 +21,7 @@ export function PassoMeta({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>5. Recalibrar meta de poupança</CardTitle>
+        <CardTitle>6. Recalibrar meta de poupança</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {metaSugeridaCents == null ? (

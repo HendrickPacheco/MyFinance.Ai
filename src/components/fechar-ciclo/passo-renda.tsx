@@ -6,10 +6,12 @@ import { MoneyInput } from './money-input';
 
 export function PassoRenda({
   rendaPrevistaCents,
+  rendaSugeridaCents,
   valueCents,
   onChangeCents,
 }: {
   rendaPrevistaCents: number;
+  rendaSugeridaCents: number;
   valueCents: number;
   onChangeCents: (cents: number) => void;
 }) {
@@ -22,7 +24,14 @@ export function PassoRenda({
         <p className="text-sm text-muted">
           Renda prevista para este ciclo:{' '}
           <span className="tnum text-fg">{formatBRL(rendaPrevistaCents)}</span>. Confirme (ou
-          ajuste) quanto realmente entrou.
+          ajuste) quanto realmente entrou
+          {rendaSugeridaCents !== rendaPrevistaCents ? (
+            <>
+              {' '}
+              — sugerido: <span className="tnum text-fg">{formatBRL(rendaSugeridaCents)}</span>
+            </>
+          ) : null}
+          .
         </p>
         <div>
           <Label htmlFor="renda-realizada">Renda realizada</Label>

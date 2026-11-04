@@ -169,7 +169,12 @@ async function calcularSobra(
 }
 
 /** Preview do wizard: sobra, transações sem categoria, sugestões de meta e patrimônio. */
-export async function obterResumoFechamento(deps: Deps, ciclo: Ciclo): Promise<ResumoFechamento> {
+export async function obterResumoFechamento(
+  deps: Deps,
+  ciclo: Ciclo,
+  /** Snapshot do fim digitado no wizard e ainda não gravado (mesma semântica do `fecharCiclo`). */
+  snapshotDoFim: { data: string; totalCents: number } | null = null,
+): Promise<ResumoFechamento> {
   const { gasto, sobra, grupos } = await calcularSobra(deps, ciclo);
   const transacoes = await deps.transacoes.listarPorCiclo(ciclo.id);
   const transacoesSemCategoria = transacoes.filter(
@@ -192,7 +197,7 @@ export async function obterResumoFechamento(deps: Deps, ciclo: Ciclo): Promise<R
 
   const itensPatrimonioSugeridos = await sugestaoItensSnapshot(deps);
 
-  const medicao = await medirPoupancaDoCiclo(deps, ciclo);
+  const medicao = await medirPoupancaDoCiclo(deps, ciclo, snapshotDoFim);
   const rendaSugeridaCents = rendaEfetivaCents(ciclo);
   // Despesas lançadas = DESPESA − ESTORNO de TODAS as transações do ciclo
   // (variável, parcela, provisão): o alerta pergunta se falta lançar algo.
@@ -228,6 +233,18 @@ export async function obterResumoFechamento(deps: Deps, ciclo: Ciclo): Promise<R
     alertaGastoBaixo: alertaGastoVariavelBaixo({ gastoVariavelCents: gasto, gastosAnterioresCents }),
     rendaSugeridaCents,
   };
+}
+
+/** Prévia da poupança real com o snapshot do fim digitado no wizard (sem gravá-lo). */
+export async function previaPoupancaReal(
+  deps: Deps,
+  cicloId: string,
+  snapshotDoFim: { data: string; totalCents: number },
+): Promise<Pick<ResumoFechamento, 'medicao' | 'comparacao' | 'alertaFaltando'>> {
+  const ciclo = await deps.ciclos.obter(cicloId);
+  if (!ciclo) throw new Error('Ciclo não encontrado.');
+  const { medicao, comparacao, alertaFaltando } = await obterResumoFechamento(deps, ciclo, snapshotDoFim);
+  return { medicao, comparacao, alertaFaltando };
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   fecharCiclo,
   obterResumoFechamento,
   obterResumoParaFechar,
+  previaPoupancaReal,
   PoupancaRealNaoMedidaError,
   type FechamentoInput,
 } from './fechamento';
@@ -731,5 +732,32 @@ describe('poupança real no fechamento (D3)', () => {
     expect(resumo.medicao.status).toBe('SEM_INICIO');
     expect(resumo.comparacao).toBeNull();
     expect(resumo.alertaFaltando).toBeNull();
+  });
+});
+
+describe('previaPoupancaReal — snapshot digitado, ainda não gravado', () => {
+  it('mede com o snapshot do fim informado e não grava nada', async () => {
+    const deps = criarDeps({
+      hoje: '2026-12-01',
+      ciclos: [cicloFake({ id: 'c-nov', dataInicio: '2026-11-01', dataFim: '2026-11-30', poupancaAlvoCents: 400_000 })],
+      snapshots: [{ id: 's0', data: '2026-10-31', totalCents: 25_000_000, itens: [] }],
+    });
+
+    const r = await previaPoupancaReal(deps, 'c-nov', { data: '2026-11-30', totalCents: 25_500_000 });
+
+    expect(r.medicao).toMatchObject({ status: 'MEDIDA', realCents: 500_000 });
+    expect(r.comparacao).toEqual({ diferencaCents: 100_000, percentual: 125 });
+    expect(deps.patrimonio.itens).toHaveLength(1);
+  });
+
+  it('snapshot fora da tolerância continua sem medição; ciclo inexistente lança', async () => {
+    const deps = criarDeps({
+      hoje: '2026-12-01',
+      ciclos: [cicloFake({ id: 'c-nov', dataInicio: '2026-11-01', dataFim: '2026-11-30' })],
+      snapshots: [{ id: 's0', data: '2026-10-31', totalCents: 25_000_000, itens: [] }],
+    });
+    const r = await previaPoupancaReal(deps, 'c-nov', { data: '2026-12-20', totalCents: 1 });
+    expect(r.medicao.status).toBe('SEM_FIM');
+    await expect(previaPoupancaReal(deps, 'x', { data: '2026-11-30', totalCents: 1 })).rejects.toThrow('Ciclo não encontrado.');
   });
 });
