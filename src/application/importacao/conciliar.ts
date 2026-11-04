@@ -425,6 +425,27 @@ function montarRascunhoDeItensExistentes(existente: ImportacaoComItens): Rascunh
   };
 }
 
+/**
+ * Estado atual de um rascunho já existente, pelo id — usado por quem só quer
+ * RELER a importação (ex.: `GET /importacao/:id` da API do agente) sem
+ * disparar `conciliarImportacao` de novo. `null` quando o id não existe ou é
+ * de outro dono (regra de ouro do multi-tenant: as duas situações são
+ * indistinguíveis de propósito). Funciona para qualquer `status` —
+ * `RASCUNHO`, `CONFIRMADA` ou `DESCARTADA` — porque é só uma leitura
+ * reformatada dos itens já gravados, nunca uma decisão nova.
+ */
+export async function obterImportacaoConciliada(
+  deps: Deps,
+  importacaoId: string,
+): Promise<RascunhoImportacaoConciliada | null> {
+  exigirOwner(deps.ator);
+
+  const encontrada = await deps.importacoes.obter(importacaoId);
+  if (!encontrada) return null;
+
+  return montarRascunhoDeItensExistentes(encontrada);
+}
+
 // ── Caso de uso ──────────────────────────────────────────────────────────────
 
 /**

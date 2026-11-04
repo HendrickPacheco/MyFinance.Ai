@@ -36,6 +36,7 @@ import type {
   Proveniencia,
   OrigemTransacao,
 } from '@/domain/model/entidades';
+import type { TransacaoComNomes } from '@/domain/ports/repositorios';
 import type {
   TipoConta,
   TipoTransacao,
@@ -137,6 +138,20 @@ export function toTransacao(r: PTransacao): Transacao {
     pagoEm: r.pagoEm,
     origem: r.origem as OrigemTransacao,
     itemImportadoId: r.itemImportadoId,
+  };
+}
+
+/**
+ * `Transacao` com o nome da categoria/conta anexado via `include` do Prisma
+ * (`PrismaTransacaoRepository.listarFiltrado`) — nunca uma segunda consulta.
+ */
+export function toTransacaoComNomes(
+  r: PTransacao & { categoria?: { nome: string } | null; conta?: { nome: string } | null },
+): TransacaoComNomes {
+  return {
+    ...toTransacao(r),
+    categoriaNome: r.categoria?.nome ?? null,
+    contaNome: r.conta?.nome ?? null,
   };
 }
 

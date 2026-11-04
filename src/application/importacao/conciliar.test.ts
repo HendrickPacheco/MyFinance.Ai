@@ -21,7 +21,7 @@ import { FakeProvedorIA } from '../__fakes__/fake-provedor-ia';
 import { AcessoNegadoError } from '@/domain/auth/permissoes';
 import type { CustoFixo } from '@/domain/model/entidades';
 import { formatBRL } from '@/shared/dinheiro';
-import { conciliarImportacao } from './conciliar';
+import { conciliarImportacao, obterImportacaoConciliada } from './conciliar';
 
 /** Item mínimo válido contra `ITEM_TRANSCRITO_SCHEMA` (mesmo shape de `extrair.test.ts`). */
 function itemTranscrito(overrides: Partial<Record<string, unknown>> = {}) {
@@ -204,5 +204,29 @@ describe('conciliarImportacao', () => {
       throw new Error('esperava RASCUNHO nas duas');
     }
     expect(primeira.importacaoId).not.toBe(segunda.importacaoId);
+  });
+});
+
+describe('obterImportacaoConciliada', () => {
+  it('relê um rascunho já existente sem chamar a IA de novo', async () => {
+    const { d, ia } = depsDoCenario();
+    const criado = await conciliarImportacao(d, entradaDoCenario());
+    if (criado.tipo !== 'RASCUNHO') throw new Error('esperava RASCUNHO');
+
+    const relido = await obterImportacaoConciliada(d, criado.importacaoId);
+
+    expect(ia.chamadasDeSchema).toHaveLength(1); // nenhuma chamada nova
+    expect(relido).toEqual(criado);
+  });
+
+  it('devolve null para um id inexistente', async () => {
+    const { d } = depsDoCenario();
+    expect(await obterImportacaoConciliada(d, 'importacao-que-nao-existe')).toBeNull();
+  });
+
+  it('VIEWER não pode ler o rascunho', async () => {
+    const { d } = depsDoCenario();
+    d.ator = ATOR_VIEWER;
+    await expect(obterImportacaoConciliada(d, 'qualquer-id')).rejects.toThrow(AcessoNegadoError);
   });
 });

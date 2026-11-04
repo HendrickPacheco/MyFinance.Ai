@@ -15,6 +15,9 @@ import type { MemoriaPort } from '@/domain/ports/memoria';
 import type { EmbeddingPort } from '@/domain/ports/embeddings';
 import type { ConversaPort } from '@/domain/ports/conversa';
 import type { ImportacaoRepository } from '@/domain/ports/importacao';
+import type { ApiTokenRepository } from '@/domain/ports/api-tokens';
+import type { AuditoriaAgentePort } from '@/domain/ports/auditoria';
+import type { IdempotenciaPort } from '@/domain/ports/idempotencia';
 import type {
   ConfigRepository,
   ContaRepository,
@@ -87,4 +90,13 @@ export interface Deps {
    * depende de nenhuma extensão externa, então toda instalação a tem.
    */
   importacoes: ImportacaoRepository;
+  /**
+   * API do agente de IA externo (feat/agent-api-v1). Não é opcional como
+   * `memorias`/`embeddings`: não depende de nenhuma extensão externa (são
+   * tabelas comuns), então toda instalação as tem — mesmo raciocínio de
+   * `conversas`/`importacoes` acima.
+   */
+  apiTokens: ApiTokenRepository;
+  auditoria: AuditoriaAgentePort;
+  idempotencia: IdempotenciaPort;
 }

@@ -4,7 +4,7 @@
  * Tudo roda contra fakes em memória — nenhum acesso ao banco real.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { fecharCiclo, obterResumoFechamento, obterResumoParaFechar } from './fechamento';
+import { fecharCiclo, obterResumoFechamento, obterResumoParaFechar, descreverDestinoSobra } from './fechamento';
 import {
   criarDeps,
   primeiro,
@@ -576,5 +576,46 @@ describe('snapshot de patrimônio no fechamento (critério de aceite 7)', () => 
 
     expect(r.variacaoPatrimonioCents).toBeNull();
     expect(deps.patrimonio.itens).toHaveLength(0);
+  });
+});
+
+describe('descreverDestinoSobra — preview para a API do agente (nunca lança)', () => {
+  it('ROLLOVER: nenhuma conta, mesmo com sobra positiva', async () => {
+    const deps = cenario();
+    deps.config.mutar({ destinoSobra: 'ROLLOVER', destinoSobraContaId: null });
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino).toEqual({ tipo: 'ROLLOVER', contaId: null, contaNome: null });
+  });
+
+  it('sobra zero: SEM_DESTINO mesmo com conta configurada', async () => {
+    const deps = cenario();
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 0);
+
+    expect(destino).toEqual({ tipo: 'SEM_DESTINO', contaId: null, contaNome: null });
+  });
+
+  it('CONTA: resolve a configurada e devolve o nome', async () => {
+    const deps = cenario();
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino.tipo).toBe('CONTA');
+    expect(destino.contaId).toBe('reserva');
+  });
+
+  it('SEM_DESTINO quando não há conta RESERVA de fallback nem configurada', async () => {
+    const deps = cenario({ contas: [] });
+    deps.config.mutar({ destinoSobraContaId: null });
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino).toEqual({ tipo: 'SEM_DESTINO', contaId: null, contaNome: null });
   });
 });

@@ -29,6 +29,8 @@ import {
   type ProvisaoRepository,
   type TransacaoRepository,
   type LoteTransacional,
+  type FiltroTransacoes,
+  type PaginaTransacoes,
   type ParcelamentoRepository,
   type CicloRepository,
   type PatrimonioRepository,
@@ -41,6 +43,7 @@ import {
   toPagamentoFixo,
   toProvisao,
   toTransacao,
+  toTransacaoComNomes,
   toParcelamento,
   toCiclo,
   toSnapshot,
@@ -598,6 +601,108 @@ export class PrismaTransacaoRepository implements TransacaoRepository {
     });
     return toTransacao(r);
   }
+
+  /**
+   * Keyset pagination por `(campoDeOrdem, id)` — nunca `skip`, que refaz a
+   * contagem inteira a cada página e perde itens quando uma linha nova entra
+   * no meio da lista entre duas chamadas. O cursor carrega o par
+   * `(valor-do-campo, id)` da última linha da página anterior; a página
+   * seguinte pede "estritamente depois desse par" nessa ordem, o que resolve
+   * empates (duas transações no mesmo dia/valor) sem pular nem repetir linha.
+   */
+  async listarFiltrado(filtro: FiltroTransacoes): Promise<PaginaTransacoes> {
+    const operador: 'gt' | 'lt' = filtro.direcao === 'asc' ? 'gt' : 'lt';
+    const cursor = filtro.cursor ? decodificarCursorTransacao(filtro.cursor) : null;
+
+    const where: Prisma.TransacaoWhereInput = {
+      donoId: this.donoId,
+      ...(filtro.de !== undefined || filtro.ate !== undefined
+        ? { data: { gte: filtro.de, lte: filtro.ate } }
+        : {}),
+      ...(filtro.tipo ? { tipo: filtro.tipo } : {}),
+      ...(filtro.metodo ? { metodo: filtro.metodo } : {}),
+      ...(filtro.categoriaId ? { categoriaId: filtro.categoriaId } : {}),
+      ...(filtro.contaId ? { contaId: filtro.contaId } : {}),
+      ...(filtro.cicloId ? { cicloId: filtro.cicloId } : {}),
+      ...(filtro.parcelamentoId ? { parcelamentoId: filtro.parcelamentoId } : {}),
+      ...(filtro.origem ? { origem: filtro.origem } : {}),
+      ...(filtro.texto ? { descricao: { contains: filtro.texto, mode: 'insensitive' } } : {}),
+      ...(filtro.valorMinCents !== undefined || filtro.valorMaxCents !== undefined
+        ? { valorCents: { gte: filtro.valorMinCents, lte: filtro.valorMaxCents } }
+        : {}),
+    };
+
+    if (cursor) {
+      if (filtro.ordem === 'valor') {
+        const valorCursor = Number(cursor.valor);
+        where.OR = [
+          { valorCents: filtroCursorNumerico(operador, valorCursor) },
+          { valorCents: valorCursor, id: filtroCursorTexto(operador, cursor.id) },
+        ];
+      } else {
+        where.OR = [
+          { data: filtroCursorTexto(operador, cursor.valor) },
+          { data: cursor.valor, id: filtroCursorTexto(operador, cursor.id) },
+        ];
+      }
+    }
+
+    const orderBy: Prisma.TransacaoOrderByWithRelationInput[] =
+      filtro.ordem === 'valor'
+        ? [{ valorCents: filtro.direcao }, { id: filtro.direcao }]
+        : [{ data: filtro.direcao }, { id: filtro.direcao }];
+
+    const rows = await this.db.transacao.findMany({
+      where,
+      orderBy,
+      take: filtro.limite + 1,
+      include: { categoria: { select: { nome: true } }, conta: { select: { nome: true } } },
+    });
+
+    const temMais = rows.length > filtro.limite;
+    const pagina = temMais ? rows.slice(0, filtro.limite) : rows;
+    const ultima = pagina.at(-1);
+    const proximoCursor =
+      temMais && ultima
+        ? codificarCursorTransacao(
+            filtro.ordem === 'valor' ? String(ultima.valorCents) : ultima.data,
+            ultima.id,
+          )
+        : null;
+
+    return { itens: pagina.map(toTransacaoComNomes), proximoCursor };
+  }
+}
+
+/** Par `(valor, id)` decodificado de um cursor opaco de `listarFiltrado`. */
+interface CursorTransacao {
+  valor: string;
+  id: string;
+}
+
+const SEPARADOR_CURSOR = '\u0000';
+
+function codificarCursorTransacao(valor: string, id: string): string {
+  return Buffer.from(`${valor}${SEPARADOR_CURSOR}${id}`, 'utf8').toString('base64url');
+}
+
+/** `null` para cursor malformado — trata como "sem cursor" em vez de 500. */
+function decodificarCursorTransacao(cursor: string): CursorTransacao | null {
+  try {
+    const [valor, id] = Buffer.from(cursor, 'base64url').toString('utf8').split(SEPARADOR_CURSOR);
+    if (valor === undefined || id === undefined) return null;
+    return { valor, id };
+  } catch {
+    return null;
+  }
+}
+
+function filtroCursorNumerico(operador: 'gt' | 'lt', valor: number): Prisma.IntFilter {
+  return operador === 'gt' ? { gt: valor } : { lt: valor };
+}
+
+function filtroCursorTexto(operador: 'gt' | 'lt', valor: string): Prisma.StringFilter {
+  return operador === 'gt' ? { gt: valor } : { lt: valor };
 }
 
 function dadosTransacao(t: Transacao, donoId: string) {

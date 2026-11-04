@@ -1,3 +1,4 @@
 - [Fake upsert bug in fakes-ciclo-fechamento.ts](fakes_ciclo_fechamento_upsert_bug.md) — FakeCustoFixoRepo/FakeProvisaoRepo.salvar were append-only, not upsert-by-id; fixed 10/08/2026, check siblings before trusting.
 - [Migrações sem `migrate dev`](migracoes-sem-migrate-dev.md) — `prisma migrate dev` sempre falha (P3006 no shadow DB); migração nova é SQL à mão + `db execute` + `migrate resolve`.
 - [use-server export constraint](use_server_helper_export_constraint.md) — 'use server' files can't export non-serializable-arg helpers (e.g. fns taking callbacks); put shared logic in a plain module instead.
+- [Agent API v1 kernel](agent_api_v1_kernel.md) — src/agent-api/ shape, criarDepsAgente, impactoCiclo, dryRun core, error codes — read before touching or extending it.
