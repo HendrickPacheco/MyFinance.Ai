@@ -67,6 +67,8 @@ export function FecharCicloWizard({
     if (passo !== 5) return;
     setErroPrevia(null);
     if (snapshotTotalCents == null) {
+      // Uma prévia cancelada (voltou ao passo 4 e limpou as linhas) não chega ao finally.
+      setCarregandoPrevia(false);
       setPrevia(resumo);
       return;
     }
