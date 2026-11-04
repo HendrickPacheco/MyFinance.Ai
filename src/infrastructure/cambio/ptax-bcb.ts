@@ -8,7 +8,7 @@ const BASE =
 /** "YYYY-MM-DD" -> "MM-DD-YYYY" (formato do BCB), só string. */
 const formatoBcb = (d: DataCivil) => `${d.slice(5, 7)}-${d.slice(8, 10)}-${d.slice(0, 4)}`;
 
-/** PTAX de venda do BCB. Fim de semana/feriado volta `value: []` -> recua um dia. Nunca lança. */
+/** PTAX de venda do BCB. Fim de semana/feriado volta `value: []` -> recua um dia. `timeoutMs` vale para a busca toda. Nunca lança. */
 export class PtaxBcb implements FonteCotacaoPort {
   private readonly timeoutMs: number;
   private readonly diasParaTras: number;
@@ -23,10 +23,13 @@ export class PtaxBcb implements FonteCotacaoPort {
 
   async buscarPtaxVenda(data: DataCivil): Promise<Cotacao | null> {
     try {
+      // Orçamento TOTAL para o recuo inteiro: um BCB lento respondendo `[]` não pode
+      // custar (diasParaTras + 1) × timeout numa renderização de página.
+      const signal = AbortSignal.timeout(this.timeoutMs);
       let dia = data;
       for (let i = 0; i <= this.diasParaTras; i++) {
         const url = `${BASE}?@dataCotacao='${formatoBcb(dia)}'&$format=json`;
-        const res = await this.fetchFn(url, { signal: AbortSignal.timeout(this.timeoutMs) });
+        const res = await this.fetchFn(url, { signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = (await res.json()) as { value?: { cotacaoVenda?: unknown }[] };
         const venda = json.value?.[0]?.cotacaoVenda;
