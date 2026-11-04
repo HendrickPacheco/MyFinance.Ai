@@ -35,7 +35,7 @@ export function VerbasPainel({ verbas }: { verbas: ResumoVerbas }) {
               tetoDiaADia.restaHojeCents < 0 ? 'text-negativo' : 'text-positivo',
             )}
           >
-            {formatBRL(tetoDiaADia.restaHojeCents)}
+            {formatBRL(verbas.podeGastarHojeCents)}
           </p>
           <dl className="mt-3 space-y-1">
             <Linha rotulo="Gasto hoje" valor={tetoDiaADia.gastoHojeCents} />

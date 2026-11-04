@@ -51,6 +51,8 @@ export interface ConsumoVerbas extends DivisaoVerba {
   diaADiaUsadoCents: number;
   diaADiaRestanteCents: number;
   tetoDiaADia: ResultadoTeto;
+  /** "Posso gastar hoje": resto de hoje do dia a dia, nunca negativo — o MESMO valor em toda tela. */
+  podeGastarHojeCents: number;
 }
 
 export function consumirVerbas(p: {
@@ -84,6 +86,7 @@ export function consumirVerbas(p: {
     diaADiaUsadoCents,
     diaADiaRestanteCents: diaADiaEfetivoCents - diaADiaUsadoCents,
     tetoDiaADia,
+    podeGastarHojeCents: Math.max(tetoDiaADia.restaHojeCents, 0),
   };
 }
 

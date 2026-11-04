@@ -23,6 +23,8 @@ export interface KpisPainel {
    * número só no app. Pode ser negativo.
    */
   restaHojeCents: number;
+  /** O que a tela mostra como "Posso gastar hoje": `restaHojeCents` sem sinal negativo (igual a `verbas.podeGastarHojeCents`). */
+  podeGastarHojeCents: number;
   tetoHojeCents: number;
   /** Gasto de hoje que consome o dia a dia (extras não entram). */
   gastoHojeCents: number;

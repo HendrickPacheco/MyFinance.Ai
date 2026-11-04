@@ -56,6 +56,14 @@ describe('consumirVerbas', () => {
     expect(c.diaADiaUsadoCents).toBe(3_000);
     expect(c.extrasUsadoCents).toBe(50_000);
   });
+  it('podeGastarHojeCents = resto de hoje do dia a dia, nunca negativo', () => {
+    expect(consumo([tx({ data: '2026-11-11', valorCents: 3_000, tipoVerba: 'DIA_A_DIA' })]).podeGastarHojeCents).toBe(
+      consumo([tx({ data: '2026-11-11', valorCents: 3_000, tipoVerba: 'DIA_A_DIA' })]).tetoDiaADia.restaHojeCents,
+    );
+    const estourado = consumo([tx({ data: '2026-11-11', valorCents: 900_000, tipoVerba: 'DIA_A_DIA' })]);
+    expect(estourado.tetoDiaADia.restaHojeCents).toBeLessThan(0);
+    expect(estourado.podeGastarHojeCents).toBe(0);
+  });
   it('estorno abate', () => {
     expect(consumo([tx({ valorCents: 439_388 }), tx({ tipo: 'ESTORNO', valorCents: 39_388 })]).extrasUsadoCents).toBe(400_000);
   });

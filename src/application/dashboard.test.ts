@@ -441,6 +441,17 @@ describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10
     expect(kpis.saldoDiaADiaCents).toBe(verbas.tetoDiaADia.saldoDisponivelCents);
   });
 
+  it('"Posso gastar hoje" estourado: herói e card de verbas mostram o MESMO valor, sem sinal negativo', async () => {
+    const deps = depsNov();
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-estouro', data: '2026-11-04', valorCents: 900_000, cicloId: CICLO_NOV.id }),
+    );
+    const { kpis, verbas } = await obterEstadoPainel(deps);
+    expect(verbas.tetoDiaADia.restaHojeCents).toBeLessThan(0);
+    expect(kpis.podeGastarHojeCents).toBe(0);
+    expect(verbas.podeGastarHojeCents).toBe(kpis.podeGastarHojeCents);
+  });
+
   it('guardado sem snapshot no ciclo = efeito das transações do ciclo no razão (estimado)', async () => {
     const deps = depsNov();
     deps.transacoes.itens.push(

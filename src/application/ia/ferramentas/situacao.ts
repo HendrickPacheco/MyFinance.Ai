@@ -32,7 +32,7 @@ const ORIGEM_PAGAMENTOS = 'domain/finance/pagamentos.ts: resumoPagamentosCents';
 
 /**
  * Verbas dia a dia / extras (D1). `podeGastarHojeDiaADia` é o mesmo
- * `tetoDiaADia.restaHojeCents` que o painel mostra como "Posso gastar hoje" —
+ * `podeGastarHojeCents` que o painel mostra como "Posso gastar hoje" —
  * uma resposta só no app e no copiloto.
  */
 function verbas(ciclo: Ciclo, consumo: ConsumoVerbas, pisoDiarioCents: number): SaidaFerramenta {
@@ -51,7 +51,7 @@ function verbas(ciclo: Ciclo, consumo: ConsumoVerbas, pisoDiarioCents: number): 
       diaADiaEfetivo: consumo.diaADiaEfetivoCents,
       diaADiaUsado: consumo.diaADiaUsadoCents,
       diaADiaRestante: consumo.diaADiaRestanteCents,
-      podeGastarHojeDiaADia: consumo.tetoDiaADia.restaHojeCents,
+      podeGastarHojeDiaADia: consumo.podeGastarHojeCents,
     }),
     formulaConsumo:
       'extrasRestante = extras − extrasUsado; excedenteDosExtras = max(extrasUsado − max(extras, 0), 0); ' +
@@ -61,7 +61,7 @@ function verbas(ciclo: Ciclo, consumo: ConsumoVerbas, pisoDiarioCents: number): 
       'compromisso agendado, ainda não pago. Não diga "você já gastou" esse valor; diga "comprometido nos extras".',
     rotuloPodeGastarHoje:
       'podeGastarHojeDiaADia é o "Posso gastar hoje" do app: dia a dia restante ÷ dias restantes, ' +
-      'menos o que já saiu hoje do dia a dia.',
+      'menos o que já saiu hoje do dia a dia. Nunca é negativo: se o dia já estourou, é 0 (como no app).',
   };
 }
 

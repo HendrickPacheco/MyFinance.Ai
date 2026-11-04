@@ -95,6 +95,7 @@ function StatTilePagamento({
 export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
   const {
     restaHojeCents,
+    podeGastarHojeCents,
     tetoHojeCents,
     gastoHojeCents,
     gastoRealizadoCents,
@@ -124,7 +125,7 @@ export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
             {emRecuperacao ? <Badge tone="negativo">recuperação</Badge> : null}
           </div>
           <p className={cn('tnum mt-3 text-6xl font-bold leading-none tracking-tight', cor)}>
-            {formatBRL(Math.max(restaHojeCents, 0))}
+            {formatBRL(podeGastarHojeCents)}
           </p>
           <p className="mt-4 tnum text-sm text-muted">
             {formatBRL(saldoDiaADiaCents)} do dia a dia ÷ {diasRestantes}{' '}

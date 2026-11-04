@@ -939,7 +939,19 @@ describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
     const saida = await executarFerramenta(deps, 'situacao_hoje', {});
     const painel = await obterEstadoPainelSomenteLeitura(deps);
 
-    expect((saida.verbas as Record<string, unknown>).podeGastarHojeDiaADiaCents).toBe(painel!.kpis.restaHojeCents);
+    expect((saida.verbas as Record<string, unknown>).podeGastarHojeDiaADiaCents).toBe(painel!.kpis.podeGastarHojeCents);
     expect(saida.rotuloRestaHoje).toEqual(expect.stringContaining('podeGastarHojeDiaADia'));
+  });
+
+  it('dia a dia estourado hoje: copiloto diz 0, como o painel, e não um valor negativo', async () => {
+    const deps = depsNov();
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-estouro', data: '2026-11-04', valorCents: 900_000, cicloId: CICLO_NOV.id }),
+    );
+    const saida = await executarFerramenta(deps, 'situacao_hoje', {});
+    const painel = await obterEstadoPainelSomenteLeitura(deps);
+
+    expect(painel!.kpis.restaHojeCents).toBeLessThan(0);
+    expect((saida.verbas as Record<string, unknown>).podeGastarHojeDiaADiaCents).toBe(0);
   });
 });

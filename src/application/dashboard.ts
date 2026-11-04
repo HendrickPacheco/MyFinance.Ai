@@ -119,6 +119,7 @@ async function montar(
     ciclo,
     hoje,
     tetoDiaADia: consumo.tetoDiaADia,
+    podeGastarHojeCents: consumo.podeGastarHojeCents,
     calc,
     gastoVariavelSemParcelas,
     custosFixos,
@@ -204,12 +205,13 @@ function montarKpis(params: {
   hoje: string;
   /** "Posso gastar hoje" é SEMPRE o dia a dia (D1) — um número só no app inteiro. */
   tetoDiaADia: ResultadoTeto;
+  podeGastarHojeCents: number;
   calc: readonly (TransacaoCategorizada & { parcelamentoId: string | null })[];
   gastoVariavelSemParcelas: number;
   custosFixos: readonly LinhaCustoFixo[];
   parcelados: readonly LinhaParcelada[];
 }): KpisPainel {
-  const { ciclo, hoje, tetoDiaADia, calc, gastoVariavelSemParcelas, custosFixos, parcelados } = params;
+  const { ciclo, hoje, tetoDiaADia, podeGastarHojeCents, calc, gastoVariavelSemParcelas, custosFixos, parcelados } = params;
 
   const teto = calcularTeto({
     verbaVariavelCents: ciclo.verbaVariavelCents,
@@ -251,6 +253,7 @@ function montarKpis(params: {
 
   return {
     restaHojeCents: tetoDiaADia.restaHojeCents,
+    podeGastarHojeCents,
     tetoHojeCents: tetoDiaADia.tetoHojeCents,
     gastoHojeCents: tetoDiaADia.gastoHojeCents,
     saldoDiaADiaCents: tetoDiaADia.saldoDisponivelCents,
