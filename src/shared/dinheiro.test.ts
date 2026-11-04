@@ -10,6 +10,7 @@ import {
   converterParaBrlCents,
   formatarNumeroBRL,
   formatarRotuloGrafico,
+  formatarReaisInteiros,
 } from './dinheiro';
 
 describe('formatBRL', () => {
@@ -119,5 +120,14 @@ describe('parseTaxaMicros', () => {
     expect(parseTaxaMicros('4,35')).toBe(4_350_000);
     expect(() => parseTaxaMicros('5,1234567')).toThrow();
     expect(() => parseTaxaMicros('abc')).toThrow();
+  });
+});
+
+describe('formatarReaisInteiros', () => {
+  it('arredonda half-up para reais inteiros', () => {
+    expect(formatarReaisInteiros(8349)).toBe('83');
+    expect(formatarReaisInteiros(8350)).toBe('84');
+    expect(formatarReaisInteiros(287_900)).toBe('2.879');
+    expect(formatarReaisInteiros(0)).toBe('0');
   });
 });

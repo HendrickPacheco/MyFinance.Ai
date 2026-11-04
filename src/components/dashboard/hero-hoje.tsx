@@ -8,7 +8,7 @@ export function HeroHoje({ hero }: { hero: EstadoHome['hero'] }) {
       <div>
         <div className="text-[13px] font-medium text-muted">Posso gastar hoje</div>
         <div className="mb-3 mt-2.5 text-[76px] font-extrabold leading-none tracking-[-0.04em] max-[760px]:text-[64px]">
-          <Valor cents={hero.possoGastarHojeCents} simboloClassName="mr-1.5 text-[32px] font-bold" />
+          <Valor cents={hero.possoGastarHojeCents} simboloMenor />
         </div>
         <div className="text-[13px] font-medium text-muted">
           <span

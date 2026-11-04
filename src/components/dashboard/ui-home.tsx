@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
-import { formatarNumeroBRL } from '@/shared/dinheiro';
+import { formatarReaisInteiros } from '@/shared/dinheiro';
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
@@ -35,19 +35,27 @@ export function Barra({
   );
 }
 
-/** Dinheiro com o "R$" menor e apagado. Sem centavos quando redondo. */
+/**
+ * Número de destaque em reais inteiros. Padrão: "R$ 2.879" inline; `simboloMenor`
+ * (só o hero) deixa o "R$" menor e apagado.
+ */
 export function Valor({
   cents,
-  simboloClassName = 'text-base font-semibold',
+  simboloMenor,
   sufixo,
 }: {
   cents: number;
-  simboloClassName?: string;
+  simboloMenor?: boolean;
   sufixo?: string;
 }) {
   return (
     <>
-      <span className={cn('text-faint', simboloClassName)}>R$</span> {formatarNumeroBRL(cents)}
+      {simboloMenor ? (
+        <span className="mr-1.5 text-[32px] font-bold text-faint">R$</span>
+      ) : (
+        'R$ '
+      )}
+      {formatarReaisInteiros(cents)}
       {sufixo ? <span className="text-base font-semibold text-faint"> {sufixo}</span> : null}
     </>
   );

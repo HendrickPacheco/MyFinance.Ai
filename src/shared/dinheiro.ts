@@ -154,6 +154,14 @@ export function formatarNumeroBRL(cents: number): string {
   }).format(cents / CENTAVOS_POR_UNIDADE);
 }
 
+/** Reais inteiros (half-up, só exibição): 287950 -> "2.880"; 8349 -> "83". */
+export function formatarReaisInteiros(cents: number): string {
+  assertCentavos(cents, 'cents');
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(
+    Math.floor(cents / CENTAVOS_POR_UNIDADE + 0.5),
+  );
+}
+
 /**
  * Rótulo curto de ponto de gráfico, em reais inteiros: >= 10.000 vira "10,6k"
  * (exceto quando `completo`, ex.: o último ponto -> "11.300"); abaixo, "5.379".

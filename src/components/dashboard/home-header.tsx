@@ -21,10 +21,10 @@ export function HomeHeader({
         MyFinance
       </div>
       <div className="flex items-center gap-[18px] max-[760px]:gap-2.5">
-        <span className="text-sm font-medium text-muted max-[760px]:text-xs">
+        <span className="whitespace-nowrap text-sm font-medium text-muted max-[760px]:text-xs">
           {mesNome} · dia {diaDoCiclo} de {diasTotais}
         </span>
-        <TemaToggle />
+        <TemaToggle className="max-[760px]:size-7" />
         <div className="grid size-[38px] place-items-center rounded-full bg-accent-avatar text-sm font-bold text-accent">
           {iniciais}
         </div>
