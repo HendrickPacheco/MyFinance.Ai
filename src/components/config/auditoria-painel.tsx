@@ -14,7 +14,7 @@
 import { useId, useState, useTransition } from 'react';
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { Badge, Button, Card, CardContent, Checkbox, EmptyState, Input, Label, Select } from '@/components/ui';
-import { comFmt } from '@/agent-api';
+import { comFmt } from '@/agent-api/formatacao';
 import { listarAuditoriaAction } from '@/actions/auditoria';
 import type { AcaoAuditoriaAgente, PaginaAuditoriaAgente, RegistroAuditoriaAgente } from '@/domain/ports/auditoria';
 
