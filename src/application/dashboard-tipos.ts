@@ -11,7 +11,8 @@
  */
 import type { MetodoPagamento, ClassePatrimonio } from '@/domain/model/enums';
 import type { Ciclo, CustoFixo, ProvisaoAnual } from '@/domain/model/entidades';
-import type { DivergenciaCongelado } from '@/domain/finance';
+import type { ConsumoVerbas, DivergenciaCongelado, ExplicacaoPiso } from '@/domain/finance';
+import type { MoedaRenda } from '@/domain/model/enums';
 import type { DataCivil } from '@/shared/data';
 
 /** Faixa de destaque do topo do painel. Nada aqui mistura fixo com variável. */
@@ -156,29 +157,43 @@ export interface ResumoPatrimonioPainel {
   curva: { data: DataCivil; totalCents: number }[];
 }
 
-/** Metas traçadas vs. realizado — o outro furo da planilha. */
+/**
+ * Meta (objetivo, D-16) vs. o que foi guardado DE VERDADE (variação do
+ * patrimônio, D3). Nada aqui é "reservado": a meta continua dentro da verba.
+ */
 export interface ResumoMetas {
   poupancaAlvoCents: number;
-  /**
-   * Projeção de poupança no fechamento = a sobra PROJETADA da verba pelo ritmo
-   * real de gasto (D-16: a meta não entra, ela é só o alvo). Fica abaixo do
-   * alvo sempre que o ritmo de gasto não deixa a meta sobrar, e negativa se o
-   * usuário estourar a verba. NUNCA use saldo-ainda-não-gasto como se
-   * fosse poupado: no primeiro dia do ciclo isso dá 100% de progresso sempre,
-   * e apresenta como conquistado dinheiro que ainda pode ser gasto (SPEC 13).
-   */
-  poupancaProjetadaCents: number;
-  /**
-   * A sobra projetada da verba — desde a D-16 igual a `poupancaProjetadaCents`,
-   * mantida à parte porque é ela que o texto explicativo cita. Vem pronta do
-   * read-model porque componente não faz aritmética monetária (SPEC 13).
-   */
+  /** Estimativa em curso; `null` quando falta o patrimônio de partida (motivo ao lado, D-14). */
+  guardadoCents: number | null;
+  estimado: true;
+  fonte: 'SNAPSHOT' | 'SALDO_CONTAS' | null;
+  motivoSemGuardado: string | null;
+  /** guardado − meta; `null` sem guardado. */
+  diferencaCents: number | null;
+  /** guardado / meta em %, uma casa; `null` sem guardado ou com meta 0. */
+  percentualReal: number | null;
+  /** Sobra projetada da verba pelo ritmo atual (D-16: é ela que vira poupança). */
   sobraDaVerbaCents: number;
-  /** 0–100, limitado. Quanto do alvo a projeção atual sustenta. */
-  progressoPercentual: number;
   metaPoupancaPercent: number | null;
-  /** Aviso da regra 12 quando a meta produz teto diário irreal. */
-  avisoMetaIrreal: { irreal: boolean; verbaDiariaCents: number; pisoDiarioCents: number } | null;
+  /** Por que o dia a dia não cobre o piso — `null` quando cobre. */
+  avisoPiso: ExplicacaoPiso | null;
+}
+
+/**
+ * Split dia a dia / extras (D1) com o piso que o gerou. `diaADiaPorDiaCents` =
+ * dia a dia efetivo ÷ dias do ciclo — o "reduziu seu dia a dia para R$ X/dia".
+ */
+export type ResumoVerbas = ConsumoVerbas & { pisoDiarioCents: number; diaADiaPorDiaCents: number };
+
+/** Renda do ciclo: a real confirmada quando houver, senão a prevista (D8). */
+export interface ResumoRendaCiclo {
+  moeda: MoedaRenda;
+  brutaOrigemCents: number | null;
+  taxaMicros: number | null;
+  dataCotacao: DataCivil | null;
+  liquidaCents: number;
+  confirmada: boolean;
+  decomposicao: string;
 }
 
 /** Tudo que o painel desktop precisa, numa consulta só. */
@@ -221,6 +236,8 @@ export interface EstadoPainel {
   transacoesVariaveisProgramadasCents: number;
   patrimonio: ResumoPatrimonioPainel;
   metas: ResumoMetas;
+  verbas: ResumoVerbas;
+  renda: ResumoRendaCiclo;
   /** Ciclo anterior ainda sem fechar — aviso, nunca bloqueio (regra 10). */
   pendenciaFechamento: Ciclo | null;
 }

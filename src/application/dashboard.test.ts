@@ -17,6 +17,8 @@ import {
   em,
   CATEGORIA_VARIAVEL,
   CATEGORIA_FIXA,
+  CONFIG_PADRAO,
+  contaFake,
   type FakeDeps,
 } from './__fakes__/fakes-ciclo-fechamento';
 import type { CustoFixo } from '@/domain/model/entidades';
@@ -382,5 +384,121 @@ describe('obterEstadoPainel — parcelados com transacaoId e pago', () => {
 
     expect(linha.transacaoId).toBe('tx-parcela-2');
     expect(linha.pago).toBe(false);
+  });
+});
+
+describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10)', () => {
+  const CICLO_NOV = cicloFake({
+    id: 'ciclo-nov',
+    dataInicio: '2026-11-01',
+    dataFim: '2026-11-30',
+    rendaPrevistaCents: 3_000_000,
+    poupancaAlvoCents: 1_800_000,
+    fixosCents: 488_400,
+    provisaoMensalCents: 0,
+    verbaVariavelCents: 2_511_600,
+  });
+  const PARCELA = transacaoFake({
+    id: 'tx-parcela',
+    data: '2026-11-04',
+    valorCents: 439_388,
+    parcelamentoId: 'parc-1',
+    parcelaNum: 1,
+    cicloId: CICLO_NOV.id,
+  });
+  const CONFIG_DONO = { ...CONFIG_PADRAO, rendaBaseCents: 3_000_000, metaPoupancaCents: 1_800_000, pisoDiarioVerbaCents: 15_000 };
+  const SNAP_INICIO = { id: 'snap-ini', data: '2026-10-31', totalCents: 25_000_000, itens: [] };
+
+  function depsNov(extra: Partial<Parameters<typeof criarDeps>[0]> = {}): FakeDeps {
+    return criarDeps({
+      hoje: '2026-11-04',
+      config: CONFIG_DONO,
+      ciclos: [CICLO_NOV],
+      transacoes: [PARCELA],
+      contas: [contaFake({ saldoCents: 25_200_000 })],
+      snapshots: [SNAP_INICIO],
+      ...extra,
+    });
+  }
+
+  it('parcela EXTRA estoura os extras e reduz o dia a dia', async () => {
+    const estado = await obterEstadoPainel(depsNov());
+    expect(estado.verbas.pisoDiarioCents).toBe(15_000);
+    expect(estado.verbas.diaADiaEfetivoCents).toBe(272_212);
+    expect(estado.verbas.extrasRestanteCents).toBe(-177_788);
+    expect(estado.metas.avisoPiso?.faltaCents).toBe(177_788);
+  });
+
+  it('guardado de verdade = saldo das contas − patrimônio de partida (estimado)', async () => {
+    const { metas } = await obterEstadoPainel(depsNov());
+    expect(metas.guardadoCents).toBe(200_000);
+    expect(metas.fonte).toBe('SALDO_CONTAS');
+    expect(metas.estimado).toBe(true);
+    expect(metas.diferencaCents).toBe(200_000 - 1_800_000);
+    expect(metas.percentualReal).toBe(11.1);
+    expect(metas.motivoSemGuardado).toBeNull();
+  });
+
+  it('sem snapshot inicial nem ciclo anterior: guardado null com motivo', async () => {
+    const { metas } = await obterEstadoPainel(depsNov({ snapshots: [] }));
+    expect(metas.guardadoCents).toBeNull();
+    expect(metas.fonte).toBeNull();
+    expect(metas.motivoSemGuardado).toMatch(/Sem patrimônio de partida/);
+    expect(metas.diferencaCents).toBeNull();
+    expect(metas.percentualReal).toBeNull();
+  });
+
+  it('sem snapshot: cai no patrimônio final do ciclo anterior adjacente', async () => {
+    const outubro = cicloFake({
+      id: 'ciclo-out',
+      dataInicio: '2026-10-01',
+      dataFim: '2026-10-31',
+      fechado: true,
+      patrimonioFinalCents: 25_100_000,
+    });
+    const { metas } = await obterEstadoPainel(depsNov({ snapshots: [], ciclos: [outubro, CICLO_NOV] }));
+    expect(metas.guardadoCents).toBe(100_000);
+  });
+
+  it('ciclo USD: decomposição da renda prevista em dólar', async () => {
+    const deps = depsNov({
+      config: {
+        ...CONFIG_DONO,
+        moedaRenda: 'USD',
+        rendaBrutaMoedaOrigemCents: 730_000,
+        impostoEstimadoCents: 350_000,
+      },
+      ciclos: [{ ...CICLO_NOV, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+    });
+    const { renda } = await obterEstadoPainel(deps);
+    expect(renda.moeda).toBe('USD');
+    expect(renda.confirmada).toBe(false);
+    expect(renda.brutaOrigemCents).toBe(730_000);
+    expect(renda.taxaMicros).toBe(5_430_000);
+    expect(renda.dataCotacao).toBe('2026-10-30');
+    expect(renda.decomposicao.replace(/ /g, ' ')).toContain('US$ 7.300,00');
+  });
+
+  it('ciclo USD com renda real confirmada mostra a real', async () => {
+    const deps = depsNov({
+      config: { ...CONFIG_DONO, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 730_000, impostoEstimadoCents: 350_000 },
+      ciclos: [
+        {
+          ...CICLO_NOV,
+          cotacaoPrevistaMicros: 5_430_000,
+          cotacaoPrevistaData: '2026-10-30',
+          rendaRealBrutaMoedaOrigemCents: 750_000,
+          cotacaoRealUsadaMicros: 5_500_000,
+          impostoRealCents: 350_000,
+          rendaRealLiquidaCents: 3_775_000,
+        },
+      ],
+    });
+    const { renda } = await obterEstadoPainel(deps);
+    expect(renda.confirmada).toBe(true);
+    expect(renda.brutaOrigemCents).toBe(750_000);
+    expect(renda.taxaMicros).toBe(5_500_000);
+    expect(renda.liquidaCents).toBe(3_775_000);
+    expect(renda.decomposicao.replace(/ /g, ' ')).toContain('US$ 7.500,00');
   });
 });

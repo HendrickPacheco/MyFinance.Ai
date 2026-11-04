@@ -5,7 +5,7 @@
  */
 import type { Deps } from './deps';
 import { exigirEscrita } from '@/domain/auth/permissoes';
-import type { Ciclo, Config, Transacao } from '@/domain/model/entidades';
+import type { Ciclo, Config, SnapshotPatrimonio, Transacao } from '@/domain/model/entidades';
 import {
   gastoRealizadoCents,
   distribuirProvisaoMensalCents,
@@ -94,16 +94,32 @@ export class PoupancaRealNaoMedidaError extends Error {
 const SNAPSHOTS_PARA_MEDICAO = 60;
 const CICLOS_PARA_ALERTA_GASTO = 6;
 
+/**
+ * Snapshots recentes + patrimônio de partida de reserva (o final do ciclo fechado que
+ * antecede DIRETAMENTE este). Compartilhado com o painel (`estimarPoupancaEmCurso`).
+ */
+export async function lerInsumosPoupanca(
+  deps: Deps,
+  ciclo: Pick<Ciclo, 'dataInicio'>,
+): Promise<{ snapshots: SnapshotPatrimonio[]; patrimonioFinalCicloAnteriorCents: number | null }> {
+  const [snapshots, anterior] = await Promise.all([
+    deps.patrimonio.ultimosSnapshots(SNAPSHOTS_PARA_MEDICAO),
+    deps.ciclos.ultimoFechado(),
+  ]);
+  return {
+    snapshots,
+    patrimonioFinalCicloAnteriorCents:
+      anterior && addDias(anterior.dataFim, 1) === ciclo.dataInicio ? anterior.patrimonioFinalCents : null,
+  };
+}
+
 /** Mede a poupança real do ciclo; `extra` é o snapshot do próprio fechamento (ainda não gravado). */
 async function medirPoupancaDoCiclo(
   deps: Deps,
   ciclo: Ciclo,
   extra: { data: string; totalCents: number } | null = null,
 ): Promise<MedicaoPoupanca> {
-  const [salvos, anterior] = await Promise.all([
-    deps.patrimonio.ultimosSnapshots(SNAPSHOTS_PARA_MEDICAO),
-    deps.ciclos.ultimoFechado(),
-  ]);
+  const { snapshots: salvos, patrimonioFinalCicloAnteriorCents } = await lerInsumosPoupanca(deps, ciclo);
   // O snapshot do input substitui o da mesma data ao ser gravado — espelha isso aqui.
   const snapshots = salvos.filter((s) => s.data !== extra?.data);
   if (extra) snapshots.push({ ...extra, id: '', itens: [] });
@@ -111,9 +127,7 @@ async function medirPoupancaDoCiclo(
     dataInicio: ciclo.dataInicio,
     dataFim: ciclo.dataFim,
     snapshots,
-    patrimonioFinalCicloAnteriorCents:
-      // Só vale o patrimônio final do ciclo que antecede DIRETAMENTE este.
-      anterior && addDias(anterior.dataFim, 1) === ciclo.dataInicio ? anterior.patrimonioFinalCents : null,
+    patrimonioFinalCicloAnteriorCents,
   });
 }
 

@@ -18,7 +18,9 @@ export default async function HojePage() {
   const { config } = await obterEstadoConfig(deps);
 
   const rendaConfigurada = config.rendaBaseCents > 0;
-  const { teto, recuperacao, ciclo } = estado;
+  const { teto, recuperacao, ciclo, diaADia } = estado;
+  // Herói do mobile = verba do dia a dia (D1); extras ficam numa linha discreta.
+  const tetoDia = diaADia.tetoDiaADia;
 
   // Onboarding: sem renda configurada, o número não faz sentido. Vale tanto
   // para o painel desktop quanto para a tela Hoje mobile — sem duplicar.
@@ -40,7 +42,7 @@ export default async function HojePage() {
     );
   }
 
-  const tone = escolherTom(teto.restaHojeCents, teto.tetoHojeCents, recuperacao.emRecuperacao);
+  const tone = escolherTom(tetoDia.restaHojeCents, tetoDia.tetoHojeCents, recuperacao.emRecuperacao);
   const estadoPainel = await obterEstadoPainel(deps);
 
   return (
@@ -76,13 +78,23 @@ export default async function HojePage() {
                 tone.cor,
               )}
             >
-              {formatBRL(Math.max(teto.restaHojeCents, 0))}
+              {formatBRL(Math.max(tetoDia.restaHojeCents, 0))}
             </p>
             <p className="mt-4 tnum text-sm text-muted">
-              teto de hoje {formatBRL(teto.tetoHojeCents)} · gasto hoje{' '}
-              {formatBRL(teto.gastoHojeCents)}
+              teto de hoje {formatBRL(tetoDia.tetoHojeCents)} · gasto hoje{' '}
+              {formatBRL(tetoDia.gastoHojeCents)}
             </p>
             {tone.aviso ? <p className={cn('mt-2 text-sm', tone.cor)}>{tone.aviso}</p> : null}
+            <p
+              className={cn(
+                'mt-3 tnum text-xs',
+                diaADia.extrasRestanteCents < 0 ? 'text-negativo' : 'text-faint',
+              )}
+            >
+              {diaADia.extrasRestanteCents < 0
+                ? `extras estourados em ${formatBRL(-diaADia.extrasRestanteCents)}`
+                : `extras restantes no mês ${formatBRL(diaADia.extrasRestanteCents)}`}
+            </p>
           </section>
         )}
 
