@@ -41,6 +41,7 @@ import { somaCents } from '@/shared/dinheiro';
 import { diasTotaisCiclo, limitesCiclo, proximoCicloApos } from './ciclo';
 import { gerarParcelas } from './parcelamento';
 import { verificarMetaIrreal } from './sugestoes';
+import { dividirVerba, projetarDiaADiaDiarioCents } from './verbas';
 import {
   fixosVigentesNoCicloCents,
   poupancaAlvoCents,
@@ -158,6 +159,14 @@ function montarCiclo(params: {
     pisoDiarioCents: params.pisoDiarioVerbaCents,
   });
 
+  // Split dia a dia / extras: as parcelas do ciclo são os extras comprometidos.
+  const divisao = dividirVerba({
+    verbaVariavelCents: params.verbaVariavelCents,
+    poupancaAlvoCents: params.poupancaAlvoCents,
+    pisoDiarioCents: params.pisoDiarioVerbaCents,
+    diasCiclo: diasTotais,
+  });
+
   return {
     inicio: params.limites.inicio,
     fim: params.limites.fim,
@@ -174,6 +183,10 @@ function montarCiclo(params: {
     verbaDiariaLivreCents: piso.verbaDiariaCents,
     rolloverRecebidoCents: params.rolloverRecebidoCents,
     abaixoDoPiso: piso.irreal,
+    diaADiaCents: divisao.diaADiaCents,
+    extrasCents: divisao.extrasCents,
+    extrasRestanteCents: divisao.extrasCents - parcelasComprometidas,
+    diaADiaDiarioCents: projetarDiaADiaDiarioCents(divisao, parcelasComprometidas, diasTotais),
   };
 }
 
@@ -321,6 +334,9 @@ export function projetarComCenario(
       verbaLivreCents: cicloComCenario.verbaLivreCents - cicloBase.verbaLivreCents,
       verbaDiariaLivreCents: cicloComCenario.verbaDiariaLivreCents - cicloBase.verbaDiariaLivreCents,
       passouAFicarAbaixoDoPiso: cicloComCenario.abaixoDoPiso && !cicloBase.abaixoDoPiso,
+      extrasRestanteCents: cicloComCenario.extrasRestanteCents - cicloBase.extrasRestanteCents,
+      diaADiaDiarioCents: cicloComCenario.diaADiaDiarioCents - cicloBase.diaADiaDiarioCents,
+      passouAReduzirDiaADia: cicloComCenario.diaADiaDiarioCents < cicloBase.diaADiaDiarioCents,
     };
   });
 
