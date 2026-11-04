@@ -23,7 +23,8 @@ import { formatBRL, parseBRL } from '@/shared/dinheiro';
 import { Button, ConfirmInline, Input, Label, Select } from '@/components/ui';
 import { editarTransacao } from '@/actions/transacoes';
 import type { DataCivil } from '@/shared/data';
-import type { TipoTransacao, TipoVerba } from '@/domain/model/enums';
+import type { TipoVerba } from '@/domain/model/enums';
+import { overrideParaEnviar, seletorVerbaVisivel, type VerbaEdicao } from './override-verba';
 import { TITULO_RETROATIVO, descricaoRetroativo } from './retroatividade';
 
 /** O mínimo que o `<select>` precisa. Serve tanto `Categoria` quanto `OpcaoCategoria`. */
@@ -35,14 +36,7 @@ export interface OpcaoCategoriaEdicao {
   tipoVerba?: TipoVerba;
 }
 
-/** Dados que habilitam o seletor "Verba" (override de tipo de verba, só DESPESA). */
-export interface VerbaEdicao {
-  tipo: TipoTransacao;
-  ehParcela: boolean;
-  override: TipoVerba | null;
-}
-
-const ROTULO_VERBA: Record<TipoVerba, string> = { DIA_A_DIA: 'Dia a dia', EXTRA: 'Extra' };
+const ROTULO_VERBA: Record<TipoVerba, string> = { DIA_A_DIA: 'Dia a dia', EXTRA: 'Extras' };
 
 export interface TransacaoEdicaoFormProps {
   transacaoId: string;
@@ -92,8 +86,7 @@ export function TransacaoEdicaoForm({
   const [verbaSel, setVerbaSel] = useState<'' | TipoVerba>(verba?.override ?? '');
 
   const categoriaSel = categorias.find((c) => c.id === categoriaId);
-  const mostrarVerba =
-    verba?.tipo === 'DESPESA' && categoriaSel?.grupo !== 'FIXO' && !!categoriaSel?.tipoVerba;
+  const mostrarVerba = seletorVerbaVisivel(verba, categoriaSel);
   const padraoVerba = ROTULO_VERBA[categoriaSel?.tipoVerba ?? 'EXTRA'];
 
   const executarEdicao = useCallback(
@@ -106,8 +99,7 @@ export function TransacaoEdicaoForm({
         descricao: descricao || null,
         data,
         confirmarRetroativo,
-        // Só envia quando o seletor existe: ausente = preserva o atual.
-        ...(mostrarVerba && !verba?.ehParcela ? { tipoVerbaOverride: verbaSel || null } : {}),
+        tipoVerbaOverride: overrideParaEnviar(verba, categoriaSel, verbaSel),
       });
       setPendente(false);
       if (r.ok) {
@@ -123,7 +115,7 @@ export function TransacaoEdicaoForm({
       setConfirmacao(null);
       setErro(r.erro);
     },
-    [transacaoId, categoriaId, descricao, data, mostrarVerba, verba, verbaSel, router, onSalvo],
+    [transacaoId, categoriaId, descricao, data, categoriaSel, verba, verbaSel, router, onSalvo],
   );
 
   /**
