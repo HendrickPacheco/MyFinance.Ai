@@ -47,6 +47,15 @@ describe('consumirVerbas', () => {
     expect(c.tetoDiaADia.diasRestantes).toBe(20);
     expect(c.tetoDiaADia.tetoHojeCents).toBe(17_500);
   });
+  it('gasto EXTRA de hoje não entra no "Posso gastar hoje" do dia a dia', () => {
+    const c = consumo([
+      tx({ data: '2026-11-11', valorCents: 50_000, tipoVerba: 'EXTRA' }),
+      tx({ data: '2026-11-11', valorCents: 3_000, tipoVerba: 'DIA_A_DIA' }),
+    ]);
+    expect(c.tetoDiaADia.gastoHojeCents).toBe(3_000);
+    expect(c.diaADiaUsadoCents).toBe(3_000);
+    expect(c.extrasUsadoCents).toBe(50_000);
+  });
   it('estorno abate', () => {
     expect(consumo([tx({ valorCents: 439_388 }), tx({ tipo: 'ESTORNO', valorCents: 39_388 })]).extrasUsadoCents).toBe(400_000);
   });
