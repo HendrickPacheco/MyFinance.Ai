@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatBRL } from '@/shared/dinheiro';
 import {
+  CONFIG_PADRAO,
   criarDeps,
   cicloFake,
   contaFake,
@@ -18,6 +19,7 @@ import {
 } from '@/application/__fakes__/fakes-ciclo-fechamento';
 import { CATALOGO_FERRAMENTAS } from './catalogo';
 import { NOMES_DE_FERRAMENTA, executarFerramenta } from './index';
+import { obterEstadoPainelSomenteLeitura } from '@/application/dashboard';
 
 const HOJE = '2026-07-20';
 
@@ -224,6 +226,8 @@ const ARGUMENTOS: Record<string, unknown> = {
   // Importação de fatura (I3) — leem o rascunho semeado por `semearImportacao`.
   conciliar_importacao: { importacaoId: IMPORTACAO_FIXTURE_ID },
   propor_importacao: { importacaoId: IMPORTACAO_FIXTURE_ID },
+  poupanca_real: {},
+  renda_do_ciclo: {},
 };
 
 function fotografar(deps: FakeDeps): string {
@@ -753,5 +757,103 @@ describe('falhas viram retorno legível, nunca exceção', () => {
     const saida = await executarFerramenta(deps, 'situacao_hoje', {});
 
     expect(saida.erro).toMatch(/não consegui obter esse dado/i);
+  });
+});
+
+/**
+ * Task 18 — poupança real, renda do ciclo e verbas separadas. Dados reais do
+ * dono (nov/26): renda R$ 30.000, meta R$ 18.000, fixos R$ 4.884, piso R$ 150.
+ */
+describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
+  const CICLO_NOV = cicloFake({
+    id: 'ciclo-nov',
+    dataInicio: '2026-11-01',
+    dataFim: '2026-11-30',
+    rendaPrevistaCents: 3_000_000,
+    poupancaAlvoCents: 1_800_000,
+    fixosCents: 488_400,
+    verbaVariavelCents: 2_511_600,
+  });
+  const CONFIG_DONO = { ...CONFIG_PADRAO, rendaBaseCents: 3_000_000, metaPoupancaCents: 1_800_000, pisoDiarioVerbaCents: 15_000 };
+
+  function depsNov(extra: Partial<Parameters<typeof criarDeps>[0]> = {}): FakeDeps {
+    return criarDeps({
+      hoje: '2026-11-04',
+      config: CONFIG_DONO,
+      ciclos: [CICLO_NOV],
+      transacoes: [
+        transacaoFake({ id: 'tx-hoje', data: '2026-11-04', valorCents: 5_000, cicloId: CICLO_NOV.id }),
+      ],
+      contas: [contaFake({ saldoCents: 25_200_000 })],
+      ...extra,
+    });
+  }
+
+  it('poupanca_real sem snapshot inicial: guardadoEstimado null com motivo (D-14)', async () => {
+    const saida = await executarFerramenta(depsNov(), 'poupanca_real', {});
+    const atual = saida.cicloAtual as Record<string, unknown>;
+
+    expect(atual.guardadoEstimado).toBeNull();
+    expect(atual.motivo).toEqual(expect.any(String));
+    expect((atual.motivo as string).length).toBeGreaterThan(0);
+    expect(atual.metaCents).toBe(1_800_000);
+  });
+
+  it('poupanca_real com snapshot inicial estima pelo saldo das contas', async () => {
+    const deps = depsNov({ snapshots: [{ id: 's', data: '2026-10-31', totalCents: 25_000_000, itens: [] }] });
+    const atual = (await executarFerramenta(deps, 'poupanca_real', {})).cicloAtual as Record<string, unknown>;
+
+    expect(atual.guardadoEstimadoCents).toBe(200_000);
+    expect(atual.fonte).toBe('SALDO_CONTAS');
+    expect(atual.diferencaParaMetaCents).toBe(200_000 - 1_800_000);
+  });
+
+  it('poupanca_real: fechados com real, sem real (motivo) e médias', async () => {
+    const out = cicloFake({ id: 'out', dataInicio: '2026-10-01', dataFim: '2026-10-31', fechado: true, poupancaAlvoCents: 1_800_000, poupancaRealCents: 425_000 });
+    const set = cicloFake({ id: 'set', dataInicio: '2026-09-01', dataFim: '2026-09-30', fechado: true, poupancaAlvoCents: 1_800_000 });
+    const saida = await executarFerramenta(depsNov({ ciclos: [set, out, CICLO_NOV] }), 'poupanca_real', {});
+    const fechados = saida.ultimosFechados as Record<string, unknown>[];
+
+    expect(fechados[0]).toMatchObject({ inicio: '2026-10-01', realCents: 425_000, diferencaCents: -1_375_000 });
+    expect(fechados[1]).toMatchObject({ inicio: '2026-09-01', real: null });
+    expect(fechados[1]!.motivo).toEqual(expect.any(String));
+    const medias = saida.medias as Record<string, unknown>[];
+    expect(medias.map((m) => m.ciclos)).toEqual([3, 6, 12]);
+    expect(medias[0]).toMatchObject({ mediaCents: 425_000, ciclosConsiderados: 1 });
+  });
+
+  it('renda_do_ciclo USD: decomposição em texto, imposto e renda real ainda null com motivo', async () => {
+    const deps = depsNov({
+      config: { ...CONFIG_DONO, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 730_000, impostoEstimadoCents: 350_000 },
+      ciclos: [{ ...CICLO_NOV, rendaPrevistaCents: 3_613_900, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+    });
+    const saida = await executarFerramenta(deps, 'renda_do_ciclo', {});
+
+    expect(saida.moeda).toBe('USD');
+    expect(saida.decomposicao).toEqual(expect.stringContaining(formatBRL(3_613_900)));
+    expect((saida.decomposicao as string).replace(/\u00a0/g, ' ')).toContain('R$ 36.139,00');
+    expect(saida.impostoCents).toBe(350_000);
+    expect(saida.liquidaCents).toBe(3_613_900);
+    expect(saida.confirmada).toBe(false);
+    expect(saida.rendaReal).toBeNull();
+    expect(saida.motivoSemRendaReal).toEqual(expect.any(String));
+  });
+
+  it('estado_ciclo.verbas: fórmula, partes e dia a dia = piso × dias', async () => {
+    const saida = await executarFerramenta(depsNov(), 'estado_ciclo', {});
+    const verbas = saida.verbas as Record<string, unknown>;
+
+    expect(verbas.formula).toEqual(expect.stringContaining('dia a dia = min(piso × dias, gastável)'));
+    expect(verbas).toMatchObject({ diaADiaCents: 450_000, diaADiaFormatado: formatBRL(450_000) });
+    expect(verbas).toMatchObject({ gastavelCents: 711_600, extrasCents: 261_600, metaDePoupancaJaEstaNaVerba: false });
+    expect(JSON.stringify(verbas)).not.toMatch(/reservad/i);
+  });
+
+  it('situacao_hoje.verbas.podeGastarHojeDiaADia é o mesmo número do painel', async () => {
+    const deps = depsNov();
+    const saida = await executarFerramenta(deps, 'situacao_hoje', {});
+    const painel = await obterEstadoPainelSomenteLeitura(deps);
+
+    expect((saida.verbas as Record<string, unknown>).podeGastarHojeDiaADiaCents).toBe(painel!.kpis.restaHojeCents);
   });
 });

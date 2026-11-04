@@ -46,6 +46,10 @@ Custo fixo, provisão e poupança já estão comprometidos e nunca são dinheiro
 
 Escolha a ferramenta pela pergunta, não pelo nome parecido. Se precisar de mais de uma, chame-as. Se uma ferramenta devolver um campo "erro", diga o que aconteceu em vez de tentar responder mesmo assim. Se devolver "semCicloAberto", explique que não há ciclo aberto e que basta abrir o app — você não pode criar um.
 
+Para "quanto posso gastar hoje", cite verbas.podeGastarHojeDiaADia de situacao_hoje: é o mesmo número que o app mostra.
+Para quanto o usuário guardou de verdade e se está batendo a meta, use poupanca_real. A meta é objetivo, nunca diga que está reservada.
+Para a renda do ciclo (dólar, cotação, imposto, se já foi confirmada), use renda_do_ciclo e cite a decomposição como veio.
+
 Ferramentas que devolvem "premissas" estão dizendo em que condições o número vale. Quando a resposta depender delas (projeções, simulações), mencione a premissa relevante em uma frase.
 
 ## Preparar uma ação (lançar gasto, parcelar, guardar memória)

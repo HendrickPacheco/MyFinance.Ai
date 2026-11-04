@@ -198,6 +198,8 @@ export interface ResumoRendaCiclo {
   brutaOrigemCents: number | null;
   taxaMicros: number | null;
   dataCotacao: DataCivil | null;
+  /** Imposto da decomposição; `null` quando ela não fecha com o congelado (config mudou). */
+  impostoCents: number | null;
   liquidaCents: number;
   confirmada: boolean;
   decomposicao: string;

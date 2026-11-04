@@ -469,6 +469,24 @@ function metasVazias(ciclo: Ciclo): ResumoMetas {
   };
 }
 
+/** Guardado em curso do ciclo (D3) — o mesmo número no painel e no copiloto. */
+export async function estimarGuardadoDoCiclo(
+  deps: Deps,
+  ciclo: Pick<Ciclo, 'dataInicio'>,
+  hoje: string,
+): Promise<ReturnType<typeof estimarPoupancaEmCurso>> {
+  const [insumos, contas] = await Promise.all([lerInsumosPoupanca(deps, ciclo), deps.contas.listar()]);
+  return estimarPoupancaEmCurso({
+    dataInicio: ciclo.dataInicio,
+    hoje,
+    snapshots: insumos.snapshots,
+    saldoContasCents: contas
+      .filter((c) => c.incluiPatrimonio && !c.arquivada)
+      .reduce((total, c) => total + c.saldoCents, 0),
+    patrimonioFinalCicloAnteriorCents: insumos.patrimonioFinalCicloAnteriorCents,
+  });
+}
+
 /**
  * Meta vs. guardado de verdade (D3): variação do patrimônio desde o início do
  * ciclo, estimada pelo snapshot mais recente ou, sem ele, pelo saldo das
@@ -480,16 +498,7 @@ async function montarMetas(
 ): Promise<ResumoMetas> {
   const { ciclo, kpis, config, hoje } = p;
   try {
-    const [insumos, contas] = await Promise.all([lerInsumosPoupanca(deps, ciclo), deps.contas.listar()]);
-    const estimativa = estimarPoupancaEmCurso({
-      dataInicio: ciclo.dataInicio,
-      hoje,
-      snapshots: insumos.snapshots,
-      saldoContasCents: contas
-        .filter((c) => c.incluiPatrimonio && !c.arquivada)
-        .reduce((total, c) => total + c.saldoCents, 0),
-      patrimonioFinalCicloAnteriorCents: insumos.patrimonioFinalCicloAnteriorCents,
-    });
+    const estimativa = await estimarGuardadoDoCiclo(deps, ciclo, hoje);
 
     const base = {
       poupancaAlvoCents: ciclo.poupancaAlvoCents,
@@ -550,7 +559,9 @@ export function montarRenda(ciclo: Ciclo, config: Config | null): ResumoRendaCic
     rendaBrutaMoedaOrigemCents: null,
   };
 
-  let renda: Pick<RendaLiquida, 'moeda' | 'brutaOrigemCents' | 'taxaMicros' | 'dataCotacao' | 'decomposicao'>;
+  let renda: Pick<RendaLiquida, 'moeda' | 'brutaOrigemCents' | 'taxaMicros' | 'dataCotacao' | 'decomposicao'> & {
+    impostoCents: number | null;
+  };
   try {
     if (confirmada) {
       const { rendaRealBrutaMoedaOrigemCents: bruta, cotacaoRealUsadaMicros: taxa } = ciclo;
@@ -588,6 +599,7 @@ export function montarRenda(ciclo: Ciclo, config: Config | null): ResumoRendaCic
               brutaOrigemCents: null,
               taxaMicros: null,
               dataCotacao: null,
+              impostoCents: null,
               decomposicao:
                 `${formatBRL(liquidaCents)} (renda congelada no início do ciclo; a configuração mudou ` +
                 `desde então — "Recalcular renda deste ciclo" atualiza)`,
@@ -604,6 +616,7 @@ export function montarRenda(ciclo: Ciclo, config: Config | null): ResumoRendaCic
     brutaOrigemCents: renda.brutaOrigemCents,
     taxaMicros: renda.taxaMicros,
     dataCotacao: confirmada ? null : renda.dataCotacao,
+    impostoCents: renda.impostoCents,
     liquidaCents,
     confirmada,
     decomposicao: renda.decomposicao,

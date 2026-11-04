@@ -145,4 +145,12 @@ describe('catálogo de ferramentas', () => {
       expect(Object.keys(definicao).sort()).toEqual(['argumentos', 'descricao', 'nome']);
     }
   });
+
+  it('poupanca_real e renda_do_ciclo existem e são somente leitura', () => {
+    const nomes = CATALOGO_FERRAMENTAS.map((f) => f.nome);
+    for (const nome of ['poupanca_real', 'renda_do_ciclo']) {
+      expect(nomes).toContain(nome);
+      expect(FERRAMENTAS_DE_PROPOSTA as readonly string[]).not.toContain(nome);
+    }
+  });
 });

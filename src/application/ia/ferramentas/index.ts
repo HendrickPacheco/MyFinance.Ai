@@ -21,6 +21,7 @@ import { estadoCiclo, gastosPorCategoria, pagamentosPendentes, situacaoHoje } fr
 import { analiseCorte, assinaturasDetectadas } from './analise';
 import { paraOndeVaiARenda } from './renda';
 import { patrimonioResumo } from './patrimonio';
+import { poupancaRealFerramenta, rendaDoCicloFerramenta } from './poupanca';
 import {
   projetarCiclosFerramenta,
   simularCompraParcelada,
@@ -53,6 +54,8 @@ const EXECUTORES: Record<string, Executor> = {
   analise_corte: analiseCorte as Executor,
   assinaturas_detectadas: assinaturasDetectadas as Executor,
   patrimonio_resumo: patrimonioResumo as Executor,
+  poupanca_real: poupancaRealFerramenta as Executor,
+  renda_do_ciclo: rendaDoCicloFerramenta as Executor,
   projetar_ciclos: projetarCiclosFerramenta as Executor,
   simular_compra_parcelada: simularCompraParcelada as Executor,
   simular_meta_prazo: simularMetaPrazoFerramenta as Executor,
