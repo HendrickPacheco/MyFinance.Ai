@@ -14,10 +14,10 @@ import {
   Segmented,
   Select,
 } from '@/components/ui';
-import { formatBRL, parseBRL } from '@/shared/dinheiro';
+import { formatBRL, formatarDecimalBR, parseBRL } from '@/shared/dinheiro';
 import { atualizarConfig } from '@/actions/config';
 import type { Config, Conta } from '@/domain/model/entidades';
-import type { VerificacaoMetaIrreal } from '@/domain/finance';
+import type { RendaLiquida, VerificacaoMetaIrreal } from '@/domain/finance';
 
 export function ConfigGeral({
   config,
@@ -25,12 +25,18 @@ export function ConfigGeral({
   avisoMetaIrreal,
   sugestaoRendaVariavelCents,
   sugestaoMetaPoupancaCents,
+  sugestaoMetaPorPoupancaReal,
+  rendaPrevistaUsd,
+  avisoCotacao,
 }: {
   config: Config;
   contas: Conta[];
   avisoMetaIrreal: VerificacaoMetaIrreal;
   sugestaoRendaVariavelCents: number | null;
   sugestaoMetaPoupancaCents: number | null;
+  sugestaoMetaPorPoupancaReal: { mediaCents: number; ciclos: 3 } | null;
+  rendaPrevistaUsd: RendaLiquida | null;
+  avisoCotacao: string | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -47,6 +53,18 @@ export function ConfigGeral({
   const [destinoContaId, setDestinoContaId] = useState(config.destinoSobraContaId ?? '');
   const [timezone, setTimezone] = useState(config.timezone);
   const [pisoDiario, setPisoDiario] = useState(formatBRL(config.pisoDiarioVerbaCents));
+
+  const [moedaRenda, setMoedaRenda] = useState(config.moedaRenda);
+  const [brutaUsd, setBrutaUsd] = useState(
+    formatarDecimalBR(config.rendaBrutaMoedaOrigemCents ?? 0),
+  );
+  const [impostoEmPercent, setImpostoEmPercent] = useState(config.impostoEstimadoPercentual != null);
+  const [impostoFixo, setImpostoFixo] = useState(formatBRL(config.impostoEstimadoCents ?? 0));
+  const [impostoPercent, setImpostoPercent] = useState(
+    String(config.impostoEstimadoPercentual ?? '').replace('.', ','),
+  );
+  const [fonteRenda, setFonteRenda] = useState(config.fonteRenda ?? '');
+  const usd = moedaRenda === 'USD';
 
   const bucketsDestino = contas.filter((c) => c.tipo === 'RESERVA' || c.tipo === 'INVESTIMENTO');
 
@@ -66,6 +84,16 @@ export function ConfigGeral({
           destinoSobra: destino,
           destinoSobraContaId: destino === 'ROLLOVER' ? null : destinoContaId || null,
           pisoDiarioVerbaCents: parseBRL(pisoDiario),
+          moedaRenda,
+          // Só um dos dois impostos é enviado; o outro vai null para limpar o gravado.
+          ...(usd && {
+            rendaBrutaMoedaOrigemCents: parseBRL(brutaUsd),
+            impostoEstimadoCents: impostoEmPercent ? null : parseBRL(impostoFixo),
+            impostoEstimadoPercentual: impostoEmPercent
+              ? Number(impostoPercent.replace(',', '.'))
+              : null,
+            fonteRenda: fonteRenda.trim() || null,
+          }),
         };
         const r = await atualizarConfig(input);
         if (r.ok) {
@@ -87,14 +115,99 @@ export function ConfigGeral({
       </CardHeader>
       <CardContent className="space-y-5">
         <div>
+          <Label>Moeda da renda</Label>
+          <Segmented
+            ariaLabel="Moeda da renda"
+            valor={moedaRenda}
+            onChange={(v) => setMoedaRenda(v as Config['moedaRenda'])}
+            opcoes={[
+              { value: 'BRL', label: 'Reais (R$)' },
+              { value: 'USD', label: 'Dólar (US$)' },
+            ]}
+          />
+        </div>
+
+        {usd ? (
+          <div className="space-y-3 rounded-xl border border-border-strong bg-surface-2 p-3">
+            <div>
+              <Label htmlFor="brutaUsd">Renda bruta (US$)</Label>
+              <Input
+                id="brutaUsd"
+                inputMode="decimal"
+                value={brutaUsd}
+                onChange={(e) => setBrutaUsd(e.target.value)}
+                onFocus={(e) => e.target.select()}
+              />
+            </div>
+            <div>
+              <Label>Imposto estimado</Label>
+              <Segmented
+                className="mb-2"
+                ariaLabel="Forma do imposto estimado"
+                valor={impostoEmPercent ? 'percent' : 'fixo'}
+                onChange={(v) => setImpostoEmPercent(v === 'percent')}
+                opcoes={[
+                  { value: 'fixo', label: 'R$' },
+                  { value: 'percent', label: '%' },
+                ]}
+              />
+              {impostoEmPercent ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    inputMode="decimal"
+                    value={impostoPercent}
+                    onChange={(e) => setImpostoPercent(e.target.value)}
+                    className="w-28"
+                  />
+                  <span className="text-muted">% da renda bruta em reais</span>
+                </div>
+              ) : (
+                <Input
+                  inputMode="decimal"
+                  value={impostoFixo}
+                  onChange={(e) => setImpostoFixo(e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                />
+              )}
+            </div>
+            <div>
+              <Label htmlFor="fonteRenda">Fonte (opcional)</Label>
+              <Input
+                id="fonteRenda"
+                maxLength={60}
+                placeholder="Ex.: Deel"
+                value={fonteRenda}
+                onChange={(e) => setFonteRenda(e.target.value)}
+              />
+            </div>
+            {rendaPrevistaUsd ? (
+              <p className="tnum text-sm text-muted">
+                {rendaPrevistaUsd.decomposicao}
+                {rendaPrevistaUsd.motivoSemCotacao ? ` — ${rendaPrevistaUsd.motivoSemCotacao}` : ''}
+                <span className="block text-xs text-faint">
+                  Calculado com a configuração já salva.
+                </span>
+              </p>
+            ) : null}
+            {avisoCotacao ? <p className="text-sm text-atencao">{avisoCotacao}</p> : null}
+          </div>
+        ) : null}
+
+        <div>
           <Label htmlFor="renda">Quanto cai na sua conta por mês (líquido)</Label>
           <Input
             id="renda"
             inputMode="decimal"
             value={renda}
+            readOnly={usd}
             onChange={(e) => setRenda(e.target.value)}
             onFocus={(e) => e.target.select()}
           />
+          {usd ? (
+            <p className="mt-1 text-xs text-faint">
+              Derivada da renda em dólar, do imposto e da cotação; é recalculada ao salvar.
+            </p>
+          ) : null}
         </div>
 
         <label className="flex items-center gap-3 text-sm text-muted">
@@ -148,6 +261,30 @@ export function ConfigGeral({
             ))}
           </Select>
         </div>
+
+        {sugestaoMetaPorPoupancaReal ? (
+          <div className="rounded-xl border border-border-strong bg-surface-2 p-3 text-sm">
+            <p className="text-muted">
+              Sua poupança real média dos últimos 3 ciclos foi{' '}
+              <span className="tnum font-medium text-fg">
+                {formatBRL(sugestaoMetaPorPoupancaReal.mediaCents)}
+              </span>
+              . Quer ajustar a meta?
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              onClick={() => {
+                setUsarPercent(false);
+                setMetaValor(formatBRL(sugestaoMetaPorPoupancaReal.mediaCents));
+              }}
+            >
+              Usar {formatBRL(sugestaoMetaPorPoupancaReal.mediaCents)} (preenche o campo, não salva)
+            </Button>
+          </div>
+        ) : null}
 
         <div>
           <Label>Meta de poupança (tratada como conta a pagar)</Label>

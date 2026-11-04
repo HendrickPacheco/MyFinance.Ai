@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { atualizarConfig, upsertCategoria } from './config';
-import { criarDeps, CONFIG_PADRAO, CATEGORIA_VARIAVEL } from './__fakes__/fakes-ciclo-fechamento';
+import { atualizarConfig, upsertCategoria, obterEstadoConfig } from './config';
+import { criarDeps, cicloFake, CONFIG_PADRAO, CATEGORIA_VARIAVEL } from './__fakes__/fakes-ciclo-fechamento';
 
 describe('atualizarConfig preserva a renda em moeda de origem', () => {
   it('salvar sem os campos USD no input mantém os já gravados', async () => {
@@ -58,5 +58,61 @@ describe('upsertCategoria preserva tipoVerba', () => {
 
     const nova = await upsertCategoria(deps, { ...semTipo, id: '', nome: 'Nova' });
     expect(nova.tipoVerba).toBe('EXTRA');
+  });
+});
+
+describe('obterEstadoConfig: sugestão de meta pela poupança real', () => {
+  const fechado = (i: number, real: number | null) =>
+    cicloFake({ id: `c${i}`, dataInicio: `2026-0${i}-05`, dataFim: `2026-0${i + 1}-04`, fechado: true, poupancaRealCents: real });
+
+  it('3 fechados medidos → média arredondada para baixo', async () => {
+    const deps = criarDeps({ ciclos: [fechado(1, 425_000), fechado(2, 600_000), fechado(3, 380_000)] });
+    const e = await obterEstadoConfig(deps);
+    expect(e.sugestaoMetaPorPoupancaReal).toEqual({ mediaCents: 468_333, ciclos: 3 });
+  });
+
+  it('2 ciclos, ou algum dos 3 sem medição → null', async () => {
+    const dois = await obterEstadoConfig(criarDeps({ ciclos: [fechado(1, 425_000), fechado(2, 600_000)] }));
+    expect(dois.sugestaoMetaPorPoupancaReal).toBeNull();
+    const furo = await obterEstadoConfig(
+      criarDeps({ ciclos: [fechado(1, 425_000), fechado(2, null), fechado(3, 380_000)] }),
+    );
+    expect(furo.sugestaoMetaPorPoupancaReal).toBeNull();
+  });
+
+  it('config em BRL: sem renda prevista em USD nem aviso', async () => {
+    const e = await obterEstadoConfig(criarDeps());
+    expect(e.rendaPrevistaUsd).toBeNull();
+    expect(e.avisoCotacao).toBeNull();
+  });
+
+  it('config em USD: decomposição vem do read-model; sem cotação, traz aviso', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-04',
+      config: { ...CONFIG_PADRAO, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 730_000, impostoEstimadoCents: 350_000 },
+    });
+    await deps.cotacoes.salvar({
+      data: '2026-11-03', moedaOrigem: 'USD', moedaDestino: 'BRL', taxaMicros: 5_430_000, fonte: 'PTAX_BCB',
+    });
+    const e = await obterEstadoConfig(deps);
+    expect(e.rendaPrevistaUsd?.liquidaCents).toBe(3_613_900);
+    expect(e.avisoCotacao).toBeNull();
+
+    const sem = await obterEstadoConfig(
+      criarDeps({ config: { ...CONFIG_PADRAO, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 730_000 } }),
+    );
+    expect(sem.rendaPrevistaUsd?.motivoSemCotacao).not.toBeNull();
+    expect(sem.avisoCotacao).toMatch(/cotação/i);
+  });
+});
+
+describe('atualizarConfig: imposto fixo OU percentual', () => {
+  it('os dois preenchidos → erro, nada gravado', async () => {
+    const deps = criarDeps();
+    const { id: _id, ...input } = CONFIG_PADRAO;
+    await expect(
+      atualizarConfig(deps, { ...input, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 730_000, impostoEstimadoCents: 1, impostoEstimadoPercentual: 10 }),
+    ).rejects.toThrow(/fixo OU percentual/);
+    expect((await deps.config.obter())?.moedaRenda).toBe('BRL');
   });
 });

@@ -21,6 +21,8 @@ import {
   sugerirRendaPrevistaCents,
   sugerirMetaPoupancaCents,
   rendaLiquidaPrevista,
+  mediaPoupancaReal,
+  type RendaLiquida,
   type VerificacaoMetaIrreal,
 } from '@/domain/finance';
 import { obterCotacaoUsd } from './cotacao';
@@ -44,6 +46,11 @@ export interface EstadoConfig {
   sugestaoMetaPoupancaCents: number | null;
   /** Regra 12: se a verba diária prevista para o próximo ciclo fica abaixo do piso configurado. */
   avisoMetaIrreal: VerificacaoMetaIrreal;
+  /** Média da poupança REAL dos 3 últimos fechados; `null` se algum dos 3 não foi medido. */
+  sugestaoMetaPorPoupancaReal: { mediaCents: number; ciclos: 3 } | null;
+  /** Decomposição USD→BRL da config SALVA; `null` quando a renda é em reais. */
+  rendaPrevistaUsd: RendaLiquida | null;
+  avisoCotacao: string | null;
 }
 
 export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
@@ -93,6 +100,20 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
     })),
   );
 
+  const real = mediaPoupancaReal(ultimosFechados, 3);
+  const sugestaoMetaPorPoupancaReal =
+    real.ciclosConsiderados === 3 && real.mediaCents != null
+      ? { mediaCents: real.mediaCents, ciclos: 3 as const }
+      : null;
+
+  let rendaPrevistaUsd: RendaLiquida | null = null;
+  let avisoCotacao: string | null = null;
+  if (config.moedaRenda === 'USD') {
+    const { cotacao, aviso } = await obterCotacaoUsd(deps);
+    rendaPrevistaUsd = rendaLiquidaPrevista(config, cotacao);
+    avisoCotacao = aviso;
+  }
+
   return {
     config,
     contas,
@@ -104,6 +125,9 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
     sugestaoRendaVariavelCents,
     sugestaoMetaPoupancaCents,
     avisoMetaIrreal,
+    sugestaoMetaPorPoupancaReal,
+    rendaPrevistaUsd,
+    avisoCotacao,
   };
 }
 
@@ -135,6 +159,9 @@ export async function atualizarConfig(deps: Deps, input: ConfigInput): Promise<C
     fonteRenda: atual?.fonteRenda ?? null,
   };
   const nova: Config = { id: 1, ...preservados, ...input };
+  if (nova.impostoEstimadoCents != null && nova.impostoEstimadoPercentual != null) {
+    throw new RangeError('Informe imposto fixo OU percentual, não os dois');
+  }
   // Renda em USD: `rendaBaseCents` passa a guardar a líquida em reais derivada,
   // para os leitores legados (onboarding, projeção) seguirem corretos.
   if (nova.moedaRenda === 'USD') {
