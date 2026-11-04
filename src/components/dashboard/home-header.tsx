@@ -13,7 +13,7 @@ export function HomeHeader({
   iniciais: string;
 }) {
   return (
-    <header className="mb-7 flex items-center justify-between gap-4">
+    <header className="mb-3 flex items-center justify-between gap-4">
       <div className="flex items-center gap-2.5 text-[18px] font-extrabold tracking-[-0.02em]">
         <div className="grid size-8 place-items-center rounded-[10px] bg-gradient-to-br from-accent-from to-accent-hover text-accent-fg">
           <TrendingUp size={18} strokeWidth={2} aria-hidden />

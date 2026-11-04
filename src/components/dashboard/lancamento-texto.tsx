@@ -60,7 +60,7 @@ export function LancamentoTexto({ categorias }: { categorias: OpcaoCategoria[] }
     <>
       <form
         onSubmit={lancar}
-        className="mt-4 flex gap-2.5 max-[760px]:sticky max-[760px]:top-2.5 max-[760px]:z-[5]"
+        className="flex gap-2.5 max-[760px]:sticky max-[760px]:top-2.5 max-[760px]:z-[5]"
       >
         <Card className="flex w-full gap-2.5 rounded-[18px] p-2.5">
           <div className="grid place-items-center pl-2.5 text-accent" aria-hidden>

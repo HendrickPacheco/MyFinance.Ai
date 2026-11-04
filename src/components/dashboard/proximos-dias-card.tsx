@@ -1,8 +1,8 @@
-import { CreditCard, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import type { EstadoHome } from '@/application/home-tipos';
 import { formatarNumeroBRL } from '@/shared/dinheiro';
 import { Card } from './ui-home';
+import { iconeDaConta } from './icone-conta';
 import { PagarBotao } from './pagar-botao';
 
 export function ProximosDiasCard({ proximos7Dias }: { proximos7Dias: EstadoHome['proximos7Dias'] }) {
@@ -19,7 +19,7 @@ export function ProximosDiasCard({ proximos7Dias }: { proximos7Dias: EstadoHome[
         <p className="py-3 text-sm text-faint">Nada vence nos próximos 7 dias.</p>
       ) : (
         itens.map((i) => {
-          const Icone = i.tipo === 'FIXO' ? Receipt : CreditCard;
+          const Icone = iconeDaConta(i.nome, i.tipo);
           return (
             <div key={`${i.tipo}-${i.id}`} className="flex items-center gap-3.5 border-t border-line py-3 first:border-t-0 max-[760px]:gap-2.5">
               <div className="grid size-10 flex-none place-items-center rounded-xl bg-accent-soft text-accent">

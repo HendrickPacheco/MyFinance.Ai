@@ -184,3 +184,10 @@ html[data-sidebar='collapsed'] .sidebar-label {
    do retângulo do gatilho — de propósito, para não depender de `overflow` de
    nenhum ancestral (a sidebar e a <nav> interna têm scroll/clip próprios que
    cortariam um tooltip meramente `absolute`). */
+
+/* Home (protótipo): line-height `normal` em tudo, como o protótipo; os
+   `text-*` do Tailwind inflariam as linhas. Fora de @layer para vencer os
+   utilitários; `leading-none` (hero) continua valendo. */
+.home-root *:not(.leading-none) {
+  line-height: normal;
+}

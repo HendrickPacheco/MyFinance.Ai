@@ -99,7 +99,7 @@ function GraficoVerba({
           <g key={`${p.rotulo}-${i}`}>
             <circle cx={xAt(i)} cy={yAt(i)} r="4" fill="var(--color-surface)" stroke="var(--color-accent)" strokeWidth="2.5" />
             <text x={xAt(i)} y={yAt(i) - 12} textAnchor="middle" fill="var(--color-fg)" className="text-[11px] font-bold">
-              {formatarRotuloGrafico(p.verbaLivreCents, i === n - 1)}
+              {formatarRotuloGrafico(p.verbaLivreCents, i === 0 || i === n - 1)}
             </text>
             <text x={xAt(i)} y="222" textAnchor="middle" fill="var(--color-faint)" className={rotulo}>
               {p.rotulo}

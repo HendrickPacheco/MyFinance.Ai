@@ -47,7 +47,7 @@ export default async function HojePage() {
     `grid gap-4 max-[760px]:grid-cols-1 ${cols === 3 ? 'grid-cols-3' : 'grid-cols-2'}`;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4">
+    <div className="home-root mx-auto flex w-full max-w-[1200px] flex-col gap-4 lg:-mt-4">
       <HomeHeader {...home.cabecalho} />
 
       {hoje.pendenciaFechamento ? (

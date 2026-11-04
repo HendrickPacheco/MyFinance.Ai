@@ -252,7 +252,7 @@ export function Sidebar({
   }, []);
 
   return (
-    <aside className="app-sidebar sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-border bg-surface lg:flex">
+    <aside className="app-sidebar sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-border bg-bg lg:flex">
       <div className="px-5 py-6">
         <p className="sidebar-label truncate text-sm font-semibold uppercase tracking-widest text-muted">
           Controle financeiro

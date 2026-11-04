@@ -69,7 +69,7 @@ export function DespesasMesCard({ despesas }: { despesas: Despesas }) {
   const { fixo, parcelado } = despesas;
   const termina = parcelado.terminamEsteMes;
   return (
-    <Card className="mt-4">
+    <Card>
       <div className="flex items-end justify-between gap-6 max-[760px]:flex-col max-[760px]:items-stretch">
         <div>
           <div className="text-[13px] font-medium text-muted">Despesas do mês</div>

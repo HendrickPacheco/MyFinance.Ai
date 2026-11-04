@@ -164,7 +164,7 @@ export function formatarReaisInteiros(cents: number): string {
 
 /**
  * Rótulo curto de ponto de gráfico, em reais inteiros: >= 10.000 vira "10,6k"
- * (exceto quando `completo`, ex.: o último ponto -> "11.300"); abaixo, "5.379".
+ * (exceto quando `completo`, ex.: primeiro e último pontos -> "11.300"); abaixo, "5.379".
  */
 export function formatarRotuloGrafico(cents: number, completo = false): string {
   const reais = Math.round(cents / CENTAVOS_POR_UNIDADE);
