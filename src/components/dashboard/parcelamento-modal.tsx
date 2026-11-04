@@ -174,7 +174,8 @@ export function ParcelamentoModal({ hoje, categorias, edicao }: ParcelamentoModa
   }, [alvo?.id]);
 
   const modalAberto = edicao ? edicao.alvo != null : open;
-  const simularLiberado = modalAberto && !(edicao?.alvo?.travadoPor);
+  // Só na CRIAÇÃO: na edição a base já contém a compra (dupla contagem).
+  const simularLiberado = modalAberto && !editando;
   React.useEffect(() => {
     const n = Number(numParcelas);
     if (
@@ -575,6 +576,9 @@ export function ParcelamentoModal({ hoje, categorias, edicao }: ParcelamentoModa
                 ))}
               </tbody>
             </table>
+            {simulacao.truncado ? (
+              <p className="mt-2 text-xs text-muted">Simulação mostra só os primeiros 60 meses</p>
+            ) : null}
             {simulacao.alerta ? (
               <p role="status" className="mt-2 text-sm text-negativo">
                 {simulacao.alerta}

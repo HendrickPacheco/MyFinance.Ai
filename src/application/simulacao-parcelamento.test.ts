@@ -51,4 +51,26 @@ describe('simularImpactoParcelamento', () => {
 
     expect(r.alerta).toBeNull();
   });
+
+  it('dataCompra futura: primeira linha é o ciclo da compra e há numParcelas linhas', async () => {
+    const r = await simularImpactoParcelamento(depsNov(), {
+      ...compra(1_318_164),
+      dataCompra: '2026-12-10',
+    });
+
+    expect(r.meses).toHaveLength(3);
+    expect(r.meses[0]).toMatchObject({ inicio: '2026-12-01', parcelaCents: 439_388 });
+    expect(r.meses.every((m) => m.parcelaCents > 0)).toBe(true);
+    expect(r.truncado).toBe(false);
+  });
+
+  it('72 parcelas: horizonte cortado em 60 e truncado true', async () => {
+    const r = await simularImpactoParcelamento(depsNov(), {
+      ...compra(7_200_000),
+      numParcelas: 72,
+    });
+
+    expect(r.truncado).toBe(true);
+    expect(r.meses.length).toBeLessThanOrEqual(60);
+  });
 });

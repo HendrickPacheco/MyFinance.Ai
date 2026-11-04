@@ -20,6 +20,8 @@ export interface MesSimulado {
 export interface SimulacaoParcelamento {
   meses: MesSimulado[];
   alerta: string | null;
+  /** O horizonte de 60 ciclos cortou parcelas. */
+  truncado: boolean;
 }
 
 // `obterProjecao` aceita no máximo 60 ciclos; parcelamentos vão até 72.
@@ -29,18 +31,29 @@ export async function simularImpactoParcelamento(
   deps: Deps,
   input: { descricao: string; valorTotalCents: number; numParcelas: number; dataCompra: DataCivil },
 ): Promise<SimulacaoParcelamento> {
+  // Ciclos entre hoje e a competência da compra (+1 de folga: o ciclo pode
+  // começar no meio do mês). Parcelas anteriores ao ciclo atual não existem
+  // na projeção. Fatiamento de string, nunca `new Date(string)`.
+  const h = deps.relogio.hoje();
+  const offset = Math.max(
+    0,
+    (Number(input.dataCompra.slice(0, 4)) - Number(h.slice(0, 4))) * 12 +
+      Number(input.dataCompra.slice(5, 7)) -
+      Number(h.slice(5, 7)),
+  );
+  const necessarios = offset + 1 + input.numParcelas;
   const { ciclos, cenario } = await obterProjecao(deps, {
-    numCiclos: Math.min(input.numParcelas, MAX_CICLOS),
+    numCiclos: Math.min(necessarios, MAX_CICLOS),
     cenario: { tipo: 'compraParcelada', ...input },
   });
-  if (!cenario) return { meses: [], alerta: null };
+  if (!cenario) return { meses: [], alerta: null, truncado: false };
 
   const meses: MesSimulado[] = [];
   let menorDiaADia: number | null = null;
   cenario.delta.forEach((d, i) => {
     const antes = ciclos[i];
     const depois = cenario.ciclos[i];
-    if (!antes || !depois) return;
+    if (!antes || !depois || d.parcelasComprometidasCents <= 0) return;
     meses.push({
       inicio: d.inicio,
       parcelaCents: d.parcelasComprometidasCents,
@@ -55,6 +68,7 @@ export async function simularImpactoParcelamento(
   });
 
   return {
+    truncado: necessarios > MAX_CICLOS,
     meses,
     alerta:
       menorDiaADia == null
