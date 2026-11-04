@@ -20,8 +20,10 @@ import {
   verificarMetaIrreal,
   sugerirRendaPrevistaCents,
   sugerirMetaPoupancaCents,
+  rendaLiquidaPrevista,
   type VerificacaoMetaIrreal,
 } from '@/domain/finance';
+import { obterCotacaoUsd } from './cotacao';
 import { recalcularCicloAtualSeVazio, type EfeitoNoCicloAtual } from './ciclos';
 import { validarCategoriaDeCustoFixo } from './categoria-custo-fixo';
 
@@ -132,7 +134,14 @@ export async function atualizarConfig(deps: Deps, input: ConfigInput): Promise<C
     impostoEstimadoPercentual: atual?.impostoEstimadoPercentual ?? null,
     fonteRenda: atual?.fonteRenda ?? null,
   };
-  const config = await deps.config.salvar({ id: 1, ...preservados, ...input });
+  const nova: Config = { id: 1, ...preservados, ...input };
+  // Renda em USD: `rendaBaseCents` passa a guardar a líquida em reais derivada,
+  // para os leitores legados (onboarding, projeção) seguirem corretos.
+  if (nova.moedaRenda === 'USD') {
+    const { cotacao } = await obterCotacaoUsd(deps);
+    nova.rendaBaseCents = rendaLiquidaPrevista(nova, cotacao).liquidaCents;
+  }
+  const config = await deps.config.salvar(nova);
   await recalcularCicloAtualSeVazio(deps);
   return config;
 }

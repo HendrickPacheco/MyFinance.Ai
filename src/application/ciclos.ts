@@ -5,13 +5,14 @@
  */
 import type { Deps } from './deps';
 import { exigirEscrita } from '@/domain/auth/permissoes';
-import type { Ciclo } from '@/domain/model/entidades';
+import type { Ciclo, Config } from '@/domain/model/entidades';
 import type { DestinoSobra } from '@/domain/model/enums';
 import { addDias, type DataCivil } from '@/shared/data';
 import {
   limitesCiclo,
   provisaoMensalCents,
   poupancaAlvoCents,
+  rendaLiquidaPrevista,
   verbaVariavelCents,
 } from '@/domain/finance';
 
@@ -60,6 +61,21 @@ async function parametrosCongelados(deps: Deps, rendaPrevistaCents: number) {
   });
 
   return { fixosCents, provMensalCents, poupancaCents };
+}
+
+/**
+ * Renda prevista de um ciclo que está nascendo. Roda no layout, então lê só o
+ * CACHE de cotação (nada de rede) e nunca lança: qualquer falha cai na
+ * `rendaBaseCents` da Config, que é o comportamento de antes do USD.
+ */
+async function rendaPrevistaAoNascer(deps: Deps, config: Config, inicio: DataCivil) {
+  const base = { liquidaCents: config.rendaBaseCents, taxaMicros: null, dataCotacao: null };
+  if (config.moedaRenda !== 'USD') return base;
+  try {
+    return rendaLiquidaPrevista(config, await deps.cotacoes.ultimaAte(inicio));
+  } catch {
+    return base;
+  }
 }
 
 /** Ciclo que cobre hoje, mais a pendência de fechamento do anterior. */
@@ -140,7 +156,8 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
       const anterior = await deps.ciclos.ultimoFechado();
       const rollover = rolloverACreditar(anterior, config.destinoSobra, inicio);
 
-      const rendaPrevistaCents = config.rendaBaseCents;
+      const renda = await rendaPrevistaAoNascer(deps, config, inicio);
+      const rendaPrevistaCents = renda.liquidaCents;
       const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
         deps,
         rendaPrevistaCents,
@@ -182,8 +199,8 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
         cotacaoRealUsadaMicros: null,
         impostoRealCents: null,
         rendaRealLiquidaCents: null,
-        cotacaoPrevistaMicros: null,
-        cotacaoPrevistaData: null,
+        cotacaoPrevistaMicros: renda.taxaMicros,
+        cotacaoPrevistaData: renda.dataCotacao,
       });
       ciclo = resultado.ciclo;
 

@@ -17,6 +17,7 @@ import {
   primeiro,
   cicloFake,
   contaFake,
+  CONFIG_PADRAO,
   provisaoFake,
   transacaoFake,
 } from './__fakes__/fakes-ciclo-fechamento';
@@ -578,5 +579,53 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
 
     expect(deps.transacoes.itens).toHaveLength(0);
     expect(ciclo.verbaVariavelCents).toBe(810_000);
+  });
+});
+
+describe('garantirCicloAtual — renda em USD (só cache de cotação)', () => {
+  const configUsd = {
+    ...CONFIG_PADRAO,
+    rendaBaseCents: 3_000_000,
+    diaRecebimento: 1,
+    moedaRenda: 'USD' as const,
+    rendaBrutaMoedaOrigemCents: 730_000,
+    impostoEstimadoCents: 350_000,
+  };
+
+  it('ciclo novo nasce com a renda líquida convertida pela cotação em cache', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+    await deps.cotacoes.salvar({
+      data: '2026-10-30',
+      moedaOrigem: 'USD',
+      moedaDestino: 'BRL',
+      taxaMicros: 5_430_000,
+      fonte: 'PTAX_BCB',
+    });
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo).toMatchObject({
+      rendaPrevistaCents: 3_613_900,
+      cotacaoPrevistaMicros: 5_430_000,
+      cotacaoPrevistaData: '2026-10-30',
+    });
+  });
+
+  it('sem cotação em cache usa a renda base', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo.rendaPrevistaCents).toBe(3_000_000);
+    expect(ciclo.cotacaoPrevistaMicros).toBeNull();
+  });
+
+  it('repositório de cotação fora do ar não impede o ciclo de nascer', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+    deps.cotacoes.ultimaAte = () => Promise.reject(new Error('db fora'));
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo.rendaPrevistaCents).toBe(3_000_000);
   });
 });

@@ -29,6 +29,25 @@ describe('atualizarConfig preserva a renda em moeda de origem', () => {
   });
 });
 
+describe('atualizarConfig com renda em USD', () => {
+  it('grava rendaBaseCents como a líquida em reais derivada da cotação', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04' });
+    await deps.cotacoes.salvar({
+      data: '2026-11-03', moedaOrigem: 'USD', moedaDestino: 'BRL', taxaMicros: 5_430_000, fonte: 'PTAX_BCB',
+    });
+    const { id: _id, ...input } = CONFIG_PADRAO;
+
+    const salva = await atualizarConfig(deps, {
+      ...input,
+      moedaRenda: 'USD',
+      rendaBrutaMoedaOrigemCents: 730_000,
+      impostoEstimadoCents: 350_000,
+    });
+
+    expect(salva.rendaBaseCents).toBe(3_613_900);
+  });
+});
+
 describe('upsertCategoria preserva tipoVerba', () => {
   it('editar sem tipoVerba mantém o valor anterior; criar nasce EXTRA', async () => {
     const deps = criarDeps({ categorias: [{ ...CATEGORIA_VARIAVEL, tipoVerba: 'DIA_A_DIA' }] });
