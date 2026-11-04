@@ -577,7 +577,7 @@ export function ParcelamentoModal({ hoje, categorias, edicao }: ParcelamentoModa
               </tbody>
             </table>
             {simulacao.truncado ? (
-              <p className="mt-2 text-xs text-muted">Simulação mostra só os primeiros 60 meses</p>
+              <p className="mt-2 text-xs text-muted">Simulação não mostra todas as parcelas (limite de 60 meses ou parcelas anteriores ao ciclo atual)</p>
             ) : null}
             {simulacao.alerta ? (
               <p role="status" className="mt-2 text-sm text-negativo">

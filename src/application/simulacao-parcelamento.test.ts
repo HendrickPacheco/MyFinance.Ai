@@ -64,6 +64,12 @@ describe('simularImpactoParcelamento', () => {
     expect(r.truncado).toBe(false);
   });
 
+  it('compra retroativa: parcelas anteriores ao ciclo atual => truncado', async () => {
+    const r = await simularImpactoParcelamento(depsNov(), { ...compra(1_318_164), dataCompra: '2026-10-10' });
+
+    expect(r.truncado).toBe(true);
+  });
+
   it('72 parcelas: horizonte cortado em 60 e truncado true', async () => {
     const r = await simularImpactoParcelamento(depsNov(), {
       ...compra(7_200_000),

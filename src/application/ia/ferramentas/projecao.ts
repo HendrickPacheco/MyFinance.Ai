@@ -11,7 +11,7 @@
 import { formatBRL } from '@/shared/dinheiro';
 import type { Deps } from '@/application/deps';
 import { obterProjecao, type ResultadoProjecao } from '@/application/projecao';
-import { alertaReducaoDiaADia } from '@/application/simulacao-parcelamento';
+import { alertaReducaoDiaADia, horizonteDaCompra, NOTA_TRUNCADO } from '@/application/simulacao-parcelamento';
 import { obterSimulacaoMetaPrazo } from '@/application/meta-prazo';
 import { obterSimulacaoRenda, type CicloSimulacaoRenda } from '@/application/renda-hipotetica';
 import type { CicloProjetado } from '@/domain/finance';
@@ -39,6 +39,8 @@ const ROTULOS = {
     'a parcela NÃO é deduzida da verba variável (D-11): ela consome primeiro os extras ' +
     '(extrasRestante) e só o EXCESSO além dos extras reduz o dia a dia (diaADiaDiario = ' +
     'dia a dia ÷ dias do ciclo). passouAReduzirDiaADia diz se a compra empurrou o dia a dia para baixo',
+  variacaoExtrasRestante:
+    'variacaoExtrasRestante = extrasRestante com compra − sem compra; negativo = a compra consumiu extras',
 } as const;
 
 function cicloParaSaida(ciclo: CicloProjetado): SaidaFerramenta {
@@ -85,9 +87,19 @@ export async function simularCompraParcelada(
   },
 ): Promise<SaidaFerramenta> {
   const dataCompra = argumentos.dataCompra ?? deps.relogio.hoje();
-  const horizonte =
-    argumentos.numCiclos ??
-    Math.min(MAX_HORIZONTE, argumentos.numParcelas + FOLGA_HORIZONTE);
+  const { numCiclos: necessarios, truncado } = horizonteDaCompra(
+    deps.relogio.hoje(),
+    dataCompra,
+    argumentos.numParcelas,
+  );
+  const horizonte = Math.min(
+    MAX_HORIZONTE,
+    Math.max(
+      argumentos.numCiclos ?? 0,
+      necessarios,
+      argumentos.numCiclos == null ? argumentos.numParcelas + FOLGA_HORIZONTE : 0,
+    ),
+  );
 
   const projecao = await obterProjecao(deps, {
     numCiclos: horizonte,
@@ -100,13 +112,20 @@ export async function simularCompraParcelada(
     },
   });
 
-  return montarSaidaCenario(projecao, dataCompra, argumentos.descricao);
+  return montarSaidaCenario(projecao, dataCompra, argumentos.descricao, truncado);
+}
+
+function cicloDepois(ciclos: readonly CicloProjetado[], i: number): CicloProjetado {
+  const c = ciclos[i];
+  if (!c) throw new Error(`Cenário desalinhado: sem ciclo com a compra no índice ${i}.`);
+  return c;
 }
 
 function montarSaidaCenario(
   projecao: ResultadoProjecao,
   dataCompra: string,
   descricao: string,
+  truncado: boolean,
 ): SaidaFerramenta {
   const cenario = projecao.cenario;
   if (!cenario) return { erro: 'A projeção não devolveu o cenário simulado.' };
@@ -125,6 +144,13 @@ function montarSaidaCenario(
     compra: { descricao, dataCompra },
     reduzDiaADia: alerta != null,
     alerta,
+    truncado,
+    ...(alerta == null
+      ? {
+          motivoSemAlerta:
+            'nenhum mês do horizonte teve o dia a dia reduzido' + (truncado ? `. ${NOTA_TRUNCADO}` : ''),
+        }
+      : {}),
     rotulos: ROTULOS,
     premissas: projecao.premissas,
     /** Ciclos que só ficam abaixo do piso POR CAUSA da compra. */
@@ -138,7 +164,7 @@ function montarSaidaCenario(
       passouAReduzirDiaADia: d.passouAReduzirDiaADia,
       ...dinheiros({
         variacaoExtrasRestante: d.extrasRestanteCents,
-        diaADiaDiarioDepois: cenario.ciclos[i]?.diaADiaDiarioCents ?? 0,
+        diaADiaDiarioDepois: cicloDepois(cenario.ciclos, i).diaADiaDiarioCents,
         parcelaAdicionada: d.parcelasComprometidasCents,
         variacaoVerbaLivre: d.verbaLivreCents,
         variacaoVerbaDiariaLivre: d.verbaDiariaLivreCents,

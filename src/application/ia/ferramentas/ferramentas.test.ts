@@ -517,6 +517,25 @@ describe('rótulo de bolso — os três campos de verba (SPEC 13)', () => {
   });
 });
 
+function depsNov(): FakeDeps {
+  return criarDeps({
+    hoje: '2026-11-10',
+    config: { ...CONFIG_PADRAO, pisoDiarioVerbaCents: 15_000, diaRecebimento: 1 },
+    ciclos: [
+      cicloFake({
+        id: 'nov',
+        dataInicio: '2026-11-01',
+        dataFim: '2026-11-30',
+        rendaPrevistaCents: 3_000_000,
+        fixosCents: 488_400,
+        provisaoMensalCents: 0,
+        verbaVariavelCents: 2_511_600,
+        poupancaAlvoCents: 1_800_000,
+      }),
+    ],
+  });
+}
+
 describe('simular_compra_parcelada', () => {
   it('a soma das parcelas adicionadas é exatamente o valor da compra', async () => {
     const saida = await executarFerramenta(depsCompletos(), 'simular_compra_parcelada', {
@@ -534,22 +553,7 @@ describe('simular_compra_parcelada', () => {
   });
 
   it('mês a mês nas duas verbas: parcela consome extras e reduz o dia a dia', async () => {
-    const deps = criarDeps({
-      hoje: '2026-11-10',
-      config: { ...CONFIG_PADRAO, pisoDiarioVerbaCents: 15_000, diaRecebimento: 1 },
-      ciclos: [
-        cicloFake({
-          id: 'nov',
-          dataInicio: '2026-11-01',
-          dataFim: '2026-11-30',
-          rendaPrevistaCents: 3_000_000,
-          fixosCents: 488_400,
-          provisaoMensalCents: 0,
-          verbaVariavelCents: 2_511_600,
-          poupancaAlvoCents: 1_800_000,
-        }),
-      ],
-    });
+    const deps = depsNov();
     const saida = await executarFerramenta(deps, 'simular_compra_parcelada', {
       descricao: 'Notebook',
       valorTotalCents: 1_318_164,
@@ -564,7 +568,50 @@ describe('simular_compra_parcelada', () => {
     expect(saida.alerta).toBe(`Essa compra vai reduzir seu dia a dia para ${formatBRL(8_406)}/dia`);
     expect(impacto[0]?.passouAReduzirDiaADia).toBe(true);
     expect(impacto[0]).toHaveProperty('variacaoExtrasRestanteCents');
-    expect(JSON.stringify(saida.rotulos)).toContain('extras');
+    expect(JSON.stringify(saida.rotulos)).toContain('EXCESSO');
+    expect(JSON.stringify(saida.rotulos)).toContain('negativo = a compra consumiu extras');
+    expect(saida.truncado).toBe(false);
+  });
+
+  it('dataCompra 6 meses à frente: horizonte ancorado na compra, reduz e não trunca', async () => {
+    const saida = await executarFerramenta(depsNov(), 'simular_compra_parcelada', {
+      descricao: 'Notebook',
+      valorTotalCents: 1_318_164,
+      numParcelas: 3,
+      dataCompra: '2027-05-10',
+      numCiclos: null,
+    });
+
+    expect(saida.reduzDiaADia).toBe(true);
+    expect(saida.alerta).not.toBeNull();
+    expect(saida.truncado).toBe(false);
+  });
+
+  it('60 parcelas começando em janeiro (horizonte de 60 corta o fim): truncado true', async () => {
+    const saida = await executarFerramenta(depsNov(), 'simular_compra_parcelada', {
+      descricao: 'Carro',
+      valorTotalCents: 6_000_000,
+      numParcelas: 60,
+
+      dataCompra: '2027-01-10',
+      numCiclos: null,
+    });
+
+    expect(saida.truncado).toBe(true);
+  });
+
+  it('compra que só come extras: sem alerta e com motivoSemAlerta', async () => {
+    const saida = await executarFerramenta(depsNov(), 'simular_compra_parcelada', {
+      descricao: 'Fone',
+      valorTotalCents: 300_000,
+      numParcelas: 3,
+      dataCompra: '2026-11-10',
+      numCiclos: null,
+    });
+
+    expect(saida.reduzDiaADia).toBe(false);
+    expect(saida.alerta).toBeNull();
+    expect(saida.motivoSemAlerta).toContain('nenhum mês do horizonte teve o dia a dia reduzido');
   });
 
   it('usa hoje quando dataCompra vem null', async () => {

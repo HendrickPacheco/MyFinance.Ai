@@ -34,23 +34,37 @@ export function alertaReducaoDiaADia(menorDiaADiaCents: number | null): string |
 // `obterProjecao` aceita no máximo 60 ciclos; parcelamentos vão até 72.
 const MAX_CICLOS = 60;
 
+/**
+ * Horizonte (em ciclos a partir do atual) que cobre a compra inteira. Fatiamento
+ * de string, nunca `new Date(string)`. `truncado` é true iff alguma parcela cai
+ * fora do horizonte: além do limite de 60 ou antes do ciclo atual (compra
+ * retroativa). ponytail: assume ciclo = mês civil; com ciclo mid-month o
+ * +1 de folga cobre o ciclo, mas `truncado` pode errar por uma parcela.
+ */
+export function horizonteDaCompra(
+  hoje: DataCivil,
+  dataCompra: DataCivil,
+  numParcelas: number,
+): { numCiclos: number; truncado: boolean } {
+  const offset =
+    (Number(dataCompra.slice(0, 4)) - Number(hoje.slice(0, 4))) * 12 +
+    Number(dataCompra.slice(5, 7)) -
+    Number(hoje.slice(5, 7));
+  const numCiclos = Math.min(Math.max(offset, 0) + 1 + numParcelas, MAX_CICLOS);
+  const cobertas = Math.max(0, Math.min(numParcelas, numCiclos - offset) - Math.max(0, -offset));
+  return { numCiclos, truncado: cobertas < numParcelas };
+}
+
+export const NOTA_TRUNCADO =
+  'Simulação não mostra todas as parcelas (limite de 60 meses ou parcelas anteriores ao ciclo atual)';
+
 export async function simularImpactoParcelamento(
   deps: Deps,
   input: { descricao: string; valorTotalCents: number; numParcelas: number; dataCompra: DataCivil },
 ): Promise<SimulacaoParcelamento> {
-  // Ciclos entre hoje e a competência da compra (+1 de folga: o ciclo pode
-  // começar no meio do mês). Parcelas anteriores ao ciclo atual não existem
-  // na projeção. Fatiamento de string, nunca `new Date(string)`.
-  const h = deps.relogio.hoje();
-  const offset = Math.max(
-    0,
-    (Number(input.dataCompra.slice(0, 4)) - Number(h.slice(0, 4))) * 12 +
-      Number(input.dataCompra.slice(5, 7)) -
-      Number(h.slice(5, 7)),
-  );
-  const necessarios = offset + 1 + input.numParcelas;
+  const { numCiclos, truncado } = horizonteDaCompra(deps.relogio.hoje(), input.dataCompra, input.numParcelas);
   const { ciclos, cenario } = await obterProjecao(deps, {
-    numCiclos: Math.min(necessarios, MAX_CICLOS),
+    numCiclos,
     cenario: { tipo: 'compraParcelada', ...input },
   });
   if (!cenario) return { meses: [], alerta: null, truncado: false };
@@ -75,7 +89,7 @@ export async function simularImpactoParcelamento(
   });
 
   return {
-    truncado: necessarios > MAX_CICLOS,
+    truncado,
     meses,
     alerta: alertaReducaoDiaADia(menorDiaADia),
   };
