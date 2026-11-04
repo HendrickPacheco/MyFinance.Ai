@@ -82,8 +82,24 @@ function montarCSP(nonce: string, hashScriptProprio: string): string {
   ].join('; ');
 }
 
+/**
+ * A API do agente (feat/agent-api-v1) autentica por `Authorization: Bearer`,
+ * nunca por cookie — exigir o cookie aqui faria todo agente externo ser
+ * redirecionado para `/login` antes de a rota rodar. CSP também não serve a
+ * um cliente JSON, então a saída mais simples é sair ANTES de qualquer coisa
+ * abaixo. A autenticação de verdade é a de `autenticarAgente`
+ * (`src/agent-api/autenticacao.ts`), que roda depois, no runtime Node da
+ * própria rota — este middleware não decide nada sobre o agente, só não
+ * interfere.
+ */
+const PREFIXO_API_AGENTE = '/api/agent/';
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  if (pathname.startsWith(PREFIXO_API_AGENTE)) {
+    return NextResponse.next();
+  }
 
   const nonce = btoa(crypto.randomUUID());
   const csp = montarCSP(nonce, await obterHashAntiFlash());

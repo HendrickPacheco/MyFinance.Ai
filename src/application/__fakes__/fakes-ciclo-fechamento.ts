@@ -62,6 +62,24 @@ import type {
   ImportacaoRepository,
   NovaImportacao,
 } from '@/domain/ports/importacao';
+import {
+  ApiTokenNaoEncontradoError,
+  type ApiTokenRegistro,
+  type ApiTokenRepository,
+  type NovoApiToken,
+} from '@/domain/ports/api-tokens';
+import type {
+  AuditoriaAgentePort,
+  FiltroAuditoriaAgente,
+  NovaAuditoriaAgente,
+  PaginaAuditoriaAgente,
+  RegistroAuditoriaAgente,
+} from '@/domain/ports/auditoria';
+import type {
+  IdempotenciaPort,
+  NovoRegistroIdempotencia,
+  RegistroIdempotenciaSalvo,
+} from '@/domain/ports/idempotencia';
 
 function clone<T>(v: T): T {
   return structuredClone(v);
@@ -766,6 +784,121 @@ export interface FakeDeps extends Deps {
   conversas: FakeConversaRepo;
   /** Concreto para os testes poderem inspecionar rascunhos de importação gravados. */
   importacoes: FakeImportacaoRepo;
+  /** Concreto — API do agente (feat/agent-api-v1). Nenhum teste existente semeia isto. */
+  apiTokens: FakeApiTokenRepo;
+  auditoria: FakeAuditoriaAgenteRepo;
+  idempotencia: FakeIdempotenciaAgenteRepo;
+}
+
+/** Fake em memória de `ApiTokenRepository` — ignora escopo por dono (cada teste tem um só). */
+export class FakeApiTokenRepo implements ApiTokenRepository {
+  private seq = 0;
+
+  constructor(private readonly itens: ApiTokenRegistro[] = []) {}
+
+  async criar(dados: NovoApiToken): Promise<ApiTokenRegistro> {
+    this.seq += 1;
+    const criado: ApiTokenRegistro = {
+      id: `token-${this.seq}`,
+      donoId: 'fake-dono',
+      nome: dados.nome,
+      prefixo: dados.prefixo,
+      hash: dados.hash,
+      escopos: dados.escopos,
+      criadoEm: new Date(),
+      ultimoUsoEm: null,
+      expiraEm: dados.expiraEm,
+      revogadoEm: null,
+    };
+    this.itens.push(criado);
+    return clone(criado);
+  }
+
+  async listar(): Promise<ApiTokenRegistro[]> {
+    return clone(this.itens);
+  }
+
+  async revogar(id: string, revogadoEm: Date): Promise<void> {
+    const item = this.itens.find((t) => t.id === id);
+    if (!item) throw new ApiTokenNaoEncontradoError();
+    item.revogadoEm = revogadoEm;
+  }
+
+  async marcarUsoAgora(id: string, usadoEm: Date): Promise<void> {
+    const item = this.itens.find((t) => t.id === id);
+    if (item) item.ultimoUsoEm = usadoEm;
+  }
+
+  async buscarPorHashParaAutenticar(hash: string): Promise<ApiTokenRegistro | null> {
+    const item = this.itens.find((t) => t.hash === hash);
+    return item ? clone(item) : null;
+  }
+}
+
+/** Fake em memória de `AuditoriaAgentePort`. */
+export class FakeAuditoriaAgenteRepo implements AuditoriaAgentePort {
+  private seq = 0;
+  registros: RegistroAuditoriaAgente[] = [];
+
+  async registrar(entrada: NovaAuditoriaAgente): Promise<void> {
+    this.seq += 1;
+    this.registros.unshift({
+      id: `aud-${this.seq}`,
+      donoId: 'fake-dono',
+      tokenId: entrada.tokenId,
+      metodo: entrada.metodo,
+      rota: entrada.rota,
+      entidade: entrada.entidade,
+      entidadeId: entrada.entidadeId,
+      acao: entrada.acao,
+      antes: entrada.antes ?? null,
+      depois: entrada.depois ?? null,
+      dryRun: entrada.dryRun,
+      criadoEm: new Date(),
+    });
+  }
+
+  async listar(filtro: FiltroAuditoriaAgente): Promise<PaginaAuditoriaAgente> {
+    const filtrados = this.registros.filter(
+      (r) =>
+        (!filtro.entidade || r.entidade === filtro.entidade) &&
+        (!filtro.acao || r.acao === filtro.acao) &&
+        (!filtro.tokenId || r.tokenId === filtro.tokenId) &&
+        (!filtro.de || r.criadoEm >= filtro.de) &&
+        (!filtro.ate || r.criadoEm <= filtro.ate),
+    );
+    const inicio = filtro.cursor ? filtrados.findIndex((r) => r.id === filtro.cursor) + 1 : 0;
+    const pagina = filtrados.slice(inicio, inicio + filtro.limite);
+    const ultimo = pagina.at(-1);
+    const proximoCursor = inicio + filtro.limite < filtrados.length && ultimo ? ultimo.id : null;
+    return { itens: pagina, proximoCursor };
+  }
+}
+
+/** Fake em memória de `IdempotenciaPort`, chaveado por `chave` (um dono só por teste). */
+export class FakeIdempotenciaAgenteRepo implements IdempotenciaPort {
+  private readonly registros = new Map<string, NovoRegistroIdempotencia>();
+
+  async buscar(chave: string): Promise<RegistroIdempotenciaSalvo | null> {
+    const registro = this.registros.get(chave);
+    if (!registro) return null;
+    return {
+      statusHttp: registro.statusHttp,
+      resposta: registro.resposta,
+      hashCorpo: registro.hashCorpo,
+    };
+  }
+
+  async salvar(registro: NovoRegistroIdempotencia): Promise<void> {
+    this.registros.set(registro.chave, registro);
+    await this.removerExpiradas(new Date());
+  }
+
+  async removerExpiradas(agora: Date): Promise<void> {
+    for (const [chave, registro] of this.registros) {
+      if (registro.expiraEm.getTime() < agora.getTime()) this.registros.delete(chave);
+    }
+  }
 }
 
 export const CONFIG_PADRAO: Config = {
@@ -1200,6 +1333,9 @@ export function criarDeps(opcoes: OpcoesFakeDeps = {}): FakeDeps {
     embeddings: opcoes.embeddings,
     conversas: new FakeConversaRepo(),
     importacoes: new FakeImportacaoRepo(),
+    apiTokens: new FakeApiTokenRepo(),
+    auditoria: new FakeAuditoriaAgenteRepo(),
+    idempotencia: new FakeIdempotenciaAgenteRepo(),
   };
 }
 
