@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
 import {
@@ -18,6 +18,13 @@ import { formatBRL, formatarDecimalBR, parseBRL } from '@/shared/dinheiro';
 import { atualizarConfig } from '@/actions/config';
 import type { Config, Conta } from '@/domain/model/entidades';
 import type { RendaLiquida, VerificacaoMetaIrreal } from '@/domain/finance';
+
+/** Vazio ou não numérico NÃO vira 0%: lança e a tela mostra "Confira os valores". */
+function lerPercentual(texto: string): number {
+  const n = Number(texto.trim().replace(',', '.'));
+  if (texto.trim() === '' || Number.isNaN(n)) throw new Error('percentual inválido');
+  return n;
+}
 
 export function ConfigGeral({
   config,
@@ -65,6 +72,11 @@ export function ConfigGeral({
   );
   const [fonteRenda, setFonteRenda] = useState(config.fonteRenda ?? '');
   const usd = moedaRenda === 'USD';
+  // A líquida derivada muda no servidor ao salvar; sem isto o campo (e um
+  // eventual salvamento em BRL) ficaria com o valor de antes do router.refresh().
+  useEffect(() => {
+    setRenda(formatBRL(config.rendaBaseCents));
+  }, [config.rendaBaseCents]);
 
   const bucketsDestino = contas.filter((c) => c.tipo === 'RESERVA' || c.tipo === 'INVESTIMENTO');
 
@@ -89,9 +101,7 @@ export function ConfigGeral({
           ...(usd && {
             rendaBrutaMoedaOrigemCents: parseBRL(brutaUsd),
             impostoEstimadoCents: impostoEmPercent ? null : parseBRL(impostoFixo),
-            impostoEstimadoPercentual: impostoEmPercent
-              ? Number(impostoPercent.replace(',', '.'))
-              : null,
+            impostoEstimadoPercentual: impostoEmPercent ? lerPercentual(impostoPercent) : null,
             fonteRenda: fonteRenda.trim() || null,
           }),
         };
@@ -206,6 +216,11 @@ export function ConfigGeral({
           {usd ? (
             <p className="mt-1 text-xs text-faint">
               Derivada da renda em dólar, do imposto e da cotação; é recalculada ao salvar.
+            </p>
+          ) : null}
+          {!usd && config.moedaRenda === 'USD' ? (
+            <p className="mt-1 text-xs text-atencao">
+              Ao salvar em reais, este valor passa a ser manual e deixa de acompanhar o dólar.
             </p>
           ) : null}
         </div>
