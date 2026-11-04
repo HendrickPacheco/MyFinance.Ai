@@ -1,90 +1,78 @@
 /**
- * Metas traçadas vs. realizado — o outro furo da planilha do usuário
- * (briefing do pedido). D-16: a meta (`poupancaAlvoCents`) é OBJETIVO, não
- * dinheiro já reservado — ela não é descontada da verba. A poupança do mês é a
- * sobra projetada da verba (`poupancaProjetadaCents`), e a meta é só a régua
- * do progresso. Nada aqui pode chamar a meta de "reservado": o dinheiro dela
- * continua disponível para gastar até o ciclo fechar. Barra de
- * progresso reaproveita o padrão visual do `RitmoCard` (SPEC 7 /
- * src/components/ciclo/ritmo-card.tsx).
+ * Meta vs. guardado de verdade. D-16: a meta (`poupancaAlvoCents`) é OBJETIVO,
+ * não dinheiro separado — ela não é descontada da verba. O guardado é a
+ * variação real do patrimônio desde o início do ciclo (D3), estimada enquanto
+ * o ciclo corre. Nada aqui pode chamar a meta de "reservado".
  */
+import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent, Badge } from '@/components/ui';
 import { formatBRL } from '@/shared/dinheiro';
 import { cn } from '@/lib/cn';
 import type { ResumoMetas } from '@/application/dashboard-tipos';
 
-export function MetasPainel({ metas }: { metas: ResumoMetas }) {
-  const {
-    poupancaAlvoCents,
-    poupancaProjetadaCents,
-    sobraDaVerbaCents,
-    progressoPercentual,
-    metaPoupancaPercent,
-    avisoMetaIrreal,
-  } = metas;
+function Celula({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-xs text-muted">{rotulo}</p>
+      <p className="tnum mt-0.5 text-lg font-medium text-fg">{children}</p>
+    </div>
+  );
+}
 
-  const atingida = progressoPercentual >= 100;
-  const percentualBarra = Math.min(Math.max(progressoPercentual, 0), 100);
+export function MetasPainel({ metas }: { metas: ResumoMetas }) {
+  const { poupancaAlvoCents, guardadoCents, diferencaCents, percentualReal } = metas;
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle>Poupança do mês</CardTitle>
-        {metaPoupancaPercent !== null ? (
-          <Badge tone="neutral">{metaPoupancaPercent}% da renda</Badge>
+        {metas.metaPoupancaPercent !== null ? (
+          <Badge tone="neutral">{metas.metaPoupancaPercent}% da renda</Badge>
         ) : null}
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs text-muted">Meta do mês</p>
-            <p className="tnum mt-0.5 text-lg font-medium text-fg">
-              {formatBRL(poupancaAlvoCents)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted">Projeção de poupança</p>
-            <p
-              className={cn(
-                'tnum mt-0.5 text-lg font-medium',
-                atingida ? 'text-positivo' : 'text-fg',
-              )}
-            >
-              {formatBRL(poupancaProjetadaCents)}
-            </p>
-          </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Celula rotulo="Meta">{formatBRL(poupancaAlvoCents)}</Celula>
+          <Celula rotulo="Guardado de verdade (estimado)">
+            {guardadoCents !== null ? formatBRL(guardadoCents) : '—'}
+          </Celula>
+          <Celula rotulo="Diferença">
+            {diferencaCents !== null ? (
+              <span className={diferencaCents >= 0 ? 'text-positivo' : 'text-negativo'}>
+                {formatBRL(diferencaCents)}
+              </span>
+            ) : (
+              '—'
+            )}
+          </Celula>
+          <Celula rotulo="% real">
+            {percentualReal !== null ? `${percentualReal.toFixed(1)}%` : '—'}
+          </Celula>
         </div>
 
-        <p className="mt-2 text-xs text-muted">
-          A meta não sai da sua verba: ela é o objetivo. O que você vai poupar é o que sobrar da
-          verba no fechamento — projeção de{' '}
-          <span className={cn('tnum', sobraDaVerbaCents < 0 ? 'text-negativo' : 'text-fg')}>
-            {formatBRL(sobraDaVerbaCents)}
-          </span>{' '}
-          no ritmo de gasto atual. Para bater a meta de {formatBRL(poupancaAlvoCents)}, gaste
-          menos que isso.
-        </p>
-
-        <div className="mt-4">
-          <div className="mb-1 flex items-center justify-between text-xs text-muted">
-            <span>Progresso</span>
-            <span className="tnum">{percentualBarra.toFixed(0)}%</span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
-            <div
-              className={cn('h-full rounded-full transition-all', atingida ? 'bg-positivo' : 'bg-accent')}
-              style={{ width: `${percentualBarra}%` }}
-            />
-          </div>
-        </div>
-
-        {avisoMetaIrreal?.irreal ? (
-          <p className="mt-3 text-sm text-atencao">
-            A meta atual gera uma verba de {formatBRL(avisoMetaIrreal.verbaDiariaCents)} por dia,
-            abaixo do piso de {formatBRL(avisoMetaIrreal.pisoDiarioCents)}. Vale revisar a meta na
-            configuração.
+        {guardadoCents === null && metas.motivoSemGuardado ? (
+          <p className="mt-3 text-sm text-muted">
+            {metas.motivoSemGuardado}{' '}
+            <Link href="/patrimonio" className="text-accent underline-offset-2 hover:underline">
+              Registrar patrimônio
+            </Link>
+          </p>
+        ) : metas.fonte === 'SALDO_CONTAS' ? (
+          <p className="mt-2 text-xs text-muted">
+            Estimado pelo que as transações do ciclo moveram nas contas; um snapshot de patrimônio deixa o número exato.
           </p>
         ) : null}
+
+        <p className="mt-2 text-xs text-muted">
+          A meta não sai da sua verba: ela é o objetivo. No ritmo de gasto atual, a verba fecha o
+          ciclo com sobra de{' '}
+          <span className={cn('tnum', metas.sobraDaVerbaCents < 0 ? 'text-negativo' : 'text-fg')}>
+            {formatBRL(metas.sobraDaVerbaCents)}
+          </span>
+          .
+        </p>
+
+        {metas.avisoPiso ? <p className="mt-3 text-sm text-atencao">{metas.avisoPiso.texto}</p> : null}
       </CardContent>
     </Card>
   );

@@ -39,6 +39,13 @@ model Config {
   // Piso diário configurável (regra 12): abaixo disso, a meta de poupança é
   // considerada irreal. Aviso de CONFIGURAÇÃO apenas — nunca piso no cálculo do teto.
   pisoDiarioVerbaCents Int      @default(1500)
+  // Renda em moeda estrangeira (BRL | USD). Em USD, `rendaBaseCents` segue sendo
+  // a renda LÍQUIDA em BRL derivada; estes campos guardam a origem.
+  moedaRenda                 String  @default("BRL")
+  rendaBrutaMoedaOrigemCents Int?
+  impostoEstimadoCents       Int?
+  impostoEstimadoPercentual  Float? // percentual: único float tolerado
+  fonteRenda                 String?
   updatedAt            DateTime @updatedAt
 }
 
@@ -144,6 +151,7 @@ model Categoria {
   icone      String?
   cor        String?
   ordem      Int         @default(0)
+  tipoVerba  String      @default("EXTRA") // DIA_A_DIA | EXTRA
   transacoes Transacao[]
 
   // Arestas fechadas na G0. Antes disto, `Parcelamento.categoriaId` era uma
@@ -195,6 +203,8 @@ model Transacao {
 
   cicloId   String?
   ciclo     Ciclo?   @relation(fields: [cicloId], references: [id])
+  // Sobrescreve Categoria.tipoVerba neste lançamento (DIA_A_DIA | EXTRA).
+  tipoVerbaOverride String?
   createdAt DateTime @default(now())
 
   // Procedência do lançamento (I1 da importação de fatura). "MANUAL" é todo
@@ -294,6 +304,18 @@ model Ciclo {
   fechadoEm                       String?
   sobraCents                      Int?
   observacao                      String?
+  // Poupança real medida no fechamento e renda real em moeda de origem.
+  poupancaRealCents               Int?
+  patrimonioInicialCents          Int?
+  patrimonioFinalCents            Int?
+  fonteMedicaoPoupanca            String? // SNAPSHOT | SALDO_CONTAS | MANUAL
+  rendaRealBrutaMoedaOrigemCents  Int?
+  cotacaoRealUsadaMicros          Int?
+  impostoRealCents                Int?
+  rendaRealLiquidaCents           Int?
+  // Cotação congelada usada na renda prevista.
+  cotacaoPrevistaMicros           Int?
+  cotacaoPrevistaData             String?
   transacoes                      Transacao[]
   pagamentosFixos                 PagamentoFixo[]
 
@@ -684,4 +706,18 @@ model ItemImportado {
   @@unique([donoId, importacaoId, ordem])
   @@index([donoId, chaveDedup])
   @@index([importacaoId])
+}
+
+// Cotação PTAX/manual. Dado PÚBLICO: tabela GLOBAL, deliberadamente SEM `donoId`
+// e sem relação com Usuario (decisão D4). Taxa em micros (taxa x 1.000.000).
+model Cotacao {
+  id            String   @id @default(cuid())
+  data          String
+  moedaOrigem   String
+  moedaDestino  String
+  taxaMicros    Int
+  fonte         String // PTAX_BCB | MANUAL
+  createdAt     DateTime @default(now())
+
+  @@unique([data, moedaOrigem, moedaDestino])
 }

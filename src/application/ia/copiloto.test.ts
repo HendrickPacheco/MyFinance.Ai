@@ -389,6 +389,12 @@ describe('🔴 auditoria do prompt de sistema', () => {
     }
   });
 
+  it('D-16: só fixos e provisão são comprometidos; a meta de poupança é objetivo dentro da verba', () => {
+    expect(PROMPT_SISTEMA).not.toMatch(/poupança[^.\n]*(comprometid|reservad)/i);
+    expect(PROMPT_SISTEMA).toMatch(/Custo fixo e provisão já estão comprometidos/);
+    expect(PROMPT_SISTEMA).toMatch(/meta de poupança é objetivo/i);
+  });
+
   it('proíbe aritmética explicitamente', () => {
     expect(PROMPT_SISTEMA).toMatch(/NUNCA faça conta/);
     expect(PROMPT_SISTEMA).toMatch(/não some, não subtraia/i);

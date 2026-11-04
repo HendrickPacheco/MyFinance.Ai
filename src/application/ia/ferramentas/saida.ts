@@ -7,6 +7,7 @@
  * a string. `formatBRL` é a única fonte de formatação (CLAUDE.md regra 1).
  */
 import { formatBRL } from '@/shared/dinheiro';
+import type { DivisaoVerba } from '@/domain/finance';
 
 export type SaidaFerramenta = Record<string, unknown>;
 
@@ -65,6 +66,42 @@ export function composicaoDaVerba(params: {
         'verbaVariavel − metaDePoupancaNaoDescontada. Nunca diga que a meta já está ' +
         'descontada da verba, e nunca some a meta de volta à verba: ela já está lá.',
     },
+  };
+}
+
+/**
+ * Split da verba em "dia a dia" e "extras" (D1), com as partes e a fórmula
+ * (D-15). O split é só uma VISÃO de `verbaVariavel`: a meta continua dentro da
+ * verba (D-16) — "gastável" é o máximo que dá para gastar e ainda bater a meta,
+ * não um dinheiro separado.
+ */
+export function composicaoDasVerbas(
+  p: DivisaoVerba & {
+    verbaVariavelCents: number;
+    poupancaAlvoCents: number;
+    pisoDiarioCents: number;
+    diasCiclo: number;
+  },
+): SaidaFerramenta {
+  return {
+    formula: 'gastável = verba − meta; dia a dia = min(piso × dias, max(gastável, 0)); ' +
+      'extras = gastável − dia a dia; faltaParaPiso = piso × dias − dia a dia',
+    diasCiclo: p.diasCiclo,
+    ...dinheiros({
+      verbaVariavel: p.verbaVariavelCents,
+      metaDePoupanca: p.poupancaAlvoCents,
+      pisoDiario: p.pisoDiarioCents,
+      gastavel: p.gastavelCents,
+      diaADia: p.diaADiaCents,
+      extras: p.extrasCents,
+      faltaParaPiso: p.faltaParaPisoCents,
+    }),
+    metaDePoupancaJaEstaNaVerba: false,
+    observacao:
+      'A meta de poupança é OBJETIVO, não dedução (D-16): o dinheiro dela continua dentro de ' +
+      'verbaVariavel. "gastável" é o máximo que o dono pode gastar e ainda bater a meta. "dia a dia" ' +
+      'cobre o piso diário; "extras" é o resto e pode ser negativo. Toda parcela consome EXTRAS ' +
+      '(não é descontada da verba); o que passar dos extras reduz o dia a dia.',
   };
 }
 

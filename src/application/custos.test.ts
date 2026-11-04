@@ -474,6 +474,7 @@ describe('achado 2 — fakes de salvar() não podem colidir em id vazio', () => 
       icone: null,
       cor: null,
       ordem: 1,
+      tipoVerba: 'EXTRA' as const,
     };
 
     const primeira = await repo.salvar({ id: '', ...categoriaBase });

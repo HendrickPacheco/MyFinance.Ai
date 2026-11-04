@@ -14,6 +14,7 @@ import type { Deps } from './deps';
 import type {
   Categoria,
   Ciclo,
+  Config,
   ProvisaoAnual,
   Transacao,
 } from '@/domain/model/entidades';
@@ -28,10 +29,8 @@ import {
   extratoTransacoesVariaveis,
   somarProgramadosCents,
   ordenarCategoriasPorUso,
-  projetarPoupanca,
   formatarPeriodoCiclo,
   totalPorClasseCents,
-  verificarMetaIrreal,
   fixoVencido,
   resumoPagamentosCents,
   provisaoMensalCents,
@@ -42,7 +41,19 @@ import {
   type FatiaCategoriaAgregada,
   type FatiaMetodoAgregada,
   type LinhaTransacaoVariavelCalc,
+  type ResultadoTeto,
+  type RendaLiquida,
+  rendaEfetivaCents,
+  rendaLiquidaPrevista,
+  estimarPoupancaEmCurso,
+  compararComMeta,
+  explicarPiso,
+  projetarDiaADiaDiarioCents,
 } from '@/domain/finance';
+import { consumoVerbasDoCiclo } from './hoje';
+import { lerInsumosPoupanca } from './fechamento';
+import { efeitosDe } from './transacoes';
+import { formatBRL } from '@/shared/dinheiro';
 import { garantirCicloAtual, lerCicloAtual, type CicloResolvido } from './ciclos';
 import { obterPatrimonio } from './patrimonio';
 import type {
@@ -53,6 +64,7 @@ import type {
   OpcaoCategoria,
   ResumoMetas,
   ResumoPatrimonioPainel,
+  ResumoRendaCiclo,
 } from './dashboard-tipos';
 
 const PATRIMONIO_VAZIO: ResumoPatrimonioPainel = {
@@ -79,9 +91,10 @@ async function montar(
 ): Promise<EstadoPainel> {
   const hoje = deps.relogio.hoje();
 
-  const [transacoes, categorias] = await Promise.all([
+  const [transacoes, categorias, config] = await Promise.all([
     deps.transacoes.listarPorCiclo(ciclo.id),
     deps.categorias.listar(),
+    deps.config.obter(),
   ]);
 
   // Custos fixos (com pago/vencido) e parcelas (com pago) precisam existir
@@ -99,9 +112,14 @@ async function montar(
   const calc = paraCalculoCategorizado(transacoes, categorias);
   const gastoVariavelSemParcelas = gastoVariavelSemParcelasCents(calc, hoje);
 
+  const pisoDiarioCents = config?.pisoDiarioVerbaCents ?? 0;
+  const consumo = consumoVerbasDoCiclo({ ciclo, transacoes, categorias, pisoDiarioCents, hoje });
+
   const kpis = montarKpis({
     ciclo,
     hoje,
+    tetoDiaADia: consumo.tetoDiaADia,
+    podeGastarHojeCents: consumo.podeGastarHojeCents,
     calc,
     gastoVariavelSemParcelas,
     custosFixos,
@@ -117,8 +135,14 @@ async function montar(
   const [provisoes, patrimonio, metas] = await Promise.all([
     montarProvisoes(deps),
     montarResumoPatrimonio(deps),
-    montarMetas(deps, ciclo, kpis),
+    montarMetas(deps, { ciclo, kpis, config, hoje }),
   ]);
+
+  const verbas = {
+    ...consumo,
+    pisoDiarioCents,
+    diaADiaPorDiaCents: projetarDiaADiaDiarioCents(consumo, consumo.extrasUsadoCents, kpis.diasTotais),
+  };
 
   return {
     hoje,
@@ -153,6 +177,8 @@ async function montar(
     transacoesVariaveisProgramadasCents: somarProgramadosCents(transacoesVariaveis),
     patrimonio,
     metas,
+    verbas,
+    renda: montarRenda(ciclo, config),
     pendenciaFechamento,
   };
 }
@@ -177,12 +203,15 @@ function paraCalculoCategorizado(
 function montarKpis(params: {
   ciclo: Ciclo;
   hoje: string;
+  /** "Posso gastar hoje" é SEMPRE o dia a dia (D1) — um número só no app inteiro. */
+  tetoDiaADia: ResultadoTeto;
+  podeGastarHojeCents: number;
   calc: readonly (TransacaoCategorizada & { parcelamentoId: string | null })[];
   gastoVariavelSemParcelas: number;
   custosFixos: readonly LinhaCustoFixo[];
   parcelados: readonly LinhaParcelada[];
 }): KpisPainel {
-  const { ciclo, hoje, calc, gastoVariavelSemParcelas, custosFixos, parcelados } = params;
+  const { ciclo, hoje, tetoDiaADia, podeGastarHojeCents, calc, gastoVariavelSemParcelas, custosFixos, parcelados } = params;
 
   const teto = calcularTeto({
     verbaVariavelCents: ciclo.verbaVariavelCents,
@@ -211,7 +240,7 @@ function montarKpis(params: {
   // valor usado em `transacoesVariaveisTotalCents`, para nunca divergir).
   const parceladosCicloCents = somarParceladosCents(calc);
   const custosFixosCents = ciclo.fixosCents;
-  const rendaPrevistaCents = ciclo.rendaPrevistaCents;
+  const rendaPrevistaCents = rendaEfetivaCents(ciclo);
   const totalGastosCents = custosFixosCents + parceladosCicloCents + gastoVariavelSemParcelas;
 
   // RASTREAMENTO puro (SPEC regra 5): soma o que falta pagar/já foi pago só
@@ -223,9 +252,11 @@ function montarKpis(params: {
   );
 
   return {
-    restaHojeCents: teto.restaHojeCents,
-    tetoHojeCents: teto.tetoHojeCents,
-    gastoHojeCents: teto.gastoHojeCents,
+    restaHojeCents: tetoDiaADia.restaHojeCents,
+    podeGastarHojeCents,
+    tetoHojeCents: tetoDiaADia.tetoHojeCents,
+    gastoHojeCents: tetoDiaADia.gastoHojeCents,
+    saldoDiaADiaCents: tetoDiaADia.saldoDisponivelCents,
     verbaVariavelCents: ciclo.verbaVariavelCents,
     gastoRealizadoCents,
     saldoDisponivelCents,
@@ -430,47 +461,183 @@ async function montarResumoPatrimonio(deps: Deps): Promise<ResumoPatrimonioPaine
 function metasVazias(ciclo: Ciclo): ResumoMetas {
   return {
     poupancaAlvoCents: ciclo.poupancaAlvoCents,
-    poupancaProjetadaCents: 0,
+    guardadoCents: null,
+    estimado: true,
+    fonte: null,
+    motivoSemGuardado: 'Não foi possível ler o patrimônio agora.',
+    diferencaCents: null,
+    percentualReal: null,
     sobraDaVerbaCents: 0,
-    progressoPercentual: 0,
     metaPoupancaPercent: null,
-    avisoMetaIrreal: null,
+    avisoPiso: null,
   };
 }
 
-async function montarMetas(deps: Deps, ciclo: Ciclo, kpis: KpisPainel): Promise<ResumoMetas> {
+/**
+ * Guardado em curso do ciclo (D3) — o mesmo número no painel e no copiloto.
+ * Sem snapshot no ciclo, a estimativa é razão contra razão (D-13): o efeito
+ * líquido das transações DESTE ciclo nas contas do patrimônio, pelo mesmo
+ * `efeitosDe` que move `Conta.saldoCents`.
+ */
+export async function estimarGuardadoDoCiclo(
+  deps: Deps,
+  ciclo: Pick<Ciclo, 'id' | 'dataInicio'>,
+  hoje: string,
+): Promise<ReturnType<typeof estimarPoupancaEmCurso>> {
+  const [insumos, contas, transacoes] = await Promise.all([
+    lerInsumosPoupanca(deps, ciclo),
+    deps.contas.listar(),
+    deps.transacoes.listarPorCiclo(ciclo.id),
+  ]);
+  const doPatrimonio = new Set(contas.filter((c) => c.incluiPatrimonio && !c.arquivada).map((c) => c.id));
+  const ajustes = transacoes.flatMap((t) => efeitosDe(t, 1).contas).filter((a) => doPatrimonio.has(a.contaId));
+  // Nenhum lançamento tocou conta de patrimônio (o caso comum: despesa sem conta,
+  // razão só muda no fechamento) → 0 seria um número confiante sem sinal (D-14).
+  const deltaLedgerCicloCents =
+    ajustes.length === 0 ? null : ajustes.reduce((total, a) => total + a.deltaCents, 0);
+  return estimarPoupancaEmCurso({
+    dataInicio: ciclo.dataInicio,
+    hoje,
+    snapshots: insumos.snapshots,
+    deltaLedgerCicloCents,
+    patrimonioFinalCicloAnteriorCents: insumos.patrimonioFinalCicloAnteriorCents,
+  });
+}
+
+/**
+ * Meta vs. guardado de verdade (D3): variação do patrimônio desde o início do
+ * ciclo, estimada pelo snapshot mais recente ou, sem ele, pelo efeito das
+ * transações do ciclo nas contas do patrimônio. A meta é só a régua (D-16).
+ */
+async function montarMetas(
+  deps: Deps,
+  p: { ciclo: Ciclo; kpis: KpisPainel; config: Config | null; hoje: string },
+): Promise<ResumoMetas> {
+  const { ciclo, kpis, config, hoje } = p;
   try {
-    const config = await deps.config.obter();
+    const estimativa = await estimarGuardadoDoCiclo(deps, ciclo, hoje);
 
-    // D-16: projeção = sobra PROJETADA pelo ritmo real (nunca saldo
-    // ainda-não-gasto — ver `projetarPoupanca`, domain/finance/agregacoes.ts).
-    // O alvo entra só como denominador do progresso.
-    const { poupancaProjetadaCents, progressoPercentual } = projetarPoupanca({
+    const base = {
       poupancaAlvoCents: ciclo.poupancaAlvoCents,
-      sobraProjetadaCents: kpis.sobraProjetadaCents,
-    });
-
-    const avisoMetaIrreal = config
-      ? verificarMetaIrreal({
-          verbaVariavelCents: ciclo.verbaVariavelCents,
-          poupancaAlvoCents: ciclo.poupancaAlvoCents,
-          diasCiclo: kpis.diasTotais,
-          pisoDiarioCents: config.pisoDiarioVerbaCents,
-        })
-      : null;
-
-    return {
-      poupancaAlvoCents: ciclo.poupancaAlvoCents,
-      poupancaProjetadaCents,
+      estimado: true as const,
       sobraDaVerbaCents: kpis.sobraProjetadaCents,
-      progressoPercentual,
       metaPoupancaPercent: config?.metaPoupancaPercent ?? null,
-      avisoMetaIrreal,
+      avisoPiso: config
+        ? explicarPiso({
+            verbaVariavelCents: ciclo.verbaVariavelCents,
+            poupancaAlvoCents: ciclo.poupancaAlvoCents,
+            parcelasCents: kpis.parceladosCicloCents,
+            pisoDiarioCents: config.pisoDiarioVerbaCents,
+            diasCiclo: kpis.diasTotais,
+            rendaPrevistaCents: ciclo.rendaPrevistaCents,
+            rendaRealLiquidaCents: ciclo.rendaRealLiquidaCents,
+          })
+        : null,
+    };
+
+    if (estimativa.realCents === null) {
+      return {
+        ...base,
+        guardadoCents: null,
+        fonte: null,
+        motivoSemGuardado: estimativa.motivo,
+        diferencaCents: null,
+        percentualReal: null,
+      };
+    }
+    const comparacao = compararComMeta(estimativa.realCents, ciclo.poupancaAlvoCents);
+    return {
+      ...base,
+      guardadoCents: estimativa.realCents,
+      fonte: estimativa.fonte,
+      motivoSemGuardado: null,
+      diferencaCents: comparacao.diferencaCents,
+      percentualReal: comparacao.percentual,
     };
   } catch (erro) {
     console.error('[dashboard] falha ao montar metas:', erro);
     return metasVazias(ciclo);
   }
+}
+
+/**
+ * Renda do ciclo (D8): a real confirmada quando houver, senão a prevista. A
+ * decomposição sai de `rendaLiquidaPrevista` com uma Config sintética (como a
+ * confirmação faz) — uma implementação só da conta e do texto.
+ */
+export function montarRenda(ciclo: Ciclo, config: Config | null): ResumoRendaCiclo {
+  const liquidaCents = rendaEfetivaCents(ciclo);
+  const confirmada = ciclo.rendaRealLiquidaCents != null;
+  const semImposto = { impostoEstimadoCents: null, impostoEstimadoPercentual: null };
+  const emReais = {
+    ...semImposto,
+    moedaRenda: 'BRL' as const,
+    rendaBaseCents: liquidaCents,
+    rendaBrutaMoedaOrigemCents: null,
+  };
+
+  let renda: Pick<RendaLiquida, 'moeda' | 'brutaOrigemCents' | 'taxaMicros' | 'dataCotacao' | 'decomposicao'> & {
+    impostoCents: number | null;
+  };
+  try {
+    if (confirmada) {
+      const { rendaRealBrutaMoedaOrigemCents: bruta, cotacaoRealUsadaMicros: taxa } = ciclo;
+      renda =
+        bruta != null && taxa != null
+          ? rendaLiquidaPrevista(
+              {
+                ...semImposto,
+                moedaRenda: 'USD',
+                rendaBaseCents: liquidaCents,
+                rendaBrutaMoedaOrigemCents: bruta,
+                impostoEstimadoCents: ciclo.impostoRealCents ?? 0,
+              },
+              // A renda real não guarda a data da cotação; `dataCotacao` sai null abaixo.
+              { data: ciclo.dataFim, taxaMicros: taxa },
+            )
+          : rendaLiquidaPrevista(emReais, null);
+    } else if (ciclo.cotacaoPrevistaMicros == null || ciclo.cotacaoPrevistaData == null) {
+      // Moeda vem do CICLO: sem cotação congelada ele nasceu em reais.
+      renda = rendaLiquidaPrevista(emReais, null);
+    } else {
+      const recalculada = config
+        ? rendaLiquidaPrevista(
+            { ...config, moedaRenda: 'USD', rendaBaseCents: liquidaCents },
+            { data: ciclo.cotacaoPrevistaData, taxaMicros: ciclo.cotacaoPrevistaMicros },
+          )
+        : null;
+      // D-15: a decomposição só vale se reproduz o líquido congelado. Config
+      // editada no meio do ciclo (bruta/imposto/moeda) a deixaria mentindo.
+      renda =
+        recalculada && recalculada.taxaMicros !== null && recalculada.liquidaCents === liquidaCents
+          ? recalculada
+          : {
+              moeda: 'USD' as const,
+              brutaOrigemCents: null,
+              taxaMicros: null,
+              dataCotacao: null,
+              impostoCents: null,
+              decomposicao:
+                `${formatBRL(liquidaCents)} (renda congelada no início do ciclo; a configuração mudou ` +
+                `desde então — "Recalcular renda deste ciclo" atualiza)`,
+            };
+    }
+  } catch (erro) {
+    // Config de imposto inválida (RangeError): degrada para o líquido em reais.
+    console.error('[dashboard] falha ao decompor a renda do ciclo:', erro);
+    renda = rendaLiquidaPrevista(emReais, null);
+  }
+
+  return {
+    moeda: renda.moeda,
+    brutaOrigemCents: renda.brutaOrigemCents,
+    taxaMicros: renda.taxaMicros,
+    dataCotacao: confirmada ? null : renda.dataCotacao,
+    impostoCents: renda.impostoCents,
+    liquidaCents,
+    confirmada,
+    decomposicao: renda.decomposicao,
+  };
 }
 
 async function montarParcelados(

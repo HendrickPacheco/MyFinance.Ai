@@ -95,10 +95,12 @@ function StatTilePagamento({
 export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
   const {
     restaHojeCents,
+    podeGastarHojeCents,
     tetoHojeCents,
     gastoHojeCents,
     gastoRealizadoCents,
     saldoDisponivelCents,
+    saldoDiaADiaCents,
     diasRestantes,
     diasTotais,
     emRecuperacao,
@@ -123,10 +125,10 @@ export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
             {emRecuperacao ? <Badge tone="negativo">recuperação</Badge> : null}
           </div>
           <p className={cn('tnum mt-3 text-6xl font-bold leading-none tracking-tight', cor)}>
-            {formatBRL(Math.max(restaHojeCents, 0))}
+            {formatBRL(podeGastarHojeCents)}
           </p>
           <p className="mt-4 tnum text-sm text-muted">
-            {formatBRL(saldoDisponivelCents)} restantes ÷ {diasRestantes}{' '}
+            {formatBRL(saldoDiaADiaCents)} do dia a dia ÷ {diasRestantes}{' '}
             {diasRestantes === 1 ? 'dia' : 'dias'} de ciclo
           </p>
           <p className="mt-1 tnum text-sm text-muted">
@@ -135,12 +137,12 @@ export function KpiFaixa({ kpis }: { kpis: KpisPainel }) {
           {aviso ? <p className={cn('mt-2 text-sm', cor)}>{aviso}</p> : null}
         </div>
 
-        {/* Destaques do mês — mesma verba variável do herói, outro ângulo. */}
+        {/* Destaques do mês — a verba variável TOTAL; o herói é só o dia a dia. */}
         <StatTile
-          rotulo="Ainda posso gastar no mês"
+          rotulo="Resta no ciclo (verba total)"
           valor={formatBRL(saldoDisponivelCents)}
           tone={saldoDisponivelCents < 0 ? 'negativo' : undefined}
-          nota="Verba variável restante, para manter a meta de poupança"
+          nota="Dia a dia + extras; a meta de poupança ainda está dentro dela"
         />
         <StatTile rotulo="Já gastei" valor={formatBRL(gastoRealizadoCents)} />
         <StatTile

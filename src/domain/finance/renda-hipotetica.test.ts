@@ -26,6 +26,10 @@ function cicloFake(over: Partial<CicloProjetado> = {}): CicloProjetado {
     verbaDiariaLivreCents: 0,
     rolloverRecebidoCents: 0,
     abaixoDoPiso: false,
+    diaADiaCents: 0,
+    extrasCents: 0,
+    extrasRestanteCents: 0,
+    diaADiaDiarioCents: 0,
     ...over,
   };
 }

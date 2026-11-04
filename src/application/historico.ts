@@ -5,7 +5,7 @@
  * historico.ts`, que este arquivo só alimenta com dados já lidos.
  */
 import type { Deps } from './deps';
-import { montarHistorico, type CicloHistoricoInput, type LancamentoHistorico } from '@/domain/finance';
+import { montarHistorico, rendaEfetivaCents, type CicloHistoricoInput, type LancamentoHistorico } from '@/domain/finance';
 import type { EstadoHistorico } from './historico-tipos';
 import { indexarGrupoCategoria, paraCalculo } from './mapeamento';
 
@@ -60,8 +60,9 @@ export async function obterHistorico(deps: Deps): Promise<EstadoHistorico> {
       cicloId: ciclo.id,
       dataInicio: ciclo.dataInicio,
       dataFim: ciclo.dataFim,
-      rendaPrevistaCents: ciclo.rendaPrevistaCents,
+      rendaCicloCents: rendaEfetivaCents(ciclo),
       rendaRealizadaCents: ciclo.rendaRealizadaCents,
+      poupancaRealCents: ciclo.poupancaRealCents,
       fixosCents: ciclo.fixosCents,
       provisaoMensalCents: ciclo.provisaoMensalCents,
       poupancaAlvoCents: ciclo.poupancaAlvoCents,

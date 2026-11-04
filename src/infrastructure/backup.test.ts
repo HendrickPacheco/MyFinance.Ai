@@ -15,6 +15,7 @@ import {
   BackupSalvaguardaError,
   BackupVersaoIncompativelError,
 } from './backup';
+import { toConfig, toCategoria } from '@/infrastructure/repositories/mappers';
 import { contemValorMonetario } from '@/domain/memoria/regras';
 
 vi.mock('node:fs', () => ({
@@ -658,6 +659,56 @@ describe('round-trip (critério de aceite 9): export -> zerado -> import', () =>
     expect(original?.pagoEm).toBe('2026-07-31');
     expect(typeof original?.pagoEm).toBe('string');
     expect(estorno?.pagoEm).toBeNull();
+  });
+
+  it('preserva moedaRenda, tipoVerba, tipoVerbaOverride e poupancaRealCents no round-trip', async () => {
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+    Object.assign(primeiraLinha(db.tabelas.config), {
+      moedaRenda: 'USD',
+      rendaBrutaMoedaOrigemCents: 730_000,
+      impostoEstimadoCents: 350_000,
+    });
+    Object.assign(primeiraLinha(db.tabelas.categoria), { tipoVerba: 'DIA_A_DIA' });
+    const tx = db.tabelas.transacao.find((t) => t.id === 'tx-original');
+    Object.assign(tx ?? {}, { tipoVerbaOverride: 'EXTRA' });
+    Object.assign(primeiraLinha(db.tabelas.ciclo), {
+      poupancaRealCents: 425_000,
+      cotacaoPrevistaMicros: 5_430_000,
+      cotacaoPrevistaData: '2026-07-05',
+    });
+
+    const payload = await exportarTudo(db.client, DONO_TESTE);
+    zerar(db.tabelas);
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
+
+    expect(primeiraLinha(db.tabelas.config)).toMatchObject({
+      moedaRenda: 'USD',
+      rendaBrutaMoedaOrigemCents: 730_000,
+      impostoEstimadoCents: 350_000,
+    });
+    expect(primeiraLinha(db.tabelas.categoria).tipoVerba).toBe('DIA_A_DIA');
+    expect(db.tabelas.transacao.find((t) => t.id === 'tx-original')?.tipoVerbaOverride).toBe('EXTRA');
+    expect(primeiraLinha(db.tabelas.ciclo)).toMatchObject({
+      poupancaRealCents: 425_000,
+      cotacaoPrevistaMicros: 5_430_000,
+      cotacaoPrevistaData: '2026-07-05',
+    });
+  });
+
+  it('importa backup antigo sem os campos novos', async () => {
+    // O fake não aplica `@default` do banco; o mapper é quem garante o fallback.
+    const db = criarFakePrisma();
+    semear(db.tabelas);
+
+    const payload = await exportarTudo(db.client, DONO_TESTE);
+    zerar(db.tabelas);
+    await importarTudo(db.client, JSON.parse(JSON.stringify(payload)), DONO_TESTE);
+
+    const config = toConfig(primeiraLinha(db.tabelas.config) as unknown as Parameters<typeof toConfig>[0]);
+    const categoria = toCategoria(primeiraLinha(db.tabelas.categoria) as unknown as Parameters<typeof toCategoria>[0]);
+    expect(config.moedaRenda).toBe('BRL');
+    expect(categoria.tipoVerba).toBe('EXTRA');
   });
 
   it('grava a salvaguarda em JSON (./data) ANTES de qualquer escrita destrutiva', async () => {

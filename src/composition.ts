@@ -23,6 +23,8 @@ import { criarProvedorIA } from '@/infrastructure/ia/provedor-ia';
 import { criarEmbeddingIA } from '@/infrastructure/ia/embeddings';
 import { PrismaMemoriaRepository } from '@/infrastructure/repositories/prisma-memoria';
 import { PrismaConversaRepository } from '@/infrastructure/repositories/prisma-conversa';
+import { PrismaCotacaoRepository } from '@/infrastructure/repositories/prisma-cotacao';
+import { PtaxBcb } from '@/infrastructure/cambio/ptax-bcb';
 import { PrismaImportacaoRepository } from '@/infrastructure/repositories/prisma-importacao';
 import {
   PrismaUsuarioRepository,
@@ -88,6 +90,8 @@ function construirRepositoriosDoDono(db: PrismaClient, donoId: string) {
     apiTokens: new PrismaApiTokenRepository(db, donoId),
     auditoria: new PrismaAuditoriaAgenteRepository(db, donoId),
     idempotencia: new PrismaIdempotenciaAgenteRepository(db, donoId),
+    // Cotação USD→BRL é dado público (PTAX), tabela global sem dono (D4).
+    cotacoes: new PrismaCotacaoRepository(db),
   };
 }
 
@@ -161,6 +165,7 @@ export async function criarDeps(): Promise<Deps> {
     ...repositorios,
     // Com IA_HABILITADA=false o campo fica `undefined` e nenhuma tela muda.
     ia: iaHabilitada() ? criarProvedorIA() : undefined,
+    fonteCotacao: new PtaxBcb(),
     // Independente de `ia`: sem OPENAI_MODEL_EMBEDDING a memória continua
     // gravando e listando, só a busca semântica degrada.
     embeddings: embeddingHabilitado() ? criarEmbeddingIA() : undefined,
@@ -202,6 +207,7 @@ export async function criarDepsAgente(donoId: string, db: PrismaClient): Promise
     rateLimiter,
     relogio,
     ...repositorios,
+    fonteCotacao: new PtaxBcb(),
     ia: iaHabilitada() ? criarProvedorIA() : undefined,
     embeddings: embeddingHabilitado() ? criarEmbeddingIA() : undefined,
   };

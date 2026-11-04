@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { formatBRL, parseBRL, ratearCents, somaCents, assertCentavos } from './dinheiro';
+import {
+  formatBRL,
+  parseBRL,
+  ratearCents,
+  somaCents,
+  assertCentavos,
+  formatUSD,
+  formatTaxaBRL,
+  converterParaBrlCents,
+} from './dinheiro';
 
 describe('formatBRL', () => {
   it('formata centavos como moeda BRL', () => {
@@ -63,5 +72,33 @@ describe('assertCentavos', () => {
   it('aceita inteiros', () => {
     expect(assertCentavos(0)).toBe(0);
     expect(assertCentavos(-100)).toBe(-100);
+  });
+});
+
+describe('formatUSD / formatTaxaBRL / converterParaBrlCents', () => {
+  const n = (s: string) => s.replace(/\u00a0/g, ' ');
+  it('formatUSD', () => {
+    expect(n(formatUSD(730_000))).toBe('US$ 7.300,00');
+  });
+  it('formatTaxaBRL: mín. 2, máx. 4 casas', () => {
+    expect(n(formatTaxaBRL(5_430_000))).toBe('R$ 5,43');
+    expect(n(formatTaxaBRL(5_430_600))).toBe('R$ 5,4306');
+    expect(n(formatTaxaBRL(5_430_500))).toBe('R$ 5,4305');
+  });
+  it('converterParaBrlCents faz floor e protege overflow', () => {
+    expect(converterParaBrlCents(730_000, 5_430_000)).toBe(3_963_900);
+    expect(converterParaBrlCents(1, 5_430_000)).toBe(5);
+    expect(() => converterParaBrlCents(Number.MAX_SAFE_INTEGER, 5_430_000)).toThrow(RangeError);
+  });
+});
+
+describe('parseTaxaMicros', () => {
+  it('converte sem deriva de float e rejeita >6 casas', async () => {
+    const { parseTaxaMicros } = await import('./dinheiro');
+    expect(parseTaxaMicros('5,43')).toBe(5_430_000);
+    expect(parseTaxaMicros('5.4306')).toBe(5_430_600);
+    expect(parseTaxaMicros('4,35')).toBe(4_350_000);
+    expect(() => parseTaxaMicros('5,1234567')).toThrow();
+    expect(() => parseTaxaMicros('abc')).toThrow();
   });
 });

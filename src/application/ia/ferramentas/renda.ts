@@ -28,6 +28,7 @@ import {
   obterDestinoDaRendaSomenteLeitura,
   type LinhaCategoriaDestinoView,
 } from '@/application/destino-da-renda';
+import { rendaEfetivaCents } from '@/domain/finance';
 import { dinheiros, composicaoDaVerba, semCicloAberto, type SaidaFerramenta } from './saida';
 
 const ORIGEM = 'domain/finance/destino-da-renda.ts: destinoDaRenda';
@@ -111,7 +112,7 @@ export async function paraOndeVaiARenda(
     // desde a D-16 ela NÃO é, e continua dentro do disponível.
     avisoDeVocabularioInterno: AVISO_VOCABULARIO_INTERNO,
     ...composicaoDaVerba({
-      rendaPrevistaCents: estado.ciclo.rendaPrevistaCents,
+      rendaPrevistaCents: rendaEfetivaCents(estado.ciclo),
       poupancaAlvoCents: estado.ciclo.poupancaAlvoCents,
       fixosCents: estado.ciclo.fixosCents,
       provisaoMensalCents: estado.ciclo.provisaoMensalCents,

@@ -70,6 +70,9 @@ async function ConfigPageConteudo() {
         avisoMetaIrreal={estado.avisoMetaIrreal}
         sugestaoRendaVariavelCents={estado.sugestaoRendaVariavelCents}
         sugestaoMetaPoupancaCents={estado.sugestaoMetaPoupancaCents}
+        sugestaoMetaPorPoupancaReal={estado.sugestaoMetaPorPoupancaReal}
+        rendaPrevistaUsd={estado.rendaPrevistaUsd}
+        avisoCotacao={estado.avisoCotacao}
       />
       <ListaContas contas={estado.contas} />
 

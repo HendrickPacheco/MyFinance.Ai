@@ -19,6 +19,7 @@
  * congelado duplicaria o dinheiro.
  */
 import { gastoVariavelSemParcelasCents, somarParceladosCents } from './agregacoes';
+import { compararComMeta, mediaPoupancaReal } from './poupanca-real';
 import { formatarMesAno } from '@/shared/data';
 import type { DataCivil } from '@/shared/data';
 import type { TransacaoCalc } from './tipos';
@@ -37,14 +38,19 @@ const MOTIVOS = {
     'Este é o primeiro mês do histórico consultado — não há mês anterior para comparar.',
   MES_ANTERIOR_SEM_SNAPSHOT:
     'O mês anterior da série não tem snapshot de patrimônio registrado até o fim dele, então a variação não pode ser calculada.',
+  SEM_POUPANCA_REAL:
+    'Ciclo fechado antes da medição de poupança real — não havia patrimônio inicial e final registrados para calculá-la.',
 } as const;
 
 export interface CicloHistoricoInput {
   cicloId: string;
   dataInicio: DataCivil;
   dataFim: DataCivil;
-  rendaPrevistaCents: number;
+  /** Renda EFETIVA do ciclo (`rendaEfetivaCents`: real líquida ?? prevista) — não a prevista crua. */
+  rendaCicloCents: number;
   rendaRealizadaCents: number | null;
+  /** Poupança real medida no fechamento; `null` em ciclo anterior à medição. */
+  poupancaRealCents: number | null;
   fixosCents: number;
   provisaoMensalCents: number;
   poupancaAlvoCents: number;
@@ -73,11 +79,11 @@ export interface MesHistorico {
   rotulo: string;
 
   // ── Entradas ────────────────────────────────────────────────────────────
-  /** Congelada quando o ciclo nasceu. */
-  rendaPrevistaCents: number;
+  /** Renda efetiva do ciclo (real líquida confirmada, senão a prevista congelada). */
+  rendaCicloCents: number;
   /** Input do dono no fechamento. `null` se o ciclo fechou sem informá-la. */
   rendaRealizadaCents: number | null;
-  /** `rendaRealizadaCents ?? rendaPrevistaCents` — a base de todo percentual. */
+  /** `rendaRealizadaCents ?? rendaCicloCents` — a base de todo percentual. */
   rendaConsideradaCents: number;
   /**
    * Transações tipo RENDA lançadas dentro do ciclo (extra, bônus, reembolso).
@@ -105,6 +111,12 @@ export interface MesHistorico {
   /** Congelada no ciclo. Dinheiro guardado. */
   provisaoCents: number;
   poupancaAlvoCents: number;
+  /** Poupança real medida; `null` se o ciclo não a tem (ver `motivoSemPoupancaReal`). */
+  poupancaRealCents: number | null;
+  /** `poupancaRealCents − poupancaAlvoCents`; `null` sem poupança real. */
+  diferencaMetaCents: number | null;
+  /** D-14: por que `poupancaRealCents` é `null`. */
+  motivoSemPoupancaReal: string | null;
   /** Verba variável GRAVADA. Fonte de verdade, não recomposta pelas partes. */
   verbaVariavelCents: number;
   /** Sobra apurada no fechamento (pode ser negativa). `null` se não apurada. */
@@ -148,6 +160,8 @@ export interface EstadoHistorico {
   /** Do mais ANTIGO para o mais novo (ordem do eixo x dos gráficos). */
   serie: readonly MesHistorico[];
   totais: TotaisHistorico;
+  /** Média da poupança real dos 3/6/12 ciclos mais recentes (ignora ciclos sem medição). */
+  mediasPoupancaReal: { ciclos: 3 | 6 | 12; mediaCents: number | null; ciclosConsiderados: number }[];
 }
 
 function montarMes(ciclo: CicloHistoricoInput, anteriorPatrimonioFimCents: number | null, ehPrimeiro: boolean): MesHistorico {
@@ -157,7 +171,7 @@ function montarMes(ciclo: CicloHistoricoInput, anteriorPatrimonioFimCents: numbe
     (soma, l) => (l.tipo === 'RENDA' ? soma + l.valorCents : soma),
     0,
   );
-  const rendaConsideradaCents = ciclo.rendaRealizadaCents ?? ciclo.rendaPrevistaCents;
+  const rendaConsideradaCents = ciclo.rendaRealizadaCents ?? ciclo.rendaCicloCents;
   const gastoTotalCents = ciclo.fixosCents + parceladosCents + variavelCents;
 
   const patrimonioFimCents = ciclo.patrimonioFimCents;
@@ -179,7 +193,7 @@ function montarMes(ciclo: CicloHistoricoInput, anteriorPatrimonioFimCents: numbe
     dataInicio: ciclo.dataInicio,
     dataFim: ciclo.dataFim,
     rotulo: formatarMesAno(ciclo.dataInicio),
-    rendaPrevistaCents: ciclo.rendaPrevistaCents,
+    rendaCicloCents: ciclo.rendaCicloCents,
     rendaRealizadaCents: ciclo.rendaRealizadaCents,
     rendaConsideradaCents,
     entradasExtraCents,
@@ -189,6 +203,12 @@ function montarMes(ciclo: CicloHistoricoInput, anteriorPatrimonioFimCents: numbe
     gastoTotalCents,
     provisaoCents: ciclo.provisaoMensalCents,
     poupancaAlvoCents: ciclo.poupancaAlvoCents,
+    poupancaRealCents: ciclo.poupancaRealCents,
+    diferencaMetaCents:
+      ciclo.poupancaRealCents === null
+        ? null
+        : compararComMeta(ciclo.poupancaRealCents, ciclo.poupancaAlvoCents).diferencaCents,
+    motivoSemPoupancaReal: ciclo.poupancaRealCents === null ? MOTIVOS.SEM_POUPANCA_REAL : null,
     verbaVariavelCents: ciclo.verbaVariavelCents,
     sobraCents: ciclo.sobraCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -218,9 +238,14 @@ export function montarHistorico(ciclos: readonly CicloHistoricoInput[]): EstadoH
   const totalVariavelCents = serie.reduce((s, m) => s + m.variavelCents, 0);
   const totalPoupancaAlvoCents = serie.reduce((s, m) => s + m.poupancaAlvoCents, 0);
 
+  const meses = [...serie].reverse();
   return {
     serie,
-    meses: [...serie].reverse(),
+    meses,
+    mediasPoupancaReal: ([3, 6, 12] as const).map((ciclos) => ({
+      ciclos,
+      ...mediaPoupancaReal(meses, ciclos),
+    })),
     totais: {
       meses: serie.length,
       rendaCents: totalRendaCents,

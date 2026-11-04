@@ -14,6 +14,8 @@ import { ComprometidoLista } from './comprometido-lista';
 import { ParceladosLista } from './parcelados-lista';
 import { PatrimonioPainel } from './patrimonio-painel';
 import { MetasPainel } from './metas-painel';
+import { VerbasPainel } from './verbas-painel';
+import { RendaCicloCard } from './renda-ciclo-card';
 import { PendenciaAlerta } from './pendencia-alerta';
 import type { EstadoPainel } from '@/application/dashboard-tipos';
 
@@ -27,6 +29,11 @@ export function PainelDesktop({ estado }: { estado: EstadoPainel }) {
       </div>
 
       <KpiFaixa kpis={estado.kpis} />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <VerbasPainel verbas={estado.verbas} />
+        <RendaCicloCard renda={estado.renda} />
+      </div>
 
       {/* `LancamentoPainel` não renderiza nada visível na página — é o modal
           de "Lançar gasto" (aberto pelo botão da sidebar ou pelo atalho "N").

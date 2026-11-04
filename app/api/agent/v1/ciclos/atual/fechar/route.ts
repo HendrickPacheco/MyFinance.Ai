@@ -22,6 +22,7 @@ export const POST = rotaEscrita(
       snapshotData: body.snapshotData,
       snapshotItens: body.snapshotItens,
       observacao: body.observacao ?? null,
+      poupancaRealManualCents: body.poupancaRealManualCents ?? null,
     });
 
     const config = await deps.config.obter();

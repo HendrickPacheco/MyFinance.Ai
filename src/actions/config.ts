@@ -33,7 +33,8 @@ import type { Categoria, Conta } from '@/domain/model/entidades';
 /** Data civil "YYYY-MM-DD" (regra 2 do CLAUDE.md — nunca DateTime). */
 const dataCivil = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve estar em YYYY-MM-DD');
 
-const configSchema = z.object({
+const configSchema = z
+  .object({
   rendaBaseCents: z.number().int().nonnegative(),
   rendaVariavel: z.boolean(),
   diaRecebimento: z.number().int().min(1).max(31),
@@ -44,7 +45,22 @@ const configSchema = z.object({
   destinoSobra: z.enum(['RESERVA', 'INVESTIMENTO', 'ROLLOVER']),
   destinoSobraContaId: z.string().nullish(),
   pisoDiarioVerbaCents: z.number().int().positive().default(1500),
-});
+  // Renda em moeda de origem: omitido = preserva o gravado; null = limpa.
+  moedaRenda: z.enum(['BRL', 'USD']).optional(),
+  rendaBrutaMoedaOrigemCents: z.number().int().nonnegative().nullable().optional(),
+  impostoEstimadoCents: z.number().int().nonnegative().nullable().optional(),
+  impostoEstimadoPercentual: z
+    .number()
+    .min(0, 'O imposto em % deve ficar entre 0 e 100.')
+    .max(100, 'O imposto em % deve ficar entre 0 e 100.')
+    .nullable()
+    .optional(),
+  fonteRenda: z.string().max(60, 'A fonte aceita no máximo 60 caracteres.').nullable().optional(),
+  })
+  .refine((c) => c.impostoEstimadoCents == null || c.impostoEstimadoPercentual == null, {
+    message: 'Informe o imposto em valor fixo OU em porcentagem, não os dois.',
+    path: ['impostoEstimadoPercentual'],
+  });
 
 export async function atualizarConfig(
   input: z.input<typeof configSchema>,
@@ -65,6 +81,16 @@ export async function atualizarConfig(
       destinoSobra: d.destinoSobra,
       destinoSobraContaId: d.destinoSobraContaId ?? null,
       pisoDiarioVerbaCents: d.pisoDiarioVerbaCents,
+      // Só repassa o que veio: `undefined` sobrescreveria o valor preservado.
+      ...(d.moedaRenda !== undefined && { moedaRenda: d.moedaRenda }),
+      ...(d.rendaBrutaMoedaOrigemCents !== undefined && {
+        rendaBrutaMoedaOrigemCents: d.rendaBrutaMoedaOrigemCents,
+      }),
+      ...(d.impostoEstimadoCents !== undefined && { impostoEstimadoCents: d.impostoEstimadoCents }),
+      ...(d.impostoEstimadoPercentual !== undefined && {
+        impostoEstimadoPercentual: d.impostoEstimadoPercentual,
+      }),
+      ...(d.fonteRenda !== undefined && { fonteRenda: d.fonteRenda }),
     });
     revalidatePath('/config');
     revalidatePath('/');
@@ -256,6 +282,8 @@ const categoriaSchema = z.object({
   icone: z.string().nullish(),
   cor: z.string().nullish(),
   ordem: z.number().int().default(0),
+  // Omitido = preserva (edição) ou nasce EXTRA (criação).
+  tipoVerba: z.enum(['DIA_A_DIA', 'EXTRA']).optional(),
 });
 
 export async function upsertCategoria(

@@ -386,6 +386,9 @@ describe('serializarProjecaoCsv', () => {
       abaixoDoPiso: false,
       terminamNesteCiclo: [],
       totalComposicaoCents: 700_000, // 4 faixas, sem a meta (D-16)
+      diaADiaCents: 0,
+      extrasRestanteCents: 0,
+      diaADiaDiarioCents: 0,
       ...patch,
     };
   }
@@ -394,7 +397,7 @@ describe('serializarProjecaoCsv', () => {
     const [cabecalho] = serializarProjecaoCsv([linhaFake()]).split('\r\n');
 
     expect(cabecalho).toBe(
-      'Mês;Início;Fim;Renda prevista;Custos fixos;Provisão;Meta de poupança;Parcelas;Verba livre;Variação da verba livre;Total das faixas;Abaixo do piso;Termina neste ciclo',
+      'Mês;Início;Fim;Renda prevista;Custos fixos;Provisão;Meta de poupança;Parcelas;Verba livre;Variação da verba livre;Total das faixas;Dia a dia;Dia a dia por dia;Extras restantes;Abaixo do piso;Termina neste ciclo',
     );
   });
 
@@ -403,7 +406,7 @@ describe('serializarProjecaoCsv', () => {
 
     // A coluna da meta continua na MESMA posição (7ª), só mudou de nome; e o
     // total das faixas é 7000,00 — a meta não entra nele (D-16).
-    expect(linha).toBe('jul/26;2026-07-05;2026-08-04;8000,00;2000,00;100,00;1000,00;500,00;4400,00;;7000,00;não;');
+    expect(linha).toBe('jul/26;2026-07-05;2026-08-04;8000,00;2000,00;100,00;1000,00;500,00;4400,00;;7000,00;0,00;0,00;0,00;não;');
   });
 
   it('deixa a variação vazia no primeiro ciclo e preenchida nos demais', () => {
@@ -453,5 +456,20 @@ describe('serializarProjecaoCsv', () => {
 
   it('sem linhas, devolve só o cabeçalho', () => {
     expect(serializarProjecaoCsv([]).includes('\r\n')).toBe(false);
+  });
+});
+
+describe('serializarProjecaoCsv — colunas de verba dia a dia e extras', () => {
+  it('cabeçalho e células de Dia a dia e Extras restantes', () => {
+    const base = {
+      inicio: '2026-07-05', fim: '2026-08-04', periodoLabel: 'jul/26',
+      rendaPrevistaCents: 0, fixosCents: 0, provisaoMensalCents: 0, poupancaAlvoCents: 0,
+      parcelasComprometidasCents: 0, verbaLivreCents: 0, deltaVerbaLivreCents: null,
+      abaixoDoPiso: false, terminamNesteCiclo: [], totalComposicaoCents: 0,
+      diaADiaCents: 300_000, extrasRestanteCents: -12_345, diaADiaDiarioCents: 10_000,
+    } satisfies LinhaProjecao;
+    const [cab, linha] = serializarProjecaoCsv([base]).split('\r\n');
+    expect(cab).toContain('Dia a dia;Dia a dia por dia;Extras restantes');
+    expect(linha).toContain('3000,00;100,00;-123,45');
   });
 });

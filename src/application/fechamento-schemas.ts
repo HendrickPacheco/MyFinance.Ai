@@ -28,6 +28,8 @@ export const fechamentoSchema = z.object({
     )
     .optional(),
   observacao: z.string().max(300).nullish(),
+  // Pode ser NEGATIVA: o patrimônio pode ter caído no ciclo.
+  poupancaRealManualCents: z.number().int().nullish(),
 });
 
 export type FechamentoInputBruto = z.input<typeof fechamentoSchema>;

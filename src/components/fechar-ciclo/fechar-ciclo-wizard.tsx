@@ -6,22 +6,23 @@
  * troca para o resumo e dá `router.refresh()` para as demais telas (Hoje,
  * Ciclo, Análise) refletirem o fechamento.
  */
-import { useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatarDataCurta } from '@/shared/data';
 import { Button } from '@/components/ui';
-import { fecharCiclo } from '@/actions/ciclos';
+import { fecharCiclo, previaPoupancaRealAction } from '@/actions/ciclos';
 import type { ResultadoFechamento, ResumoFechamento } from '@/application/fechamento';
 import { PassoIndicador } from './passo-indicador';
 import { PassoRenda } from './passo-renda';
 import { TransacoesSemCategoria } from './transacoes-sem-categoria';
 import { PassoSobra } from './passo-sobra';
 import { PatrimonioEditor, type LinhaPatrimonio } from './patrimonio-editor';
+import { PassoPoupancaReal, type PreviaPoupanca } from './passo-poupanca-real';
 import { PassoMeta } from './passo-meta';
 import { ResumoFinal } from './resumo-final';
 
-const TOTAL_PASSOS = 5;
+const TOTAL_PASSOS = 6;
 
 export function FecharCicloWizard({
   resumo,
@@ -34,7 +35,7 @@ export function FecharCicloWizard({
   const { ciclo } = resumo;
 
   const [passo, setPasso] = useState(1);
-  const [rendaRealizadaCents, setRendaRealizadaCents] = useState(ciclo.rendaPrevistaCents);
+  const [rendaRealizadaCents, setRendaRealizadaCents] = useState(resumo.rendaSugeridaCents);
   const [snapshotData, setSnapshotData] = useState(hojeISO);
   const [linhas, setLinhas] = useState<LinhaPatrimonio[]>(() =>
     resumo.itensPatrimonioSugeridos.map((item, indice) => ({
@@ -46,6 +47,54 @@ export function FecharCicloWizard({
     })),
   );
   const [aceitarNovaMeta, setAceitarNovaMeta] = useState(resumo.metaSugeridaCents != null);
+
+  const [manual, setManual] = useState({ ativo: false, negativo: false, cents: 0 });
+  const [previa, setPrevia] = useState<PreviaPoupanca | null>(resumo);
+  const [carregandoPrevia, setCarregandoPrevia] = useState(false);
+  // Falha da prévia bloqueia o passo 5: sem ela, um valor manual venceria em
+  // silêncio o snapshot digitado. O dono tenta de novo.
+  const [erroPrevia, setErroPrevia] = useState<string | null>(null);
+  const [tentativaPrevia, setTentativaPrevia] = useState(0);
+
+  const snapshotTotalCents = useMemo(() => {
+    const preenchidas = linhas.filter((l) => l.nome.trim().length > 0);
+    return preenchidas.length > 0 ? preenchidas.reduce((s, l) => s + l.valorCents, 0) : null;
+  }, [linhas]);
+
+  // A prévia do resumo só enxerga snapshots salvos; com o snapshot do fim digitado
+  // no passo 4, a medição vem do servidor (mesma regra do fechamento, sem gravar).
+  useEffect(() => {
+    if (passo !== 5) return;
+    setErroPrevia(null);
+    if (snapshotTotalCents == null) {
+      // Uma prévia cancelada (voltou ao passo 4 e limpou as linhas) não chega ao finally.
+      setCarregandoPrevia(false);
+      setPrevia(resumo);
+      return;
+    }
+    let cancelado = false;
+    setCarregandoPrevia(true);
+    previaPoupancaRealAction(ciclo.id, snapshotData, snapshotTotalCents)
+      .then((r) => {
+        if (cancelado) return;
+        setPrevia(r.ok ? r.data : null);
+        setErroPrevia(r.ok ? null : r.erro);
+      })
+      .catch(() => {
+        if (cancelado) return;
+        setPrevia(null);
+        setErroPrevia('Não foi possível calcular a poupança real agora.');
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoPrevia(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [passo, snapshotTotalCents, snapshotData, ciclo.id, resumo, tentativaPrevia]);
+
+  const medida = previa?.medicao.status === 'MEDIDA';
+  const poupancaPronta = !carregandoPrevia && erroPrevia === null && (medida || manual.ativo);
 
   const [pending, startTransition] = useTransition();
   const [erro, setErro] = useState<string | null>(null);
@@ -75,6 +124,8 @@ export function FecharCicloWizard({
           resumo.metaSugeridaCents != null && aceitarNovaMeta ? resumo.metaSugeridaCents : null,
         snapshotData: snapshotItens.length > 0 ? snapshotData : undefined,
         snapshotItens: snapshotItens.length > 0 ? snapshotItens : undefined,
+        poupancaRealManualCents:
+          !medida && manual.ativo ? (manual.negativo ? -manual.cents : manual.cents) : null,
       });
       if (r.ok) {
         setResultado(r.data);
@@ -102,6 +153,7 @@ export function FecharCicloWizard({
       {passo === 1 ? (
         <PassoRenda
           rendaPrevistaCents={ciclo.rendaPrevistaCents}
+          rendaSugeridaCents={resumo.rendaSugeridaCents}
           valueCents={rendaRealizadaCents}
           onChangeCents={setRendaRealizadaCents}
         />
@@ -127,6 +179,20 @@ export function FecharCicloWizard({
       ) : null}
 
       {passo === 5 ? (
+        <PassoPoupancaReal
+          metaCents={ciclo.poupancaAlvoCents}
+          previa={previa}
+          carregando={carregandoPrevia}
+          alertaGastoBaixo={resumo.alertaGastoBaixo}
+          manual={manual}
+          onChangeManual={setManual}
+          onRegistrarSnapshot={() => setPasso(4)}
+          erro={erroPrevia}
+          onTentarDeNovo={() => setTentativaPrevia((n) => n + 1)}
+        />
+      ) : null}
+
+      {passo === 6 ? (
         <PassoMeta
           metaAtualCents={ciclo.poupancaAlvoCents}
           metaSugeridaCents={resumo.metaSugeridaCents}
@@ -142,11 +208,11 @@ export function FecharCicloWizard({
           <ChevronLeft size={18} /> Voltar
         </Button>
         {passo < TOTAL_PASSOS ? (
-          <Button type="button" onClick={avancar} disabled={pending}>
+          <Button type="button" onClick={avancar} disabled={pending || (passo === 5 && !poupancaPronta)}>
             Continuar <ChevronRight size={18} />
           </Button>
         ) : (
-          <Button type="button" onClick={submeter} disabled={pending}>
+          <Button type="button" onClick={submeter} disabled={pending || !poupancaPronta}>
             {pending ? 'Fechando…' : 'Fechar ciclo'}
           </Button>
         )}

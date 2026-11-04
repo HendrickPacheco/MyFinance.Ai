@@ -116,7 +116,7 @@ describe('dryRun — simula e NUNCA grava', () => {
     const req = montarRequisicao('POST', '/ciclos/atual/fechar', {
       token,
       query: { dryRun: 'true' },
-      body: { rendaRealizadaCents: 3_000_000 },
+      body: { rendaRealizadaCents: 3_000_000, poupancaRealManualCents: 0 },
     });
     const { status, corpo } = await chamarJson<{ dryRun: boolean; ciclo: { fechado: boolean } }>(
       fecharPost,

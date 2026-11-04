@@ -11,6 +11,7 @@
 import { formatBRL } from '@/shared/dinheiro';
 import type { Deps } from '@/application/deps';
 import { obterProjecao, type ResultadoProjecao } from '@/application/projecao';
+import { alertaReducaoDiaADia, horizonteDaCompra, NOTA_TRUNCADO } from '@/application/simulacao-parcelamento';
 import { obterSimulacaoMetaPrazo } from '@/application/meta-prazo';
 import { obterSimulacaoRenda, type CicloSimulacaoRenda } from '@/application/renda-hipotetica';
 import type { CicloProjetado } from '@/domain/finance';
@@ -34,6 +35,12 @@ const ROTULOS = {
     'dela está aqui dentro e só vira poupança se sobrar',
   parcelasComprometidas: 'já preso em parcelas que caem no ciclo',
   verbaLivre: 'o que sobra de verdade: verba variável menos parcelas',
+  parcelaEExtras:
+    'a parcela NÃO é deduzida da verba variável (D-11): ela consome primeiro os extras ' +
+    '(extrasRestante) e só o EXCESSO além dos extras reduz o dia a dia (diaADiaDiario = ' +
+    'dia a dia ÷ dias do ciclo). passouAReduzirDiaADia diz se a compra empurrou o dia a dia para baixo',
+  variacaoExtrasRestante:
+    'variacaoExtrasRestante = extrasRestante com compra − sem compra; negativo = a compra consumiu extras',
 } as const;
 
 function cicloParaSaida(ciclo: CicloProjetado): SaidaFerramenta {
@@ -48,6 +55,9 @@ function cicloParaSaida(ciclo: CicloProjetado): SaidaFerramenta {
       parcelasComprometidas: ciclo.parcelasComprometidasCents,
       verbaLivre: ciclo.verbaLivreCents,
       verbaDiariaLivre: ciclo.verbaDiariaLivreCents,
+      diaADia: ciclo.diaADiaCents,
+      extrasRestante: ciclo.extrasRestanteCents,
+      diaADiaDiario: ciclo.diaADiaDiarioCents,
     }),
   };
 }
@@ -77,9 +87,19 @@ export async function simularCompraParcelada(
   },
 ): Promise<SaidaFerramenta> {
   const dataCompra = argumentos.dataCompra ?? deps.relogio.hoje();
-  const horizonte =
-    argumentos.numCiclos ??
-    Math.min(MAX_HORIZONTE, argumentos.numParcelas + FOLGA_HORIZONTE);
+  const { numCiclos: necessarios, truncado } = horizonteDaCompra(
+    deps.relogio.hoje(),
+    dataCompra,
+    argumentos.numParcelas,
+  );
+  const horizonte = Math.min(
+    MAX_HORIZONTE,
+    Math.max(
+      argumentos.numCiclos ?? 0,
+      necessarios,
+      argumentos.numCiclos == null ? argumentos.numParcelas + FOLGA_HORIZONTE : 0,
+    ),
+  );
 
   const projecao = await obterProjecao(deps, {
     numCiclos: horizonte,
@@ -92,13 +112,20 @@ export async function simularCompraParcelada(
     },
   });
 
-  return montarSaidaCenario(projecao, dataCompra, argumentos.descricao);
+  return montarSaidaCenario(projecao, dataCompra, argumentos.descricao, truncado);
+}
+
+function cicloDepois(ciclos: readonly CicloProjetado[], i: number): CicloProjetado {
+  const c = ciclos[i];
+  if (!c) throw new Error(`Cenário desalinhado: sem ciclo com a compra no índice ${i}.`);
+  return c;
 }
 
 function montarSaidaCenario(
   projecao: ResultadoProjecao,
   dataCompra: string,
   descricao: string,
+  truncado: boolean,
 ): SaidaFerramenta {
   const cenario = projecao.cenario;
   if (!cenario) return { erro: 'A projeção não devolveu o cenário simulado.' };
@@ -107,8 +134,23 @@ function montarSaidaCenario(
     .filter((d) => d.passouAFicarAbaixoDoPiso)
     .map((d) => d.inicio);
 
+  // Mesmo critério da simulação de tela (Task 16): menor dia a dia/dia entre os meses afetados.
+  const afetados = cenario.delta.flatMap((d, i) =>
+    d.passouAReduzirDiaADia && cenario.ciclos[i] ? [cenario.ciclos[i].diaADiaDiarioCents] : [],
+  );
+  const alerta = alertaReducaoDiaADia(afetados.length ? Math.min(...afetados) : null);
+
   return {
     compra: { descricao, dataCompra },
+    reduzDiaADia: alerta != null,
+    alerta,
+    truncado,
+    ...(alerta == null
+      ? {
+          motivoSemAlerta:
+            'nenhum mês do horizonte teve o dia a dia reduzido' + (truncado ? `. ${NOTA_TRUNCADO}` : ''),
+        }
+      : {}),
     rotulos: ROTULOS,
     premissas: projecao.premissas,
     /** Ciclos que só ficam abaixo do piso POR CAUSA da compra. */
@@ -116,10 +158,13 @@ function montarSaidaCenario(
     apertaOOrcamento: ciclosQuePassamAFicarApertados.length > 0,
     ciclosSemACompra: projecao.ciclos.map(cicloParaSaida),
     ciclosComACompra: cenario.ciclos.map(cicloParaSaida),
-    impactoPorCiclo: cenario.delta.map((d) => ({
+    impactoPorCiclo: cenario.delta.map((d, i) => ({
       inicio: d.inicio,
       passouAFicarAbaixoDoPiso: d.passouAFicarAbaixoDoPiso,
+      passouAReduzirDiaADia: d.passouAReduzirDiaADia,
       ...dinheiros({
+        variacaoExtrasRestante: d.extrasRestanteCents,
+        diaADiaDiarioDepois: cicloDepois(cenario.ciclos, i).diaADiaDiarioCents,
         parcelaAdicionada: d.parcelasComprometidasCents,
         variacaoVerbaLivre: d.verbaLivreCents,
         variacaoVerbaDiariaLivre: d.verbaDiariaLivreCents,

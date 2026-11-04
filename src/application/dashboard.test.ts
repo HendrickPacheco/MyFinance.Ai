@@ -17,6 +17,8 @@ import {
   em,
   CATEGORIA_VARIAVEL,
   CATEGORIA_FIXA,
+  CONFIG_PADRAO,
+  contaFake,
   type FakeDeps,
 } from './__fakes__/fakes-ciclo-fechamento';
 import type { CustoFixo } from '@/domain/model/entidades';
@@ -382,5 +384,188 @@ describe('obterEstadoPainel — parcelados com transacaoId e pago', () => {
 
     expect(linha.transacaoId).toBe('tx-parcela-2');
     expect(linha.pago).toBe(false);
+  });
+});
+
+describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10)', () => {
+  const CICLO_NOV = cicloFake({
+    id: 'ciclo-nov',
+    dataInicio: '2026-11-01',
+    dataFim: '2026-11-30',
+    rendaPrevistaCents: 3_000_000,
+    poupancaAlvoCents: 1_800_000,
+    fixosCents: 488_400,
+    provisaoMensalCents: 0,
+    verbaVariavelCents: 2_511_600,
+  });
+  const PARCELA = transacaoFake({
+    id: 'tx-parcela',
+    data: '2026-11-04',
+    valorCents: 439_388,
+    parcelamentoId: 'parc-1',
+    parcelaNum: 1,
+    cicloId: CICLO_NOV.id,
+  });
+  const CONFIG_DONO = { ...CONFIG_PADRAO, rendaBaseCents: 3_000_000, metaPoupancaCents: 1_800_000, pisoDiarioVerbaCents: 15_000 };
+  const SNAP_INICIO = { id: 'snap-ini', data: '2026-10-31', totalCents: 25_000_000, itens: [] };
+
+  function depsNov(extra: Partial<Parameters<typeof criarDeps>[0]> = {}): FakeDeps {
+    return criarDeps({
+      hoje: '2026-11-04',
+      config: CONFIG_DONO,
+      ciclos: [CICLO_NOV],
+      transacoes: [PARCELA],
+      contas: [contaFake({ saldoCents: 25_200_000 })],
+      snapshots: [SNAP_INICIO],
+      ...extra,
+    });
+  }
+
+  it('parcela EXTRA estoura os extras e reduz o dia a dia', async () => {
+    const estado = await obterEstadoPainel(depsNov());
+    expect(estado.verbas.pisoDiarioCents).toBe(15_000);
+    expect(estado.verbas.diaADiaEfetivoCents).toBe(272_212);
+    expect(estado.verbas.extrasRestanteCents).toBe(-177_788);
+    expect(estado.metas.avisoPiso?.faltaCents).toBe(177_788);
+  });
+
+  it('"Posso gastar hoje" do KPI herói é o dia a dia, não a verba total', async () => {
+    const deps = depsNov();
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-hoje', data: '2026-11-04', valorCents: 5_000, cicloId: CICLO_NOV.id }),
+    );
+    const { kpis, verbas } = await obterEstadoPainel(deps);
+    expect(kpis.restaHojeCents).toBe(verbas.tetoDiaADia.restaHojeCents);
+    expect(kpis.tetoHojeCents).toBe(verbas.tetoDiaADia.tetoHojeCents);
+    expect(kpis.gastoHojeCents).toBe(5_000);
+    expect(kpis.saldoDiaADiaCents).toBe(verbas.tetoDiaADia.saldoDisponivelCents);
+  });
+
+  it('"Posso gastar hoje" estourado: herói e card de verbas mostram o MESMO valor, sem sinal negativo', async () => {
+    const deps = depsNov();
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-estouro', data: '2026-11-04', valorCents: 900_000, cicloId: CICLO_NOV.id }),
+    );
+    const { kpis, verbas } = await obterEstadoPainel(deps);
+    expect(verbas.tetoDiaADia.restaHojeCents).toBeLessThan(0);
+    expect(kpis.podeGastarHojeCents).toBe(0);
+    expect(verbas.podeGastarHojeCents).toBe(kpis.podeGastarHojeCents);
+  });
+
+  it('guardado sem snapshot no ciclo = efeito das transações do ciclo no razão (estimado)', async () => {
+    const deps = depsNov();
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-aporte', tipo: 'RENDA', data: '2026-11-02', valorCents: 200_000, contaId: 'conta-x', cicloId: CICLO_NOV.id }),
+      // transferência para conta fora do patrimônio sai do guardado
+      transacaoFake({ id: 'tx-fora', tipo: 'TRANSFERENCIA', data: '2026-11-03', valorCents: 50_000, contaId: 'conta-x', contaDestinoId: 'conta-fora', cicloId: CICLO_NOV.id }),
+      // transação de outro ciclo não entra
+      transacaoFake({ id: 'tx-out', tipo: 'RENDA', data: '2026-10-20', valorCents: 999_999, contaId: 'conta-x', cicloId: 'ciclo-out' }),
+    );
+    deps.contas.itens.push(contaFake({ id: 'conta-fora', incluiPatrimonio: false }));
+    const { metas } = await obterEstadoPainel(deps);
+    expect(metas.guardadoCents).toBe(150_000);
+    expect(metas.fonte).toBe('SALDO_CONTAS');
+    expect(metas.estimado).toBe(true);
+    expect(metas.diferencaCents).toBe(150_000 - 1_800_000);
+    expect(metas.motivoSemGuardado).toBeNull();
+  });
+
+  it('D-13/D-14: razão abaixo do snapshot inicial e nenhum lançamento em conta de patrimônio → null + motivo, nem divergência nem 0', async () => {
+    const { metas } = await obterEstadoPainel(
+      depsNov({
+        // como nos dados reais: despesas sem conta, o razão só muda no fechamento
+        transacoes: [transacaoFake({ id: 'tx-sem-conta', data: '2026-11-02', cicloId: CICLO_NOV.id })],
+        contas: [contaFake({ saldoCents: 4_955_032 })],
+        snapshots: [{ id: 's', data: '2026-10-31', totalCents: 6_000_000, itens: [] }],
+      }),
+    );
+    expect(metas.guardadoCents).toBeNull();
+    expect(metas.fonte).toBeNull();
+    expect(metas.motivoSemGuardado).toMatch(/nenhum lançamento movimentou contas de patrimônio — registre um snapshot/);
+  });
+
+  it('com snapshot no ciclo: cai no patrimônio final do ciclo anterior adjacente como partida', async () => {
+    const outubro = cicloFake({
+      id: 'ciclo-out',
+      dataInicio: '2026-10-01',
+      dataFim: '2026-10-31',
+      fechado: true,
+      patrimonioFinalCents: 25_100_000,
+    });
+    const { metas } = await obterEstadoPainel(
+      depsNov({
+        hoje: '2026-11-20',
+        snapshots: [{ id: 's', data: '2026-11-20', totalCents: 25_200_000, itens: [] }],
+        ciclos: [outubro, CICLO_NOV],
+      }),
+    );
+    expect(metas.guardadoCents).toBe(100_000);
+    expect(metas.fonte).toBe('SNAPSHOT');
+  });
+
+  it('ciclo USD: decomposição da renda prevista em dólar', async () => {
+    const deps = depsNov({
+      config: {
+        ...CONFIG_DONO,
+        moedaRenda: 'USD',
+        rendaBrutaMoedaOrigemCents: 730_000,
+        impostoEstimadoCents: 350_000,
+      },
+      ciclos: [{ ...CICLO_NOV, rendaPrevistaCents: 3_613_900, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+    });
+    const { renda } = await obterEstadoPainel(deps);
+    expect(renda.moeda).toBe('USD');
+    expect(renda.confirmada).toBe(false);
+    expect(renda.brutaOrigemCents).toBe(730_000);
+    expect(renda.taxaMicros).toBe(5_430_000);
+    expect(renda.dataCotacao).toBe('2026-10-30');
+    expect(renda.decomposicao.replace(/ /g, ' ')).toContain('US$ 7.300,00');
+  });
+
+  it('ciclo USD com renda real confirmada mostra a real', async () => {
+    const deps = depsNov({
+      config: { ...CONFIG_DONO, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 730_000, impostoEstimadoCents: 350_000 },
+      ciclos: [
+        {
+          ...CICLO_NOV,
+          cotacaoPrevistaMicros: 5_430_000,
+          cotacaoPrevistaData: '2026-10-30',
+          rendaRealBrutaMoedaOrigemCents: 750_000,
+          cotacaoRealUsadaMicros: 5_500_000,
+          impostoRealCents: 350_000,
+          rendaRealLiquidaCents: 3_775_000,
+        },
+      ],
+    });
+    const { renda } = await obterEstadoPainel(deps);
+    expect(renda.confirmada).toBe(true);
+    expect(renda.brutaOrigemCents).toBe(750_000);
+    expect(renda.taxaMicros).toBe(5_500_000);
+    expect(renda.liquidaCents).toBe(3_775_000);
+    expect(renda.decomposicao.replace(/ /g, ' ')).toContain('US$ 7.500,00');
+  });
+
+  it('ciclo USD com config editada depois: não mostra decomposição que não fecha com o congelado', async () => {
+    const deps = depsNov({
+      config: { ...CONFIG_DONO, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 750_000, impostoEstimadoCents: 350_000 },
+      // congelado de 730_000 × 5,43 − 350_000
+      ciclos: [{ ...CICLO_NOV, rendaPrevistaCents: 3_613_900, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+    });
+    const { renda } = await obterEstadoPainel(deps);
+    expect(renda.moeda).toBe('USD');
+    expect(renda.liquidaCents).toBe(3_613_900);
+    expect(renda.brutaOrigemCents).toBeNull();
+    expect(renda.taxaMicros).toBeNull();
+    expect(renda.decomposicao).toContain('renda congelada no início do ciclo');
+    expect(renda.decomposicao).not.toContain('US$');
+  });
+
+  it('ciclo nascido em USD segue USD mesmo com a config trocada para BRL', async () => {
+    const deps = depsNov({
+      ciclos: [{ ...CICLO_NOV, rendaPrevistaCents: 3_613_900, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+    });
+    const { renda } = await obterEstadoPainel(deps);
+    expect(renda.moeda).toBe('USD');
+    expect(renda.decomposicao).toContain('renda congelada no início do ciclo');
   });
 });

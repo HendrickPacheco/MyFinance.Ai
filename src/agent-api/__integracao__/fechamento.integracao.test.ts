@@ -62,7 +62,7 @@ describe('POST /ciclos/atual/fechar', () => {
       destinoSobra: { tipo: string; contaId: string | null };
     }>(
       fecharPost,
-      montarRequisicao('POST', '/ciclos/atual/fechar', { token, body: { rendaRealizadaCents: 3_000_000 } }),
+      montarRequisicao('POST', '/ciclos/atual/fechar', { token, body: { rendaRealizadaCents: 3_000_000, poupancaRealManualCents: 0 } }),
     );
 
     expect(status).toBe(200);
@@ -81,7 +81,7 @@ describe('POST /ciclos/atual/fechar', () => {
     // Fechar de novo é recusado (idempotência de negócio: não credita 2x).
     const segundaVez = await chamarJson(
       fecharPost,
-      montarRequisicao('POST', '/ciclos/atual/fechar', { token, body: { rendaRealizadaCents: 3_000_000 } }),
+      montarRequisicao('POST', '/ciclos/atual/fechar', { token, body: { rendaRealizadaCents: 3_000_000, poupancaRealManualCents: 0 } }),
     );
     expect(segundaVez.status).toBeGreaterThanOrEqual(400);
 
@@ -100,7 +100,7 @@ describe('POST /ciclos/atual/fechar', () => {
       destinoSobra: { tipo: string };
     }>(
       fecharPost,
-      montarRequisicao('POST', '/ciclos/atual/fechar', { token, body: { rendaRealizadaCents: 3_000_000 } }),
+      montarRequisicao('POST', '/ciclos/atual/fechar', { token, body: { rendaRealizadaCents: 3_000_000, poupancaRealManualCents: 0 } }),
     );
 
     expect(status).toBe(200);

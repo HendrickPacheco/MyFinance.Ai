@@ -36,6 +36,19 @@ export function ResumoFinal({ resultado }: { resultado: ResultadoFechamento }) {
           </div>
 
           <div>
+            <p className="text-sm text-muted">Poupança real do ciclo</p>
+            <p
+              className={cn(
+                'tnum text-2xl font-semibold',
+                resultado.poupancaRealCents >= 0 ? 'text-positivo' : 'text-negativo',
+              )}
+            >
+              {resultado.poupancaRealCents < 0 ? '-' : ''}
+              {formatBRL(Math.abs(resultado.poupancaRealCents))}
+            </p>
+          </div>
+
+          <div>
             <p className="text-sm text-muted">Taxa de poupança efetiva</p>
             <p className="tnum text-2xl font-semibold text-fg">
               {(resultado.taxaPoupancaEfetiva * 100).toFixed(1)}%
