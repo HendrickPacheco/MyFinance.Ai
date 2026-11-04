@@ -105,13 +105,34 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
   };
 }
 
-export type ConfigInput = Omit<Config, 'id'>;
+const CAMPOS_RENDA_MOEDA = [
+  'moedaRenda',
+  'rendaBrutaMoedaOrigemCents',
+  'impostoEstimadoCents',
+  'impostoEstimadoPercentual',
+  'fonteRenda',
+] as const;
+
+/**
+ * Os campos de renda em moeda de origem são opcionais: quem não os informa
+ * (a tela de Config atual) PRESERVA o que já está gravado, em vez de zerá-los.
+ */
+export type ConfigInput = Omit<Config, 'id' | (typeof CAMPOS_RENDA_MOEDA)[number]> &
+  Partial<Pick<Config, (typeof CAMPOS_RENDA_MOEDA)[number]>>;
 
 export async function atualizarConfig(deps: Deps, input: ConfigInput): Promise<Config> {
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirOwner(deps.ator);
 
-  const config = await deps.config.salvar({ id: 1, ...input });
+  const atual = await deps.config.obter();
+  const preservados = {
+    moedaRenda: atual?.moedaRenda ?? 'BRL',
+    rendaBrutaMoedaOrigemCents: atual?.rendaBrutaMoedaOrigemCents ?? null,
+    impostoEstimadoCents: atual?.impostoEstimadoCents ?? null,
+    impostoEstimadoPercentual: atual?.impostoEstimadoPercentual ?? null,
+    fonteRenda: atual?.fonteRenda ?? null,
+  };
+  const config = await deps.config.salvar({ id: 1, ...preservados, ...input });
   await recalcularCicloAtualSeVazio(deps);
   return config;
 }
@@ -167,9 +188,17 @@ export async function upsertProvisao(
   return { provisao: salvo, efeito: await recalcularCicloAtualSeVazio(deps) };
 }
 
-export async function upsertCategoria(deps: Deps, categoria: Categoria): Promise<Categoria> {
+export async function upsertCategoria(
+  deps: Deps,
+  categoria: Omit<Categoria, 'tipoVerba'> & { tipoVerba?: Categoria['tipoVerba'] },
+): Promise<Categoria> {
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirOwner(deps.ator);
 
-  return deps.categorias.salvar(categoria);
+  // Sem `tipoVerba` informado, edição preserva o atual; criação nasce EXTRA.
+  const tipoVerba =
+    categoria.tipoVerba ??
+    (categoria.id ? (await deps.categorias.obter(categoria.id))?.tipoVerba : undefined) ??
+    'EXTRA';
+  return deps.categorias.salvar({ ...categoria, tipoVerba });
 }

@@ -415,6 +415,11 @@ function deps0Config() {
     destinoSobra: 'RESERVA' as const,
     destinoSobraContaId: null,
     pisoDiarioVerbaCents: 1_500,
+    moedaRenda: 'BRL' as const,
+    rendaBrutaMoedaOrigemCents: null,
+    impostoEstimadoCents: null,
+    impostoEstimadoPercentual: null,
+    fonteRenda: null,
   };
 }
 

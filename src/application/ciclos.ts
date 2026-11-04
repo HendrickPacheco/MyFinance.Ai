@@ -174,6 +174,16 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
         fechadoEm: null,
         sobraCents: null,
         observacao: null,
+        poupancaRealCents: null,
+        patrimonioInicialCents: null,
+        patrimonioFinalCents: null,
+        fonteMedicaoPoupanca: null,
+        rendaRealBrutaMoedaOrigemCents: null,
+        cotacaoRealUsadaMicros: null,
+        impostoRealCents: null,
+        rendaRealLiquidaCents: null,
+        cotacaoPrevistaMicros: null,
+        cotacaoPrevistaData: null,
       });
       ciclo = resultado.ciclo;
 

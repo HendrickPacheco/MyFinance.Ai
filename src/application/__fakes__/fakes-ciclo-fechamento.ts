@@ -780,6 +780,11 @@ export const CONFIG_PADRAO: Config = {
   destinoSobra: 'RESERVA',
   destinoSobraContaId: null,
   pisoDiarioVerbaCents: 1500,
+  moedaRenda: 'BRL',
+  rendaBrutaMoedaOrigemCents: null,
+  impostoEstimadoCents: null,
+  impostoEstimadoPercentual: null,
+  fonteRenda: null,
 };
 
 /** Categoria VARIAVEL padrão — só o que é VARIAVEL consome verba. */
@@ -791,6 +796,7 @@ export const CATEGORIA_VARIAVEL: Categoria = {
   icone: null,
   cor: null,
   ordem: 1,
+  tipoVerba: 'DIA_A_DIA',
 };
 
 export const CATEGORIA_FIXA: Categoria = {
@@ -801,6 +807,7 @@ export const CATEGORIA_FIXA: Categoria = {
   icone: null,
   cor: null,
   ordem: 2,
+  tipoVerba: 'EXTRA',
 };
 
 export interface OpcoesFakeDeps {
@@ -1221,6 +1228,16 @@ export function cicloFake(patch: Partial<Ciclo> = {}): Ciclo {
     fechadoEm: null,
     sobraCents: null,
     observacao: null,
+    poupancaRealCents: null,
+    patrimonioInicialCents: null,
+    patrimonioFinalCents: null,
+    fonteMedicaoPoupanca: null,
+    rendaRealBrutaMoedaOrigemCents: null,
+    cotacaoRealUsadaMicros: null,
+    impostoRealCents: null,
+    rendaRealLiquidaCents: null,
+    cotacaoPrevistaMicros: null,
+    cotacaoPrevistaData: null,
     ...patch,
   };
 }

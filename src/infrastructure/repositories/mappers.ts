@@ -43,7 +43,15 @@ import type {
   MetodoPagamento,
   DestinoSobra,
   ClassePatrimonio,
+  TipoVerba,
+  MoedaRenda,
+  FonteMedicaoPoupanca,
 } from '@/domain/model/enums';
+import { TIPO_VERBA, MOEDA_RENDA, FONTE_MEDICAO_POUPANCA } from '@/domain/model/enums';
+
+function uniao<T extends string>(valores: readonly T[], v: string | null): T | null {
+  return valores.find((x) => x === v) ?? null;
+}
 
 export function toConfig(r: PConfig): Config {
   return {
@@ -58,6 +66,11 @@ export function toConfig(r: PConfig): Config {
     destinoSobra: r.destinoSobra as DestinoSobra,
     destinoSobraContaId: r.destinoSobraContaId,
     pisoDiarioVerbaCents: r.pisoDiarioVerbaCents,
+    moedaRenda: uniao<MoedaRenda>(MOEDA_RENDA, r.moedaRenda) ?? 'BRL',
+    rendaBrutaMoedaOrigemCents: r.rendaBrutaMoedaOrigemCents,
+    impostoEstimadoCents: r.impostoEstimadoCents,
+    impostoEstimadoPercentual: r.impostoEstimadoPercentual,
+    fonteRenda: r.fonteRenda,
   };
 }
 
@@ -81,6 +94,7 @@ export function toCategoria(r: PCategoria): Categoria {
     icone: r.icone,
     cor: r.cor,
     ordem: r.ordem,
+    tipoVerba: uniao<TipoVerba>(TIPO_VERBA, r.tipoVerba) ?? 'EXTRA',
   };
 }
 
@@ -137,6 +151,7 @@ export function toTransacao(r: PTransacao): Transacao {
     pagoEm: r.pagoEm,
     origem: r.origem as OrigemTransacao,
     itemImportadoId: r.itemImportadoId,
+    tipoVerbaOverride: uniao<TipoVerba>(TIPO_VERBA, r.tipoVerbaOverride),
   };
 }
 
@@ -170,6 +185,16 @@ export function toCiclo(r: PCiclo): Ciclo {
     fechadoEm: r.fechadoEm,
     sobraCents: r.sobraCents,
     observacao: r.observacao,
+    poupancaRealCents: r.poupancaRealCents,
+    patrimonioInicialCents: r.patrimonioInicialCents,
+    patrimonioFinalCents: r.patrimonioFinalCents,
+    fonteMedicaoPoupanca: uniao<FonteMedicaoPoupanca>(FONTE_MEDICAO_POUPANCA, r.fonteMedicaoPoupanca),
+    rendaRealBrutaMoedaOrigemCents: r.rendaRealBrutaMoedaOrigemCents,
+    cotacaoRealUsadaMicros: r.cotacaoRealUsadaMicros,
+    impostoRealCents: r.impostoRealCents,
+    rendaRealLiquidaCents: r.rendaRealLiquidaCents,
+    cotacaoPrevistaMicros: r.cotacaoPrevistaMicros,
+    cotacaoPrevistaData: r.cotacaoPrevistaData,
   };
 }
 

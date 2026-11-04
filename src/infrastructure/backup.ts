@@ -216,6 +216,12 @@ const configSchema = z
     destinoSobra: z.string().optional(),
     destinoSobraContaId: z.string().nullish(),
     pisoDiarioVerbaCents: z.number().int().optional(),
+    // Ausentes em backup anterior à renda em USD: default do schema (BRL / null).
+    moedaRenda: z.string().optional(),
+    rendaBrutaMoedaOrigemCents: z.number().int().nullish(),
+    impostoEstimadoCents: z.number().int().nullish(),
+    impostoEstimadoPercentual: z.number().nullish(),
+    fonteRenda: z.string().nullish(),
     updatedAt: carimboISO.optional(),
   })
   .strict();
@@ -240,6 +246,8 @@ const categoriaSchema = z
     icone: z.string().nullish(),
     cor: z.string().nullish(),
     ordem: z.number().int().optional(),
+    /** Ausente em backup antigo = EXTRA (default do schema). */
+    tipoVerba: z.string().optional(),
   })
   .strict();
 
@@ -308,6 +316,17 @@ const cicloSchema = z
     observacao: z.string().nullish(),
     /** Ausente em backup anterior à G0. Cadeia de rollover — ver `schema.prisma`. */
     cicloAnteriorId: z.string().nullish(),
+    // Ausentes em backup anterior à poupança real / renda em USD.
+    poupancaRealCents: z.number().int().nullish(),
+    patrimonioInicialCents: z.number().int().nullish(),
+    patrimonioFinalCents: z.number().int().nullish(),
+    fonteMedicaoPoupanca: z.string().nullish(),
+    rendaRealBrutaMoedaOrigemCents: z.number().int().nullish(),
+    cotacaoRealUsadaMicros: z.number().int().nullish(),
+    impostoRealCents: z.number().int().nullish(),
+    rendaRealLiquidaCents: z.number().int().nullish(),
+    cotacaoPrevistaMicros: z.number().int().nullish(),
+    cotacaoPrevistaData: dataCivil.nullish(),
   })
   .strict();
 
@@ -342,6 +361,7 @@ const transacaoSchema = z
     /** Ausente em backup anterior à I1 = lançamento feito à mão, que é o padrão. */
     origem: z.string().optional(),
     itemImportadoId: z.string().nullish(),
+    tipoVerbaOverride: z.string().nullish(),
   })
   .strict();
 

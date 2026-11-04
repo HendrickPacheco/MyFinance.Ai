@@ -19,6 +19,18 @@ export type MetodoPagamento = (typeof METODO_PAGAMENTO)[number];
 export const DESTINO_SOBRA = ['RESERVA', 'INVESTIMENTO', 'ROLLOVER'] as const;
 export type DestinoSobra = (typeof DESTINO_SOBRA)[number];
 
+export const TIPO_VERBA = ['DIA_A_DIA', 'EXTRA'] as const;
+export type TipoVerba = (typeof TIPO_VERBA)[number];
+
+export const MOEDA_RENDA = ['BRL', 'USD'] as const;
+export type MoedaRenda = (typeof MOEDA_RENDA)[number];
+
+export const FONTE_MEDICAO_POUPANCA = ['SNAPSHOT', 'SALDO_CONTAS', 'MANUAL'] as const;
+export type FonteMedicaoPoupanca = (typeof FONTE_MEDICAO_POUPANCA)[number];
+
+export const FONTE_COTACAO = ['PTAX_BCB', 'MANUAL'] as const;
+export type FonteCotacao = (typeof FONTE_COTACAO)[number];
+
 export const CLASSE_PATRIMONIO = [
   'CONTA',
   'RENDA_FIXA',
