@@ -490,10 +490,11 @@ export async function estimarGuardadoDoCiclo(
     deps.transacoes.listarPorCiclo(ciclo.id),
   ]);
   const doPatrimonio = new Set(contas.filter((c) => c.incluiPatrimonio && !c.arquivada).map((c) => c.id));
-  const deltaLedgerCicloCents = transacoes
-    .flatMap((t) => efeitosDe(t, 1).contas)
-    .filter((a) => doPatrimonio.has(a.contaId))
-    .reduce((total, a) => total + a.deltaCents, 0);
+  const ajustes = transacoes.flatMap((t) => efeitosDe(t, 1).contas).filter((a) => doPatrimonio.has(a.contaId));
+  // Nenhum lançamento tocou conta de patrimônio (o caso comum: despesa sem conta,
+  // razão só muda no fechamento) → 0 seria um número confiante sem sinal (D-14).
+  const deltaLedgerCicloCents =
+    ajustes.length === 0 ? null : ajustes.reduce((total, a) => total + a.deltaCents, 0);
   return estimarPoupancaEmCurso({
     dataInicio: ciclo.dataInicio,
     hoje,

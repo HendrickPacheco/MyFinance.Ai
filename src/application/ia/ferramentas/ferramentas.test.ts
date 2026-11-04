@@ -871,6 +871,17 @@ describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
     });
   }
 
+  it('poupanca_real sem snapshot no ciclo e sem lançamento em conta de patrimônio: null + motivo (D-14), não R$ 0', async () => {
+    const deps = depsNov({
+      contas: [contaFake({ saldoCents: 4_955_032 })],
+      snapshots: [{ id: 's', data: '2026-10-31', totalCents: 6_000_000, itens: [] }],
+    });
+    const atual = (await executarFerramenta(deps, 'poupanca_real', {})).cicloAtual as Record<string, unknown>;
+
+    expect(atual.guardadoEstimado).toBeNull();
+    expect(atual.motivo).toMatch(/registre um snapshot/);
+  });
+
   it('poupanca_real sem snapshot no ciclo estima pelo razão: efeito das transações do ciclo, não saldo − snapshot (D-13)', async () => {
     const deps = depsNov({
       contas: [contaFake({ saldoCents: 4_955_032 })],

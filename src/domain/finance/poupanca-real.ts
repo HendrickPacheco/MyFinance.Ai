@@ -101,7 +101,10 @@ export function estimarPoupancaEmCurso(p: {
   }
   return {
     realCents: null,
-    motivo: `Sem patrimônio de partida (nenhum snapshot a até ${TOLERANCIA_SNAPSHOT_DIAS} dias do início do ciclo, ${p.dataInicio}, nem patrimônio final do ciclo anterior) e sem movimento das contas no ciclo para estimar.`,
+    motivo:
+      inicialCents === null
+        ? `Sem patrimônio de partida (nenhum snapshot a até ${TOLERANCIA_SNAPSHOT_DIAS} dias do início do ciclo, ${p.dataInicio}, nem patrimônio final do ciclo anterior) e nenhum lançamento movimentou contas de patrimônio — registre um snapshot para medir.`
+        : 'Sem snapshot no ciclo e nenhum lançamento movimentou contas de patrimônio — registre um snapshot para medir.',
   };
 }
 

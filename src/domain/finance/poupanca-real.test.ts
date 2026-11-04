@@ -108,6 +108,13 @@ describe('estimarPoupancaEmCurso', () => {
       estimarPoupancaEmCurso({ ...p, snapshots: [snap('2026-11-14', 9)], deltaLedgerCicloCents: 7 }),
     ).toEqual({ realCents: 7, fonte: 'SALDO_CONTAS', estimado: true });
   });
+  it('com partida mas sem snapshot no ciclo e sem movimento no razão → null pedindo snapshot', () => {
+    const r = estimarPoupancaEmCurso({ ...p, snapshots: [snap('2026-10-31', 6_000_000)], deltaLedgerCicloCents: null });
+    expect(r).toEqual({
+      realCents: null,
+      motivo: 'Sem snapshot no ciclo e nenhum lançamento movimentou contas de patrimônio — registre um snapshot para medir.',
+    });
+  });
   it('nenhum dos dois calculável → null com motivo', () => {
     const r = estimarPoupancaEmCurso({ ...p, snapshots: [], deltaLedgerCicloCents: null });
     expect(r.realCents).toBeNull();

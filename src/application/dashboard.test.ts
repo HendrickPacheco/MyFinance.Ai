@@ -470,16 +470,18 @@ describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10
     expect(metas.motivoSemGuardado).toBeNull();
   });
 
-  it('D-13: razão abaixo do snapshot inicial sem movimento no ciclo → guardado 0, não a divergência', async () => {
+  it('D-13/D-14: razão abaixo do snapshot inicial e nenhum lançamento em conta de patrimônio → null + motivo, nem divergência nem 0', async () => {
     const { metas } = await obterEstadoPainel(
       depsNov({
-        transacoes: [],
+        // como nos dados reais: despesas sem conta, o razão só muda no fechamento
+        transacoes: [transacaoFake({ id: 'tx-sem-conta', data: '2026-11-02', cicloId: CICLO_NOV.id })],
         contas: [contaFake({ saldoCents: 4_955_032 })],
         snapshots: [{ id: 's', data: '2026-10-31', totalCents: 6_000_000, itens: [] }],
       }),
     );
-    expect(metas.guardadoCents).toBe(0);
-    expect(metas.fonte).toBe('SALDO_CONTAS');
+    expect(metas.guardadoCents).toBeNull();
+    expect(metas.fonte).toBeNull();
+    expect(metas.motivoSemGuardado).toMatch(/nenhum lançamento movimentou contas de patrimônio — registre um snapshot/);
   });
 
   it('com snapshot no ciclo: cai no patrimônio final do ciclo anterior adjacente como partida', async () => {
