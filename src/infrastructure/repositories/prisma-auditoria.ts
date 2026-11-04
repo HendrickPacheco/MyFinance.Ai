@@ -63,6 +63,7 @@ export class PrismaAuditoriaAgenteRepository implements AuditoriaAgentePort {
       ...(filtro.entidade ? { entidade: filtro.entidade } : {}),
       ...(filtro.acao ? { acao: filtro.acao } : {}),
       ...(filtro.tokenId ? { tokenId: filtro.tokenId } : {}),
+      ...(filtro.dryRun !== undefined ? { dryRun: filtro.dryRun } : {}),
       ...(filtro.de || filtro.ate
         ? { criadoEm: { ...(filtro.de ? { gte: filtro.de } : {}), ...(filtro.ate ? { lte: filtro.ate } : {}) } }
         : {}),

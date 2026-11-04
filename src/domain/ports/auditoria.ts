@@ -41,6 +41,8 @@ export interface FiltroAuditoriaAgente {
   entidade?: string;
   acao?: AcaoAuditoriaAgente;
   tokenId?: string;
+  /** Omitido = qualquer um (real e simulado); `true`/`false` filtra um dos dois. */
+  dryRun?: boolean;
   /** Id do último item da página anterior (paginação por cursor nativa do Prisma). */
   cursor?: string;
   limite: number;

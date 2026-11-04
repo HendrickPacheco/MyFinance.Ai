@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Database, Receipt, RefreshCw } from 'lucide-react';
+import { Database, KeyRound, ListChecks, Receipt, RefreshCw } from 'lucide-react';
 import { criarDeps } from '@/composition';
 import { obterEstadoConfig } from '@/application/config';
 import { previaRecalculoCicloAtual } from '@/application/ciclos';
@@ -109,6 +109,34 @@ async function ConfigPageConteudo() {
           <div>
             <p className="text-fg">Backup e restauração</p>
             <p className="text-sm text-muted">Exportar / importar todos os dados em JSON</p>
+          </div>
+        </div>
+        <span className="text-faint">→</span>
+      </Link>
+
+      <Link
+        href="/config/tokens"
+        className="flex items-center justify-between rounded-[var(--radius-card)] border border-border bg-surface p-5 hover:border-border-strong"
+      >
+        <div className="flex items-center gap-3">
+          <KeyRound size={18} className="text-accent" />
+          <div>
+            <p className="text-fg">Tokens da API do agente</p>
+            <p className="text-sm text-muted">Credenciais para um agente de IA externo ler e gravar dados</p>
+          </div>
+        </div>
+        <span className="text-faint">→</span>
+      </Link>
+
+      <Link
+        href="/config/auditoria"
+        className="flex items-center justify-between rounded-[var(--radius-card)] border border-border bg-surface p-5 hover:border-border-strong"
+      >
+        <div className="flex items-center gap-3">
+          <ListChecks size={18} className="text-accent" />
+          <div>
+            <p className="text-fg">Auditoria do agente</p>
+            <p className="text-sm text-muted">O que o agente externo gravou em seu lugar</p>
           </div>
         </div>
         <span className="text-faint">→</span>

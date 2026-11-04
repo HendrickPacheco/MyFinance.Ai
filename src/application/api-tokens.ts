@@ -8,7 +8,9 @@
  * qualquer I/O (TASKS-AUTH §2.3).
  */
 import { createHash, randomBytes } from 'node:crypto';
+import { fromZonedTime } from 'date-fns-tz';
 import { exigirOwner } from '@/domain/auth/permissoes';
+import { assertData, type DataCivil } from '@/shared/data';
 import type { EscopoAgente } from '@/domain/auth/api-token';
 import type { ApiTokenRegistro } from '@/domain/ports/api-tokens';
 import type { Deps } from './deps';
@@ -55,6 +57,20 @@ function paraResumo(registro: ApiTokenRegistro): ApiTokenResumo {
     expiraEm: registro.expiraEm,
     revogadoEm: registro.revogadoEm,
   };
+}
+
+/**
+ * A tela de criação de token só coleta uma data civil ("expira em"), nunca um
+ * instante — então "expira em 2026-12-31" precisa virar o ÚLTIMO instante
+ * daquele dia CIVIL, no timezone da Config, não em UTC (o mesmo cuidado da
+ * regra 2 do CLAUDE.md, aqui para o lado da expiração em vez do lado do
+ * "hoje"). `fromZonedTime` (date-fns-tz) é o inverso de `dataCivilNoFuso`
+ * (`shared/data.ts`): converte um horário de parede NO FUSO dado para o
+ * instante UTC equivalente.
+ */
+export function calcularExpiraEmFimDoDia(dataCivil: DataCivil, timezone: string): Date {
+  assertData(dataCivil, 'expiraEm');
+  return fromZonedTime(`${dataCivil}T23:59:59.999`, timezone);
 }
 
 /** CSPRNG, nunca `Math.random` — mesmo padrão de `sessao-cookie.ts`. */
