@@ -7,6 +7,7 @@ import { obterEstadoHome } from '@/application/home';
 import { RecuperacaoCard } from '@/components/hoje/recuperacao-card';
 import { HomeHeader } from '@/components/dashboard/home-header';
 import { HeroHoje } from '@/components/dashboard/hero-hoje';
+import { LancamentoPainel } from '@/components/dashboard/lancamento-painel';
 import { LancamentoTexto } from '@/components/dashboard/lancamento-texto';
 import { ExtrasCard } from '@/components/dashboard/extras-card';
 import { MetaPoupancaCard } from '@/components/dashboard/meta-poupanca-card';
@@ -42,7 +43,8 @@ export default async function HojePage() {
 
   const [home, hoje] = await Promise.all([obterEstadoHome(deps), obterEstadoHoje(deps)]);
   const { recuperacao } = hoje;
-  const grid = 'grid grid-cols-3 gap-4 max-[760px]:grid-cols-1';
+  const grid = (cols: 2 | 3) =>
+    `grid gap-4 max-[760px]:grid-cols-1 ${cols === 3 ? 'grid-cols-3' : 'grid-cols-2'}`;
 
   return (
     <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4">
@@ -70,7 +72,10 @@ export default async function HojePage() {
 
       <LancamentoTexto categorias={home.categoriasLancamento} />
 
-      <div className={grid}>
+      {/* Modal "Lançar gasto" (botão da sidebar / atalho N); não renderiza nada visível. */}
+      <LancamentoPainel hoje={hoje.hoje} categorias={home.categoriasLancamento} />
+
+      <div className={grid(3)}>
         <ExtrasCard extras={home.extras} />
         <MetaPoupancaCard meta={home.metaPoupanca} />
         <ReservaCard reserva={home.reserva} />
@@ -78,7 +83,7 @@ export default async function HojePage() {
 
       <DespesasMesCard despesas={home.despesas} />
 
-      <div className="grid grid-cols-2 gap-4 max-[760px]:grid-cols-1">
+      <div className={grid(2)}>
         <ProximosDiasCard proximos7Dias={home.proximos7Dias} />
         <VerbaLivreCard verbaLivre={home.verbaLivre} />
       </div>

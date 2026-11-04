@@ -1,4 +1,6 @@
 import { criarDeps } from '@/composition';
+import { obterEstadoPainel } from '@/application/dashboard';
+import { FixosPagamentoCiclo } from '@/components/custos/fixos-pagamento-ciclo';
 import { obterEstadoCustosFixos, obterResumoMensalCustos } from '@/application/custos-view';
 import { AvisoCicloCongelado } from '@/components/custos/aviso-ciclo-congelado';
 import { FixosPainel } from '@/components/custos/fixos-painel';
@@ -12,9 +14,10 @@ async function CustosFixosConteudo() {
   // Duas leituras independentes e de tamanho fixo (nenhuma consulta por
   // linha): o resumo do ciclo e o estado da tela, esta última já trazendo a
   // contagem de pagamentos AGRUPADA e a prévia do recálculo.
-  const [resumo, estado] = await Promise.all([
+  const [resumo, estado, painel] = await Promise.all([
     obterResumoMensalCustos(deps),
     obterEstadoCustosFixos(deps),
+    obterEstadoPainel(deps),
   ]);
 
   return (
@@ -31,6 +34,11 @@ async function CustosFixosConteudo() {
         linhas={estado.linhas}
         categorias={estado.categorias}
         proximoInicio={resumo.proximoInicio}
+      />
+      <FixosPagamentoCiclo
+        custosFixos={painel.custosFixos}
+        fixosTotalCents={painel.fixosTotalCents}
+        divergencia={painel.divergenciaFixos}
       />
       <ProvisoesPainel provisoes={estado.provisoes} proximoInicio={resumo.proximoInicio} />
     </div>
