@@ -26,7 +26,7 @@ export function ProximosDiasCard({ proximos7Dias }: { proximos7Dias: EstadoHome[
                 <Icone size={18} aria-hidden />
               </div>
               <div className="min-w-0 flex-1">
-                <b className="block truncate text-sm font-semibold">{i.nome}</b>
+                <b className="block truncate text-sm max-[760px]:whitespace-normal font-semibold">{i.nome}</b>
                 <span className="text-xs text-faint">{i.rotuloData}</span>
               </div>
               <div className="whitespace-nowrap text-sm font-bold">R$ {formatarNumeroBRL(i.valorCents)}</div>

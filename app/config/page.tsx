@@ -7,6 +7,7 @@ import { formatBRL } from '@/shared/dinheiro';
 import { verbaVariavelCents, poupancaAlvoCents } from '@/domain/finance';
 import { ConfigGeral } from '@/components/config/config-geral';
 import { ListaContas, ListaCategorias } from '@/components/config/gerenciadores';
+import { TemaToggle } from '@/components/layout/tema-toggle';
 import { RecalcularCiclo } from '@/components/config/recalcular-ciclo';
 
 import { SomenteDono } from '@/components/auth/somente-dono';
@@ -40,6 +41,11 @@ async function ConfigPageConteudo() {
           Mudanças aqui valem para o <strong>próximo</strong> ciclo. O ciclo atual fica congelado.
         </p>
       </header>
+
+      <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-border bg-surface p-5">
+        <p className="text-fg">Tema</p>
+        <TemaToggle />
+      </div>
 
       {/* Prévia da verba (a partir dos parâmetros atuais) */}
       {config.rendaBaseCents > 0 ? (
