@@ -49,12 +49,19 @@ function verbas(ciclo: Ciclo, consumo: ConsumoVerbas, pisoDiarioCents: number): 
       extrasRestante: consumo.extrasRestanteCents,
       excedenteDosExtras: consumo.excedenteExtrasCents,
       diaADiaEfetivo: consumo.diaADiaEfetivoCents,
+      diaADiaUsado: consumo.diaADiaUsadoCents,
       diaADiaRestante: consumo.diaADiaRestanteCents,
       podeGastarHojeDiaADia: consumo.tetoDiaADia.restaHojeCents,
     }),
+    formulaConsumo:
+      'extrasRestante = extras − extrasUsado; excedenteDosExtras = max(extrasUsado − max(extras, 0), 0); ' +
+      'diaADiaEfetivo = diaADia − excedenteDosExtras; diaADiaRestante = diaADiaEfetivo − diaADiaUsado',
+    rotuloExtrasUsado:
+      'extrasUsado inclui as parcelas e gastos EXTRA com data até o FIM do ciclo — parte pode ser ' +
+      'compromisso agendado, ainda não pago. Não diga "você já gastou" esse valor; diga "comprometido nos extras".',
     rotuloPodeGastarHoje:
       'podeGastarHojeDiaADia é o "Posso gastar hoje" do app: dia a dia restante ÷ dias restantes, ' +
-      'menos o que já saiu hoje do dia a dia. diaADiaEfetivo = diaADia − excedenteDosExtras.',
+      'menos o que já saiu hoje do dia a dia.',
   };
 }
 
@@ -78,6 +85,9 @@ export async function situacaoHoje(deps: Deps): Promise<SaidaFerramenta> {
       saldoDisponivelNoCiclo: estado.teto.saldoDisponivelCents,
       deficitRecuperacao: estado.recuperacao.deficitCents,
     }),
+    rotuloRestaHoje:
+      'restaHoje é o teto sobre a verba INTEIRA (inclui extras), NÃO o "Posso gastar hoje" do app — ' +
+      'esse é verbas.podeGastarHojeDiaADia.',
     verbas: verbas(estado.ciclo, estado.diaADia, piso),
     comoFoiCalculado: ORIGEM_HOJE,
   };

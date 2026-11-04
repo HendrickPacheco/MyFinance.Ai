@@ -84,7 +84,8 @@ export function composicaoDasVerbas(
   },
 ): SaidaFerramenta {
   return {
-    formula: 'gastável = verba − meta; dia a dia = min(piso × dias, gastável); extras = gastável − dia a dia',
+    formula: 'gastável = verba − meta; dia a dia = min(piso × dias, max(gastável, 0)); ' +
+      'extras = gastável − dia a dia; faltaParaPiso = piso × dias − dia a dia',
     diasCiclo: p.diasCiclo,
     ...dinheiros({
       verbaVariavel: p.verbaVariavelCents,

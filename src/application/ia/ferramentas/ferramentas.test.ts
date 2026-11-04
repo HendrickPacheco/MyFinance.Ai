@@ -843,7 +843,13 @@ describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
     const saida = await executarFerramenta(depsNov(), 'estado_ciclo', {});
     const verbas = saida.verbas as Record<string, unknown>;
 
-    expect(verbas.formula).toEqual(expect.stringContaining('dia a dia = min(piso × dias, gastável)'));
+    expect(verbas.formula).toEqual(expect.stringContaining('dia a dia = min(piso × dias, max(gastável, 0))'));
+    expect(verbas.formula).toEqual(expect.stringContaining('faltaParaPiso = piso × dias − dia a dia'));
+    expect(verbas.formulaConsumo).toEqual(expect.stringContaining('diaADiaEfetivo = diaADia − excedenteDosExtras'));
+    expect(verbas.formulaConsumo).toEqual(expect.stringContaining('max(extras, 0)'));
+    expect(verbas.diaADiaUsadoCents).toEqual(expect.any(Number));
+    expect(verbas.diaADiaUsadoFormatado).toBe(formatBRL(verbas.diaADiaUsadoCents as number));
+    expect(verbas.rotuloExtrasUsado).toEqual(expect.stringContaining('FIM do ciclo'));
     expect(verbas).toMatchObject({ diaADiaCents: 450_000, diaADiaFormatado: formatBRL(450_000) });
     expect(verbas).toMatchObject({ gastavelCents: 711_600, extrasCents: 261_600, metaDePoupancaJaEstaNaVerba: false });
     expect(JSON.stringify(verbas)).not.toMatch(/reservad/i);
@@ -855,5 +861,6 @@ describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
     const painel = await obterEstadoPainelSomenteLeitura(deps);
 
     expect((saida.verbas as Record<string, unknown>).podeGastarHojeDiaADiaCents).toBe(painel!.kpis.restaHojeCents);
+    expect(saida.rotuloRestaHoje).toEqual(expect.stringContaining('podeGastarHojeDiaADia'));
   });
 });
