@@ -41,6 +41,8 @@ import {
   type FatiaCategoriaAgregada,
   type FatiaMetodoAgregada,
   type LinhaTransacaoVariavelCalc,
+  type ResultadoTeto,
+  type RendaLiquida,
   rendaEfetivaCents,
   rendaLiquidaPrevista,
   estimarPoupancaEmCurso,
@@ -50,6 +52,7 @@ import {
 } from '@/domain/finance';
 import { consumoVerbasDoCiclo } from './hoje';
 import { lerInsumosPoupanca } from './fechamento';
+import { formatBRL } from '@/shared/dinheiro';
 import { garantirCicloAtual, lerCicloAtual, type CicloResolvido } from './ciclos';
 import { obterPatrimonio } from './patrimonio';
 import type {
@@ -108,9 +111,13 @@ async function montar(
   const calc = paraCalculoCategorizado(transacoes, categorias);
   const gastoVariavelSemParcelas = gastoVariavelSemParcelasCents(calc, hoje);
 
+  const pisoDiarioCents = config?.pisoDiarioVerbaCents ?? 0;
+  const consumo = consumoVerbasDoCiclo({ ciclo, transacoes, categorias, pisoDiarioCents, hoje });
+
   const kpis = montarKpis({
     ciclo,
     hoje,
+    tetoDiaADia: consumo.tetoDiaADia,
     calc,
     gastoVariavelSemParcelas,
     custosFixos,
@@ -129,8 +136,6 @@ async function montar(
     montarMetas(deps, { ciclo, kpis, config, hoje }),
   ]);
 
-  const pisoDiarioCents = config?.pisoDiarioVerbaCents ?? 0;
-  const consumo = consumoVerbasDoCiclo({ ciclo, transacoes, categorias, pisoDiarioCents, hoje });
   const verbas = {
     ...consumo,
     pisoDiarioCents,
@@ -196,12 +201,14 @@ function paraCalculoCategorizado(
 function montarKpis(params: {
   ciclo: Ciclo;
   hoje: string;
+  /** "Posso gastar hoje" é SEMPRE o dia a dia (D1) — um número só no app inteiro. */
+  tetoDiaADia: ResultadoTeto;
   calc: readonly (TransacaoCategorizada & { parcelamentoId: string | null })[];
   gastoVariavelSemParcelas: number;
   custosFixos: readonly LinhaCustoFixo[];
   parcelados: readonly LinhaParcelada[];
 }): KpisPainel {
-  const { ciclo, hoje, calc, gastoVariavelSemParcelas, custosFixos, parcelados } = params;
+  const { ciclo, hoje, tetoDiaADia, calc, gastoVariavelSemParcelas, custosFixos, parcelados } = params;
 
   const teto = calcularTeto({
     verbaVariavelCents: ciclo.verbaVariavelCents,
@@ -242,9 +249,10 @@ function montarKpis(params: {
   );
 
   return {
-    restaHojeCents: teto.restaHojeCents,
-    tetoHojeCents: teto.tetoHojeCents,
-    gastoHojeCents: teto.gastoHojeCents,
+    restaHojeCents: tetoDiaADia.restaHojeCents,
+    tetoHojeCents: tetoDiaADia.tetoHojeCents,
+    gastoHojeCents: tetoDiaADia.gastoHojeCents,
+    saldoDiaADiaCents: tetoDiaADia.saldoDisponivelCents,
     verbaVariavelCents: ciclo.verbaVariavelCents,
     gastoRealizadoCents,
     saldoDisponivelCents,
@@ -542,7 +550,7 @@ function montarRenda(ciclo: Ciclo, config: Config | null): ResumoRendaCiclo {
     rendaBrutaMoedaOrigemCents: null,
   };
 
-  let renda;
+  let renda: Pick<RendaLiquida, 'moeda' | 'brutaOrigemCents' | 'taxaMicros' | 'dataCotacao' | 'decomposicao'>;
   try {
     if (confirmada) {
       const { rendaRealBrutaMoedaOrigemCents: bruta, cotacaoRealUsadaMicros: taxa } = ciclo;
@@ -560,14 +568,30 @@ function montarRenda(ciclo: Ciclo, config: Config | null): ResumoRendaCiclo {
               { data: ciclo.dataFim, taxaMicros: taxa },
             )
           : rendaLiquidaPrevista(emReais, null);
+    } else if (ciclo.cotacaoPrevistaMicros == null || ciclo.cotacaoPrevistaData == null) {
+      // Moeda vem do CICLO: sem cotação congelada ele nasceu em reais.
+      renda = rendaLiquidaPrevista(emReais, null);
     } else {
-      const cotacao =
-        ciclo.cotacaoPrevistaMicros != null && ciclo.cotacaoPrevistaData != null
-          ? { data: ciclo.cotacaoPrevistaData, taxaMicros: ciclo.cotacaoPrevistaMicros }
-          : null;
-      renda = config
-        ? rendaLiquidaPrevista({ ...config, rendaBaseCents: liquidaCents }, cotacao)
-        : rendaLiquidaPrevista(emReais, null);
+      const recalculada = config
+        ? rendaLiquidaPrevista(
+            { ...config, moedaRenda: 'USD', rendaBaseCents: liquidaCents },
+            { data: ciclo.cotacaoPrevistaData, taxaMicros: ciclo.cotacaoPrevistaMicros },
+          )
+        : null;
+      // D-15: a decomposição só vale se reproduz o líquido congelado. Config
+      // editada no meio do ciclo (bruta/imposto/moeda) a deixaria mentindo.
+      renda =
+        recalculada && recalculada.taxaMicros !== null && recalculada.liquidaCents === liquidaCents
+          ? recalculada
+          : {
+              moeda: 'USD' as const,
+              brutaOrigemCents: null,
+              taxaMicros: null,
+              dataCotacao: null,
+              decomposicao:
+                `${formatBRL(liquidaCents)} (renda congelada no início do ciclo; a configuração mudou ` +
+                `desde então — "Recalcular renda deste ciclo" atualiza)`,
+            };
     }
   } catch (erro) {
     // Config de imposto inválida (RangeError): degrada para o líquido em reais.

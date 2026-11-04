@@ -429,6 +429,18 @@ describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10
     expect(estado.metas.avisoPiso?.faltaCents).toBe(177_788);
   });
 
+  it('"Posso gastar hoje" do KPI herói é o dia a dia, não a verba total', async () => {
+    const deps = depsNov();
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-hoje', data: '2026-11-04', valorCents: 5_000, cicloId: CICLO_NOV.id }),
+    );
+    const { kpis, verbas } = await obterEstadoPainel(deps);
+    expect(kpis.restaHojeCents).toBe(verbas.tetoDiaADia.restaHojeCents);
+    expect(kpis.tetoHojeCents).toBe(verbas.tetoDiaADia.tetoHojeCents);
+    expect(kpis.gastoHojeCents).toBe(5_000);
+    expect(kpis.saldoDiaADiaCents).toBe(verbas.tetoDiaADia.saldoDisponivelCents);
+  });
+
   it('guardado de verdade = saldo das contas − patrimônio de partida (estimado)', async () => {
     const { metas } = await obterEstadoPainel(depsNov());
     expect(metas.guardadoCents).toBe(200_000);
@@ -468,7 +480,7 @@ describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10
         rendaBrutaMoedaOrigemCents: 730_000,
         impostoEstimadoCents: 350_000,
       },
-      ciclos: [{ ...CICLO_NOV, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+      ciclos: [{ ...CICLO_NOV, rendaPrevistaCents: 3_613_900, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
     });
     const { renda } = await obterEstadoPainel(deps);
     expect(renda.moeda).toBe('USD');
@@ -500,5 +512,29 @@ describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10
     expect(renda.taxaMicros).toBe(5_500_000);
     expect(renda.liquidaCents).toBe(3_775_000);
     expect(renda.decomposicao.replace(/ /g, ' ')).toContain('US$ 7.500,00');
+  });
+
+  it('ciclo USD com config editada depois: não mostra decomposição que não fecha com o congelado', async () => {
+    const deps = depsNov({
+      config: { ...CONFIG_DONO, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 750_000, impostoEstimadoCents: 350_000 },
+      // congelado de 730_000 × 5,43 − 350_000
+      ciclos: [{ ...CICLO_NOV, rendaPrevistaCents: 3_613_900, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+    });
+    const { renda } = await obterEstadoPainel(deps);
+    expect(renda.moeda).toBe('USD');
+    expect(renda.liquidaCents).toBe(3_613_900);
+    expect(renda.brutaOrigemCents).toBeNull();
+    expect(renda.taxaMicros).toBeNull();
+    expect(renda.decomposicao).toContain('renda congelada no início do ciclo');
+    expect(renda.decomposicao).not.toContain('US$');
+  });
+
+  it('ciclo nascido em USD segue USD mesmo com a config trocada para BRL', async () => {
+    const deps = depsNov({
+      ciclos: [{ ...CICLO_NOV, rendaPrevistaCents: 3_613_900, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+    });
+    const { renda } = await obterEstadoPainel(deps);
+    expect(renda.moeda).toBe('USD');
+    expect(renda.decomposicao).toContain('renda congelada no início do ciclo');
   });
 });

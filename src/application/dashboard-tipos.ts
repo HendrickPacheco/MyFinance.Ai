@@ -17,10 +17,17 @@ import type { DataCivil } from '@/shared/data';
 
 /** Faixa de destaque do topo do painel. Nada aqui mistura fixo com variável. */
 export interface KpisPainel {
-  /** O número herói: teto de hoje menos o que já saiu hoje. Pode ser negativo. */
+  /**
+   * O número herói, do DIA A DIA (D1): teto de hoje menos o que já saiu hoje.
+   * Igual a `verbas.tetoDiaADia.restaHojeCents` — "Posso gastar hoje" é um
+   * número só no app. Pode ser negativo.
+   */
   restaHojeCents: number;
   tetoHojeCents: number;
+  /** Gasto de hoje que consome o dia a dia (extras não entram). */
   gastoHojeCents: number;
+  /** Dia a dia restante antes de hoje — o dividendo do teto de hoje. */
+  saldoDiaADiaCents: number;
   /** Verba variável do ciclo (congelada) e quanto dela já foi consumido. */
   verbaVariavelCents: number;
   gastoRealizadoCents: number;
