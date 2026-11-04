@@ -963,6 +963,13 @@ describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
     const painel = await obterEstadoPainelSomenteLeitura(deps);
 
     expect(painel!.kpis.restaHojeCents).toBeLessThan(0);
-    expect((saida.verbas as Record<string, unknown>).podeGastarHojeDiaADiaCents).toBe(0);
+    const v = saida.verbas as Record<string, unknown>;
+    expect(v.podeGastarHojeDiaADiaCents).toBe(0);
+    // D-15: o estouro viaja junto — teto, gasto de hoje e quanto passou.
+    expect(v.tetoHojeDiaADiaCents).toBe(painel!.kpis.tetoHojeCents);
+    expect(v.gastoHojeDiaADiaCents).toBe(painel!.kpis.gastoHojeCents);
+    expect(v.excedidoHojeDiaADiaCents).toBe(-painel!.kpis.restaHojeCents);
+    expect(v.excedidoHojeDiaADiaFormatado).toBe(formatBRL(-painel!.kpis.restaHojeCents));
+    expect(v.rotuloPodeGastarHoje).toMatch(/excedidoHojeDiaADia/);
   });
 });

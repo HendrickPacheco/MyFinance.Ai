@@ -52,6 +52,9 @@ function verbas(ciclo: Ciclo, consumo: ConsumoVerbas, pisoDiarioCents: number): 
       diaADiaUsado: consumo.diaADiaUsadoCents,
       diaADiaRestante: consumo.diaADiaRestanteCents,
       podeGastarHojeDiaADia: consumo.podeGastarHojeCents,
+      tetoHojeDiaADia: consumo.tetoDiaADia.tetoHojeCents,
+      gastoHojeDiaADia: consumo.tetoDiaADia.gastoHojeCents,
+      excedidoHojeDiaADia: consumo.excedidoHojeCents,
     }),
     formulaConsumo:
       'extrasRestante = extras − extrasUsado; excedenteDosExtras = max(extrasUsado − max(extras, 0), 0); ' +
@@ -61,7 +64,9 @@ function verbas(ciclo: Ciclo, consumo: ConsumoVerbas, pisoDiarioCents: number): 
       'compromisso agendado, ainda não pago. Não diga "você já gastou" esse valor; diga "comprometido nos extras".',
     rotuloPodeGastarHoje:
       'podeGastarHojeDiaADia é o "Posso gastar hoje" do app: dia a dia restante ÷ dias restantes, ' +
-      'menos o que já saiu hoje do dia a dia. Nunca é negativo: se o dia já estourou, é 0 (como no app).',
+      'menos o que já saiu hoje do dia a dia. Nunca é negativo: se o dia já estourou, é 0 (como no app). ' +
+      'Partes: tetoHojeDiaADia (teto de hoje) e gastoHojeDiaADia (o que saiu hoje do dia a dia); ' +
+      'excedidoHojeDiaADia é quanto o gasto de hoje passou do teto — se for maior que 0, diga esse valor ao usuário.',
   };
 }
 

@@ -63,6 +63,8 @@ describe('consumirVerbas', () => {
     const estourado = consumo([tx({ data: '2026-11-11', valorCents: 900_000, tipoVerba: 'DIA_A_DIA' })]);
     expect(estourado.tetoDiaADia.restaHojeCents).toBeLessThan(0);
     expect(estourado.podeGastarHojeCents).toBe(0);
+    expect(estourado.excedidoHojeCents).toBe(-estourado.tetoDiaADia.restaHojeCents);
+    expect(consumo([]).excedidoHojeCents).toBe(0);
   });
   it('estorno abate', () => {
     expect(consumo([tx({ valorCents: 439_388 }), tx({ tipo: 'ESTORNO', valorCents: 39_388 })]).extrasUsadoCents).toBe(400_000);
