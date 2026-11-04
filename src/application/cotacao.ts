@@ -1,4 +1,3 @@
-import { exigirEscrita } from '@/domain/auth/permissoes';
 import type { Cotacao } from '@/domain/model/entidades';
 import { diffDias, type DataCivil } from '@/shared/data';
 import type { Deps } from './deps';
@@ -40,19 +39,4 @@ export async function obterCotacaoUsd(
     cotacao: null,
     aviso: 'Sem cotação salva e não consegui consultar o Banco Central. Informe a cotação manualmente.',
   };
-}
-
-export async function salvarCotacaoManual(
-  deps: Deps,
-  data: DataCivil,
-  taxaMicros: number,
-): Promise<Cotacao> {
-  exigirEscrita(deps.ator);
-  return deps.cotacoes.salvar({
-    data,
-    moedaOrigem: 'USD',
-    moedaDestino: 'BRL',
-    taxaMicros,
-    fonte: 'MANUAL',
-  });
 }

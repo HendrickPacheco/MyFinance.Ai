@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Cotacao } from '@/domain/model/entidades';
 import type { FonteCotacaoPort } from '@/domain/ports/cotacao';
-import { AcessoNegadoError } from '@/domain/auth/permissoes';
-import { criarDeps, ATOR_VIEWER } from './__fakes__/fakes-ciclo-fechamento';
-import { obterCotacaoUsd, salvarCotacaoManual } from './cotacao';
+import { criarDeps } from './__fakes__/fakes-ciclo-fechamento';
+import { obterCotacaoUsd } from './cotacao';
 
 const cot = (data: string, taxaMicros = 5_000_000): Cotacao => ({
   data, moedaOrigem: 'USD', moedaDestino: 'BRL', taxaMicros, fonte: 'PTAX_BCB',
@@ -63,17 +62,5 @@ describe('obterCotacaoUsd com repositório quebrado', () => {
     const r = await obterCotacaoUsd(deps);
     expect(r.cotacao).toBeNull();
     expect(r.aviso).not.toBeNull();
-  });
-});
-
-describe('salvarCotacaoManual', () => {
-  it('VIEWER não pode', async () => {
-    const deps = criarDeps({ hoje: '2026-11-04', ator: ATOR_VIEWER });
-    await expect(salvarCotacaoManual(deps, '2026-11-04', 5_000_000)).rejects.toBeInstanceOf(AcessoNegadoError);
-  });
-  it('OWNER salva com fonte MANUAL', async () => {
-    const deps = criarDeps({ hoje: '2026-11-04' });
-    const c = await salvarCotacaoManual(deps, '2026-11-04', 5_100_000);
-    expect(c.fonte).toBe('MANUAL');
   });
 });
