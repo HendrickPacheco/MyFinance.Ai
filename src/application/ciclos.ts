@@ -230,10 +230,10 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
   const { ciclo } = await garantirCicloAtual(deps);
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    ciclo.rendaPrevistaCents,
+    ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
   );
   const verba = verbaVariavelCents({
-    rendaPrevistaCents: ciclo.rendaPrevistaCents,
+    rendaPrevistaCents: ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -326,20 +326,29 @@ export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<EfeitoNoC
   // em R$ X".
   if (transacoes.length > 0) return { recalculou: false, ciclo: resumirCiclo(ciclo) };
 
-  const rendaPrevistaCents = config.rendaBaseCents;
+  // D8: renda real confirmada substitui a prevista — a Config não a desfaz.
+  // Sem real, a prevista vem do mesmo caminho do nascimento (cache USD).
+  const real = ciclo.rendaRealLiquidaCents;
+  const prevista =
+    real == null ? await rendaPrevistaAoNascer(deps, config, ciclo.dataInicio) : null;
+  const rendaEfetivaCents = real ?? prevista?.liquidaCents ?? ciclo.rendaPrevistaCents;
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    rendaPrevistaCents,
+    rendaEfetivaCents,
   );
   const verba = verbaVariavelCents({
-    rendaPrevistaCents,
+    rendaPrevistaCents: rendaEfetivaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
   });
 
   const atualizado = await deps.ciclos.atualizar(ciclo.id, {
-    rendaPrevistaCents,
+    ...(prevista && {
+      rendaPrevistaCents: prevista.liquidaCents,
+      cotacaoPrevistaMicros: prevista.taxaMicros,
+      cotacaoPrevistaData: prevista.dataCotacao,
+    }),
     poupancaAlvoCents: poupancaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
@@ -389,7 +398,7 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
 
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    ciclo.rendaPrevistaCents,
+    ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
   );
 
   return {
@@ -397,7 +406,7 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
     fim: ciclo.dataFim,
     verbaAtualCents: ciclo.verbaVariavelCents,
     verbaRecalculadaCents: verbaVariavelCents({
-      rendaPrevistaCents: ciclo.rendaPrevistaCents,
+      rendaPrevistaCents: ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
       fixosCents,
       provisaoMensalCents: provMensalCents,
       rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
