@@ -20,6 +20,7 @@ import { PassoSobra } from './passo-sobra';
 import { PatrimonioEditor, type LinhaPatrimonio } from './patrimonio-editor';
 import { PassoMeta } from './passo-meta';
 import { ResumoFinal } from './resumo-final';
+import { rendaEfetivaCents } from '@/domain/finance/renda';
 
 const TOTAL_PASSOS = 5;
 
@@ -34,7 +35,7 @@ export function FecharCicloWizard({
   const { ciclo } = resumo;
 
   const [passo, setPasso] = useState(1);
-  const [rendaRealizadaCents, setRendaRealizadaCents] = useState(ciclo.rendaPrevistaCents);
+  const [rendaRealizadaCents, setRendaRealizadaCents] = useState(rendaEfetivaCents(ciclo));
   const [snapshotData, setSnapshotData] = useState(hojeISO);
   const [linhas, setLinhas] = useState<LinhaPatrimonio[]>(() =>
     resumo.itensPatrimonioSugeridos.map((item, indice) => ({

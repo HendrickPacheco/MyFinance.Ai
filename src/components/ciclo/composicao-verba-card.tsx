@@ -10,6 +10,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
 import { formatBRL } from '@/shared/dinheiro';
 import { cn } from '@/lib/cn';
 import type { Ciclo } from '@/domain/model/entidades';
+import { rendaEfetivaCents } from '@/domain/finance/renda';
 
 interface LinhaComposicao {
   rotulo: string;
@@ -19,7 +20,11 @@ interface LinhaComposicao {
 
 export function ComposicaoVerbaCard({ ciclo }: { ciclo: Ciclo }) {
   const linhas: LinhaComposicao[] = [
-    { rotulo: 'Renda prevista', valorCents: ciclo.rendaPrevistaCents, sinal: 1 },
+    {
+      rotulo: ciclo.rendaRealLiquidaCents != null ? 'Renda real' : 'Renda prevista',
+      valorCents: rendaEfetivaCents(ciclo),
+      sinal: 1,
+    },
     { rotulo: 'Custos fixos', valorCents: ciclo.fixosCents, sinal: -1 },
     { rotulo: 'Provisão mensal', valorCents: ciclo.provisaoMensalCents, sinal: -1 },
   ];

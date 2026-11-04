@@ -99,6 +99,17 @@ export function rendaLiquidaPrevista(
 }
 
 /**
+ * A renda DO CICLO (D8): a real confirmada substitui a prevista em todo
+ * cálculo. Todo leitor que quer "a renda deste ciclo" passa por aqui; só quem
+ * mostra prevista e real lado a lado lê `rendaPrevistaCents` direto.
+ */
+export function rendaEfetivaCents(
+  ciclo: Pick<Ciclo, 'rendaPrevistaCents' | 'rendaRealLiquidaCents'>,
+): number {
+  return ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents;
+}
+
+/**
  * Reaplica uma nova renda à verba congelada por DELTA, preservando rollover e
  * puxada da reserva já embutidos. A meta só muda se vier em percentual.
  */
@@ -110,7 +121,7 @@ export function aplicarNovaRendaAoCiclo(
   novaRendaCents: number,
   metaPoupancaPercent: number | null,
 ): { verbaVariavelCents: number; poupancaAlvoCents: number } {
-  const anterior = ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents;
+  const anterior = rendaEfetivaCents(ciclo);
   return {
     verbaVariavelCents: ciclo.verbaVariavelCents + (novaRendaCents - anterior),
     poupancaAlvoCents:

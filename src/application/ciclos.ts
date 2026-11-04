@@ -12,6 +12,7 @@ import {
   limitesCiclo,
   provisaoMensalCents,
   poupancaAlvoCents,
+  rendaEfetivaCents,
   rendaLiquidaPrevista,
   verbaVariavelCents,
 } from '@/domain/finance';
@@ -230,10 +231,10 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
   const { ciclo } = await garantirCicloAtual(deps);
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
+    rendaEfetivaCents(ciclo),
   );
   const verba = verbaVariavelCents({
-    rendaPrevistaCents: ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
+    rendaPrevistaCents: rendaEfetivaCents(ciclo),
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -398,7 +399,7 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
 
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
+    rendaEfetivaCents(ciclo),
   );
 
   return {
@@ -406,7 +407,7 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
     fim: ciclo.dataFim,
     verbaAtualCents: ciclo.verbaVariavelCents,
     verbaRecalculadaCents: verbaVariavelCents({
-      rendaPrevistaCents: ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
+      rendaPrevistaCents: rendaEfetivaCents(ciclo),
       fixosCents,
       provisaoMensalCents: provMensalCents,
       rolloverRecebidoCents: ciclo.rolloverRecebidoCents,

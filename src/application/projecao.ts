@@ -23,7 +23,12 @@
  */
 import { addDias, addMeses, type DataCivil } from '@/shared/data';
 import { somaCents } from '@/shared/dinheiro';
-import { limitesCiclo, projetarCiclos, projetarComCenario } from '@/domain/finance';
+import {
+  limitesCiclo,
+  projetarCiclos,
+  projetarComCenario,
+  rendaEfetivaCents,
+} from '@/domain/finance';
 import type {
   CenarioHipotetico,
   CicloCongelado,
@@ -108,7 +113,7 @@ function congelar(ciclo: Ciclo): CicloCongelado {
   return {
     inicio: ciclo.dataInicio,
     fim: ciclo.dataFim,
-    rendaPrevistaCents: ciclo.rendaPrevistaCents,
+    rendaPrevistaCents: rendaEfetivaCents(ciclo),
     poupancaAlvoCents: ciclo.poupancaAlvoCents,
     fixosCents: ciclo.fixosCents,
     provisaoMensalCents: ciclo.provisaoMensalCents,

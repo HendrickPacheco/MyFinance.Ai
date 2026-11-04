@@ -11,6 +11,7 @@ import {
   diasTotaisCiclo,
   dividirVerba,
   projetarDiaADiaDiarioCents,
+  rendaEfetivaCents,
   rendaLiquidaPrevista,
   type RendaLiquida,
 } from '@/domain/finance';
@@ -72,7 +73,7 @@ function impacto(ciclo: Ciclo, config: Config, renda: RendaLiquida, aviso: strin
   const antes = verbas(ciclo);
   const depois = verbas(nova);
   const impactoRenda: ImpactoRenda = {
-    rendaAntesCents: ciclo.rendaRealLiquidaCents ?? ciclo.rendaPrevistaCents,
+    rendaAntesCents: rendaEfetivaCents(ciclo),
     rendaDepoisCents: renda.liquidaCents,
     verbaAntesCents: ciclo.verbaVariavelCents,
     verbaDepoisCents: nova.verbaVariavelCents,

@@ -10,6 +10,7 @@ import {
   primeiro,
 } from './__fakes__/fakes-ciclo-fechamento';
 import { CicloFechadoError } from './retroatividade';
+import { obterDestinoDaRendaSomenteLeitura } from './destino-da-renda';
 import {
   confirmarRendaReal,
   previaConfirmacaoRendaReal,
@@ -172,5 +173,18 @@ describe('confirmação da renda real', () => {
     const deps = await montar();
     const { taxaMicros: _t, ...semTaxa } = USD_REAL;
     await expect(confirmarRendaReal(deps, 'nov', semTaxa)).rejects.toBeInstanceOf(RangeError);
+  });
+});
+
+describe('leitores usam a renda efetiva depois da confirmação (D8, D-15)', () => {
+  it('"Para onde vai a renda" continua fechando: naoExplicadoCents === 0', async () => {
+    const deps = await montar();
+    const antes = await obterDestinoDaRendaSomenteLeitura(deps);
+    expect(antes?.destino.naoExplicadoCents).toBe(0);
+
+    await confirmarRendaReal(deps, 'nov', USD_REAL);
+
+    const depois = await obterDestinoDaRendaSomenteLeitura(deps);
+    expect(depois?.destino.naoExplicadoCents).toBe(0);
   });
 });

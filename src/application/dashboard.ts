@@ -42,6 +42,7 @@ import {
   type FatiaCategoriaAgregada,
   type FatiaMetodoAgregada,
   type LinhaTransacaoVariavelCalc,
+  rendaEfetivaCents,
 } from '@/domain/finance';
 import { garantirCicloAtual, lerCicloAtual, type CicloResolvido } from './ciclos';
 import { obterPatrimonio } from './patrimonio';
@@ -211,7 +212,7 @@ function montarKpis(params: {
   // valor usado em `transacoesVariaveisTotalCents`, para nunca divergir).
   const parceladosCicloCents = somarParceladosCents(calc);
   const custosFixosCents = ciclo.fixosCents;
-  const rendaPrevistaCents = ciclo.rendaPrevistaCents;
+  const rendaPrevistaCents = rendaEfetivaCents(ciclo);
   const totalGastosCents = custosFixosCents + parceladosCicloCents + gastoVariavelSemParcelas;
 
   // RASTREAMENTO puro (SPEC regra 5): soma o que falta pagar/já foi pago só
