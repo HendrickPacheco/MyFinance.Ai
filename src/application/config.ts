@@ -107,13 +107,29 @@ export async function obterEstadoConfig(deps: Deps): Promise<EstadoConfig> {
 
 export type ConfigInput = Omit<Config, 'id'>;
 
-export async function atualizarConfig(deps: Deps, input: ConfigInput): Promise<Config> {
+export interface ResultadoAtualizarConfig {
+  config: Config;
+  efeito: EfeitoNoCicloAtual;
+}
+
+/**
+ * Devolve também `efeito` (D-15 — número derivado viaja com suas partes):
+ * `recalcularCicloAtualSeVazio` já calcula o impacto no ciclo em curso, e
+ * descartá-lo aqui faria quem chama perguntar de novo por uma consulta que
+ * já tinha a resposta. A Server Action (`src/actions/config.ts`) ignora
+ * `efeito` de propósito — comportamento inalterado — enquanto a API do
+ * agente o expõe na resposta.
+ */
+export async function atualizarConfig(
+  deps: Deps,
+  input: ConfigInput,
+): Promise<ResultadoAtualizarConfig> {
   // Autorização (TASKS-AUTH §2.3): primeira linha, antes de qualquer I/O.
   exigirOwner(deps.ator);
 
   const config = await deps.config.salvar({ id: 1, ...input });
-  await recalcularCicloAtualSeVazio(deps);
-  return config;
+  const efeito = await recalcularCicloAtualSeVazio(deps);
+  return { config, efeito };
 }
 
 export async function upsertConta(deps: Deps, conta: Conta): Promise<Conta> {

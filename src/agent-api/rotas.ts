@@ -7,7 +7,7 @@
  * lógica de negócio.
  */
 import { NextResponse } from 'next/server';
-import type { ZodType } from 'zod';
+import type { ZodType, ZodTypeDef } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { criarDepsAgente, prisma, clienteEmTransacao } from '@/composition';
 import { PrismaApiTokenRepository } from '@/infrastructure/repositories/prisma-api-tokens';
@@ -91,8 +91,8 @@ export interface ContextoLeituraAgente<Q, P> {
 
 export interface ConfigRotaAgente<Q, P> {
   escopo: EscopoAgente;
-  query?: ZodType<Q>;
-  params?: ZodType<P>;
+  query?: ZodType<Q, ZodTypeDef, unknown>;
+  params?: ZodType<P, ZodTypeDef, unknown>;
 }
 
 /**
@@ -155,9 +155,9 @@ export interface ContextoEscritaAgente<B, Q, P> {
 
 export interface ConfigRotaEscrita<B, Q, P> {
   escopo: EscopoAgente;
-  body?: ZodType<B>;
-  query?: ZodType<Q>;
-  params?: ZodType<P>;
+  body?: ZodType<B, ZodTypeDef, unknown>;
+  query?: ZodType<Q, ZodTypeDef, unknown>;
+  params?: ZodType<P, ZodTypeDef, unknown>;
   /** Default de `auditar()` quando o handler não especifica `entidade`. */
   entidade: string;
   /** Default de `auditar()` quando o handler não especifica `acao`. */
