@@ -22,6 +22,8 @@ import { criarProvedorIA } from '@/infrastructure/ia/provedor-ia';
 import { criarEmbeddingIA } from '@/infrastructure/ia/embeddings';
 import { PrismaMemoriaRepository } from '@/infrastructure/repositories/prisma-memoria';
 import { PrismaConversaRepository } from '@/infrastructure/repositories/prisma-conversa';
+import { PrismaCotacaoRepository } from '@/infrastructure/repositories/prisma-cotacao';
+import { PtaxBcb } from '@/infrastructure/cambio/ptax-bcb';
 import { PrismaImportacaoRepository } from '@/infrastructure/repositories/prisma-importacao';
 import {
   PrismaUsuarioRepository,
@@ -119,12 +121,8 @@ export async function criarDeps(): Promise<Deps> {
     conversas: new PrismaConversaRepository(prisma, donoId),
     // Rascunho de importação de fatura (I3 do TASKS-IMPORTACAO.md).
     importacoes: new PrismaImportacaoRepository(prisma, donoId),
-    // TODO Task 7: trocar por PrismaCotacaoRepository. Falha alto até lá.
-    cotacoes: {
-      obter: () => Promise.reject(new Error('CotacaoRepository: Task 7 pendente')),
-      ultimaAte: () => Promise.reject(new Error('CotacaoRepository: Task 7 pendente')),
-      salvar: () => Promise.reject(new Error('CotacaoRepository: Task 7 pendente')),
-    },
+    cotacoes: new PrismaCotacaoRepository(prisma),
+    fonteCotacao: new PtaxBcb(),
     // Independente de `ia`: sem OPENAI_MODEL_EMBEDDING a memória continua
     // gravando e listando, só a busca semântica degrada.
     embeddings: embeddingHabilitado() ? criarEmbeddingIA() : undefined,
