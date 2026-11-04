@@ -696,6 +696,9 @@ describe('poupança real no fechamento (D3)', () => {
         transacaoFake({ id: 't-parc', data: '2026-11-10', valorCents: 200_000, parcelamentoId: 'pc', parcelaNum: 1, cicloId: 'c-nov' }),
         transacaoFake({ id: 't-prov', data: '2026-11-10', valorCents: 400_000, provisaoId: 'p1', cicloId: 'c-nov' }),
         transacaoFake({ id: 't-est', data: '2026-11-11', valorCents: 100_000, tipo: 'ESTORNO', cicloId: 'c-nov' }),
+        // Fixo pago como transação já está em fixosCents: não pode contar de novo (R1).
+        transacaoFake({ id: 't-fixo', data: '2026-11-05', valorCents: 488_400, categoriaId: CATEGORIA_FIXA.id, cicloId: 'c-nov' }),
+        transacaoFake({ id: 't-fixo-est', data: '2026-11-06', valorCents: 10_000, tipo: 'ESTORNO', categoriaId: CATEGORIA_FIXA.id, cicloId: 'c-nov' }),
         transacaoFake({ id: 't-renda', data: '2026-11-01', valorCents: 3_613_900, tipo: 'RENDA', cicloId: 'c-nov' }),
       ],
     });

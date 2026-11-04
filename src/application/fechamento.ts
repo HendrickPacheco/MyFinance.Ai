@@ -141,19 +141,22 @@ export interface FechamentoInput {
   poupancaRealManualCents?: number | null;
 }
 
-async function calcularSobra(deps: Deps, ciclo: Ciclo): Promise<{ gasto: number; sobra: number }> {
+async function calcularSobra(
+  deps: Deps,
+  ciclo: Ciclo,
+): Promise<{ gasto: number; sobra: number; grupos: ReturnType<typeof indexarGrupoCategoria> }> {
   const [transacoes, categorias] = await Promise.all([
     deps.transacoes.listarPorCiclo(ciclo.id),
     deps.categorias.listar(),
   ]);
   const grupos = indexarGrupoCategoria(categorias);
   const gasto = gastoRealizadoCents(paraCalculo(transacoes, grupos), ciclo.dataFim);
-  return { gasto, sobra: ciclo.verbaVariavelCents - gasto };
+  return { gasto, sobra: ciclo.verbaVariavelCents - gasto, grupos };
 }
 
 /** Preview do wizard: sobra, transações sem categoria, sugestões de meta e patrimônio. */
 export async function obterResumoFechamento(deps: Deps, ciclo: Ciclo): Promise<ResumoFechamento> {
-  const { gasto, sobra } = await calcularSobra(deps, ciclo);
+  const { gasto, sobra, grupos } = await calcularSobra(deps, ciclo);
   const transacoes = await deps.transacoes.listarPorCiclo(ciclo.id);
   const transacoesSemCategoria = transacoes.filter(
     (t) => t.tipo === 'DESPESA' && !t.categoriaId,
@@ -179,10 +182,11 @@ export async function obterResumoFechamento(deps: Deps, ciclo: Ciclo): Promise<R
   const rendaSugeridaCents = rendaEfetivaCents(ciclo);
   // Despesas lançadas = DESPESA − ESTORNO de TODAS as transações do ciclo
   // (variável, parcela, provisão): o alerta pergunta se falta lançar algo.
-  const despesasLancadasCents = transacoes.reduce(
-    (s, t) => s + (t.tipo === 'DESPESA' ? t.valorCents : t.tipo === 'ESTORNO' ? -t.valorCents : 0),
-    0,
-  );
+  // Categoria FIXO fica de fora: já entra como `fixosCents` (R1, senão conta duas vezes).
+  const despesasLancadasCents = transacoes.reduce((s, t) => {
+    if (t.categoriaId && grupos.get(t.categoriaId) === 'FIXO') return s;
+    return s + (t.tipo === 'DESPESA' ? t.valorCents : t.tipo === 'ESTORNO' ? -t.valorCents : 0);
+  }, 0);
   const fechadosRecentes = await deps.ciclos.ultimosFechados(CICLOS_PARA_ALERTA_GASTO);
   const gastosAnterioresCents = fechadosRecentes
     .filter((c) => c.sobraCents !== null)
