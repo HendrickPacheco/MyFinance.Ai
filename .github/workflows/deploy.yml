@@ -1,0 +1,51 @@
+# Deploy automatico em producao a cada push na main (ou seja, a cada PR mergeado).
+#
+# O runner so abre um SSH para a VPS. A chave em DEPLOY_SSH_KEY esta presa,
+# no authorized_keys, ao comando /usr/local/sbin/myfinance-deploy
+# (scripts/deploy-entrada.sh): ela nao abre shell nem roda outra coisa.
+#
+# Secrets necessarios (Settings > Secrets and variables > Actions):
+#   DEPLOY_HOST         IP da VPS
+#   DEPLOY_SSH_KEY      chave privada ed25519 do deploy
+#   DEPLOY_KNOWN_HOSTS  linha do ssh-keyscan da VPS (fixa a identidade do servidor)
+#
+# O repo e publico: este log tambem e. O script de deploy so imprime resumo;
+# o detalhe fica em /var/log/myfinance-deploy na VPS.
+name: Deploy producao
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Refazer o deploy mesmo sem commit novo
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-producao
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Deploy na VPS
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          MODO: ${{ inputs.force && 'force' || 'deploy' }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 \
+            "root@$HOST" "$MODO"
