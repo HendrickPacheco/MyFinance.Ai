@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gerarParcelas } from './parcelamento';
+import { gerarParcelas, parcelamentoEncerrado } from './parcelamento';
 import { somaCents } from '@/shared/dinheiro';
 
 describe('gerarParcelas (SPEC regra 4 / SPEC 9)', () => {
@@ -130,5 +130,20 @@ describe('gerarParcelas (SPEC regra 4 / SPEC 9)', () => {
         }),
       ).toThrow(RangeError);
     });
+  });
+});
+
+describe('parcelamentoEncerrado', () => {
+  it('última parcela antes do início do ciclo → encerrado', () => {
+    expect(parcelamentoEncerrado({ encerradoEm: null, dataUltimaParcela: '2026-10-15' }, '2026-11-01')).toBe(true);
+  });
+  it('última parcela dentro/depois do ciclo → ativo', () => {
+    expect(parcelamentoEncerrado({ encerradoEm: null, dataUltimaParcela: '2026-11-20' }, '2026-11-01')).toBe(false);
+  });
+  it('encerradoEm preenchido → encerrado', () => {
+    expect(parcelamentoEncerrado({ encerradoEm: '2026-09-01', dataUltimaParcela: '2026-11-20' }, '2026-11-01')).toBe(true);
+  });
+  it('sem parcelas e sem encerradoEm → ativo', () => {
+    expect(parcelamentoEncerrado({ encerradoEm: null, dataUltimaParcela: null }, '2026-11-01')).toBe(false);
   });
 });
