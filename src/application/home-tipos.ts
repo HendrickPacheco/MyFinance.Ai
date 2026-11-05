@@ -47,7 +47,7 @@ export interface EstadoHome {
     possoGastarHojeCents: number;
     /** Dia a dia usado no ciclo até hoje. */
     usadoDiaADiaCents: number;
-    /** Dia a dia efetivo do ciclo (já descontado o estouro dos extras). */
+    /** Dia a dia efetivo do ciclo (teto do ciclo, líquido de parcelas e meta; o estouro do dia a dia sai dos extras). */
     diaADiaCents: number;
     diasRestantes: number;
     /** usadoDiaADia / diaADia. */
@@ -57,7 +57,7 @@ export interface EstadoHome {
     emRecuperacao: boolean;
   };
   extras: {
-    /** Extras restantes no ciclo; NEGATIVO quando estourados (o excedente reduz o dia a dia). */
+    /** Extras restantes no ciclo; NEGATIVO quando estourados (o dia a dia que passou do balde também come os extras). */
     disponivelCents: number;
     totalCents: number;
     /** disponível / total, 0–100 (0 quando estourados). */
@@ -68,7 +68,7 @@ export interface EstadoHome {
     /** Guardado no ciclo (estimado); null sem patrimônio de partida. */
     guardadoCents: number | null;
     alvoCents: number;
-    /** `percentualReal` limitado a 0–100, inteiro; 0 sem guardado. */
+    /** guardado ÷ alvo, limitado a 0–100, inteiro; 0 sem guardado. */
     progressoPercent: number;
     /** Por que `guardadoCents` é null (D-14); null quando há dado. */
     motivoSemGuardado: string | null;

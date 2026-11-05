@@ -81,8 +81,9 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
 
   const poupancaEstimada = poupancaEstimadaDoCicloCents({
     verbaLivreCents: verbas.verbaLivreCents,
-    gastoVariavelSemParcelasCents: painel.transacoesVariaveisTotalCents,
-    diaADiaRestanteCents: verbas.diaADiaRestanteCents,
+    diaADiaCents: verbas.diaADiaCents,
+    diaADiaUsadoCents: verbas.diaADiaUsadoCents,
+    extrasUsadoCents: verbas.extrasUsadoCents,
     extrasRestanteCents: verbas.extrasRestanteCents,
   });
 

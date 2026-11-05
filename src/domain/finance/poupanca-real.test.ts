@@ -167,14 +167,14 @@ describe('alertaGastoVariavelBaixo', () => {
 });
 
 describe('poupancaEstimadaDoCicloCents', () => {
-  const base = { verbaLivreCents: 2_337_906, gastoVariavelSemParcelasCents: 0, diaADiaRestanteCents: 250_000, extrasRestanteCents: 287_906 };
-  it('verba livre menos gasto e baldes restantes', () => {
+  const base = { verbaLivreCents: 2_337_906, diaADiaCents: 250_000, diaADiaUsadoCents: 0, extrasUsadoCents: 0, extrasRestanteCents: 287_906 };
+  it('verba livre menos dia a dia, extras usado e extras restante', () => {
     expect(poupancaEstimadaDoCicloCents(base)).toBe(1_800_000);
   });
   it('extras restante negativo não soma', () => {
     expect(poupancaEstimadaDoCicloCents({ ...base, extrasRestanteCents: -50_000 })).toBe(2_087_906);
   });
   it('nunca negativo', () => {
-    expect(poupancaEstimadaDoCicloCents({ ...base, gastoVariavelSemParcelasCents: 9_000_000 })).toBe(0);
+    expect(poupancaEstimadaDoCicloCents({ ...base, extrasUsadoCents: 9_000_000 })).toBe(0);
   });
 });

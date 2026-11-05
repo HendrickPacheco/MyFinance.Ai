@@ -154,20 +154,22 @@ export function alertaGastoVariavelBaixo(p: {
 }
 
 /**
- * Poupança ESTIMADA do ciclo (D-16): o que sobra da verba livre depois do
- * gasto variável (sem parcelas) e do que ainda resta nos baldes dia a dia e extras.
+ * Poupança ESTIMADA do ciclo (D-16): o que sobra da verba livre depois do que
+ * foi/será usado em dia a dia e extras. Só campos de consumo (mesmo corte de
+ * datas), sem misturar com o gasto realizado até hoje.
  */
 export function poupancaEstimadaDoCicloCents(p: {
   verbaLivreCents: number;
-  gastoVariavelSemParcelasCents: number;
-  diaADiaRestanteCents: number;
+  diaADiaCents: number;
+  diaADiaUsadoCents: number;
+  extrasUsadoCents: number;
   extrasRestanteCents: number;
 }): number {
   return Math.max(
     0,
     p.verbaLivreCents -
-      p.gastoVariavelSemParcelasCents -
-      p.diaADiaRestanteCents -
+      Math.max(p.diaADiaUsadoCents, p.diaADiaCents) -
+      p.extrasUsadoCents -
       Math.max(p.extrasRestanteCents, 0),
   );
 }

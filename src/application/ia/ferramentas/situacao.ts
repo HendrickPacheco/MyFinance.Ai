@@ -57,10 +57,11 @@ function verbas(ciclo: Ciclo, consumo: ConsumoVerbas, pisoDiarioCents: number): 
       excedidoHojeDiaADia: consumo.excedidoHojeCents,
     }),
     formulaConsumo:
-      'extrasRestante = extras − extrasUsado; excedenteDosExtras = max(extrasUsado − max(extras, 0), 0); ' +
-      'diaADiaEfetivo = diaADia − excedenteDosExtras; diaADiaRestante = diaADiaEfetivo − diaADiaUsado',
+      'extrasRestante = extras − extrasUsado − max(0, diaADiaUsado − diaADia); ' +
+      'excedenteDosExtras = max(0, −extrasRestante); diaADiaEfetivo = diaADia; ' +
+      'diaADiaRestante = max(0, diaADia − diaADiaUsado). Parcelas não entram no consumo (já saíram da verbaLivre)',
     rotuloExtrasUsado:
-      'extrasUsado inclui as parcelas e gastos EXTRA com data até o FIM do ciclo — parte pode ser ' +
+      'extrasUsado soma só gastos EXTRA (sem parcelas) com data até o FIM do ciclo — parte pode ser ' +
       'compromisso agendado, ainda não pago. Não diga "você já gastou" esse valor; diga "comprometido nos extras".',
     rotuloPodeGastarHoje:
       'podeGastarHojeDiaADia é o "Posso gastar hoje" do app: dia a dia restante ÷ dias restantes, ' +
