@@ -11,10 +11,10 @@ import {
   percentualDeAlvo,
   proximosVencimentos,
   resumoPagamentosCents,
-  ritmoDiaADiaOk,
+  statusDiaADia,
   type CompromissoComData,
 } from '@/domain/finance';
-import { addDias, formatarMesAno, MESES_ABREVIADOS_PT_BR, type DataCivil } from '@/shared/data';
+import { addDias, MESES_ABREVIADOS_PT_BR, type DataCivil } from '@/shared/data';
 import type { Deps } from './deps';
 import { obterEstadoPainel } from './dashboard';
 import type { LinhaParcelada } from './dashboard-tipos';
@@ -112,13 +112,18 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
     },
     hero: {
       possoGastarHojeCents: kpis.podeGastarHojeCents,
-      usadoDiaADiaCents: verbas.diaADiaUsadoCents,
-      diaADiaCents: verbas.diaADiaEfetivoCents,
+      usadoDiaADiaCents: Math.min(verbas.diaADiaUsadoCents, verbas.diaADiaCents),
+      diaADiaCents: verbas.diaADiaCents,
       diasRestantes: kpis.diasRestantes,
-      progressoPercent: pct(verbas.diaADiaUsadoCents, verbas.diaADiaEfetivoCents),
-      ritmoOk: ritmoDiaADiaOk({
-        usadoCents: verbas.diaADiaUsadoCents,
-        totalCents: verbas.diaADiaEfetivoCents,
+      progressoPercent: pct(
+        Math.min(verbas.diaADiaUsadoCents, verbas.diaADiaCents),
+        verbas.diaADiaCents,
+      ),
+      status: statusDiaADia({
+        diaADiaCents: verbas.diaADiaCents,
+        diaADiaUsadoCents: verbas.diaADiaUsadoCents,
+        extrasRestanteCents: verbas.extrasRestanteCents,
+        gastavelCents: verbas.gastavelCents,
         diasTotais: kpis.diasTotais,
         diasRestantes: kpis.diasRestantes,
       }),
@@ -231,7 +236,7 @@ async function montarVerbaLivre(deps: Deps): Promise<EstadoHome['verbaLivre']> {
 
     return {
       pontos: ciclos.map((c, i) => ({
-        rotulo: i === 0 ? formatarMesAno(c.inicio) : mesCurto(c.inicio),
+        rotulo: `${mesCurto(c.inicio)}/${c.inicio.slice(2, 4)}`,
         verbaLivreCents: c.verbaLivreCents,
       })),
       ultimoCents: ultimo.verbaLivreCents,

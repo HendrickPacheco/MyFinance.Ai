@@ -5,7 +5,7 @@
  * ('07/11', '3/5', 'nov/26') já vêm formatados.
  */
 import type { OpcaoCategoria } from './dashboard-tipos';
-import type { ItemVencimento } from '@/domain/finance';
+import type { ItemVencimento, StatusDiaADia } from '@/domain/finance';
 
 /** Uma das maiores despesas de um grupo (fixo ou parcelado). */
 export interface LinhaDespesa {
@@ -52,8 +52,8 @@ export interface EstadoHome {
     diasRestantes: number;
     /** usadoDiaADia / diaADia. */
     progressoPercent: number;
-    /** Usado ≤ fatia proporcional dos dias já vividos (`ritmoDiaADiaOk`). */
-    ritmoOk: boolean;
+    /** Estado do dia a dia (`statusDiaADia`): ritmo, estouro (usando extras) ou ciclo sem verba para a meta. */
+    status: StatusDiaADia;
     emRecuperacao: boolean;
   };
   extras: {

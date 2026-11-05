@@ -10,6 +10,7 @@ import {
   aplicarNovaRendaAoCiclo,
   diasTotaisCiclo,
   dividirVerba,
+  somaParcelasCents,
   projetarDiaADiaDiarioCents,
   rendaEfetivaCents,
   rendaLiquidaPrevista,
@@ -60,11 +61,17 @@ async function obterConfig(deps: Deps): Promise<Config> {
 }
 
 /** Antes/depois de trocar a renda do ciclo — só leitura, nada é gravado. */
-function impacto(ciclo: Ciclo, config: Config, renda: RendaLiquida, aviso: string | null) {
+function impacto(
+  ciclo: Ciclo,
+  config: Config,
+  renda: RendaLiquida,
+  aviso: string | null,
+  parcelasCents: number,
+) {
   const nova = aplicarNovaRendaAoCiclo(ciclo, renda.liquidaCents, config.metaPoupancaPercent);
   const diasCiclo = diasTotaisCiclo({ inicio: ciclo.dataInicio, fim: ciclo.dataFim });
   const verbas = (v: { verbaVariavelCents: number; poupancaAlvoCents: number }) => {
-    const divisao = dividirVerba({ ...v, parcelasCents: 0 /* TODO(task2) */, pisoDiarioCents: config.pisoDiarioVerbaCents, diasCiclo });
+    const divisao = dividirVerba({ ...v, parcelasCents, pisoDiarioCents: config.pisoDiarioVerbaCents, diasCiclo });
     return {
       diario: projetarDiaADiaDiarioCents(divisao, diasCiclo),
       extras: divisao.extrasCents,
@@ -98,7 +105,8 @@ async function planejarRecalculo(deps: Deps) {
   const { cotacao, aviso } =
     config.moedaRenda === 'USD' ? await obterCotacaoUsd(deps) : { cotacao: null, aviso: null };
   const renda = rendaLiquidaPrevista(config, cotacao);
-  return { ciclo, renda, ...impacto(ciclo, config, renda, aviso ?? renda.motivoSemCotacao) };
+  const parcelas = somaParcelasCents(await deps.transacoes.listarPorCiclo(ciclo.id));
+  return { ciclo, renda, ...impacto(ciclo, config, renda, aviso ?? renda.motivoSemCotacao, parcelas) };
 }
 
 export async function previaRecalculoRenda(deps: Deps): Promise<ImpactoRenda> {
@@ -170,7 +178,13 @@ async function planejarConfirmacao(deps: Deps, cicloId: string, input: RendaReal
 
   const hoje = deps.relogio.hoje();
   const renda = rendaReal(config, input, hoje);
-  const { impactoRenda, nova } = impacto(ciclo, config, renda, null);
+  const { impactoRenda, nova } = impacto(
+    ciclo,
+    config,
+    renda,
+    null,
+    somaParcelasCents(await deps.transacoes.listarPorCiclo(ciclo.id)),
+  );
   // Re-confirmação corrige os números, mas não gera um segundo lançamento.
   const lancamento =
     input.gerarLancamento && ciclo.rendaRealLiquidaCents == null

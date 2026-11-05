@@ -53,7 +53,8 @@ describe('obterEstadoHome', () => {
     const e = await obterEstadoHome(montarDeps());
 
     expect(e.cabecalho).toEqual({ mesNome: 'Novembro', diaDoCiclo: 4, diasTotais: 30, iniciais: 'HP' });
-    // gastável = 300k − 100k (meta) = 200k; dia a dia = R$ 15 × 30 = 45k; extras = 155k.
+    // verbaLivre = 300k − 40k (parcelas) = 260k; gastável = 260k − 100k (meta) = 160k;
+    // dia a dia = R$ 15 × 30 = 45k; extras = 115k.
     // Mercado (15k) é dia a dia; as parcelas (40k) NÃO consomem extras (já estão em verbaLivre).
     expect(e.hero).toEqual({
       possoGastarHojeCents: Math.floor(30_000 / 27),
@@ -61,10 +62,10 @@ describe('obterEstadoHome', () => {
       diaADiaCents: 45_000,
       diasRestantes: 27,
       progressoPercent: 33,
-      ritmoOk: false, // 15k usados no dia 4 > fatia de 6k
+      status: 'ACIMA_DO_RITMO', // 15k usados no dia 4 > fatia de 6k
       emRecuperacao: false,
     });
-    expect(e.extras).toEqual({ disponivelCents: 155_000, totalCents: 155_000, progressoPercent: 100 });
+    expect(e.extras).toEqual({ disponivelCents: 115_000, totalCents: 115_000, progressoPercent: 100 });
     expect(e.metaPoupanca.alvoCents).toBe(100_000);
     expect(e.reserva).toMatchObject({ totalCents: 6_000_000, meses: null, metaMeses: 6, progressoPercent: 0 });
     expect(e.reserva.motivoSemDado).toBeTruthy();
@@ -118,7 +119,7 @@ it('próximos 7 dias filtra pago e fora da janela', async () => {
     const { verbaLivre } = await obterEstadoHome(montarDeps());
 
     expect(verbaLivre.pontos).toHaveLength(8);
-    expect(verbaLivre.pontos.slice(0, 2).map((p) => p.rotulo)).toEqual(['nov/26', 'dez']);
+    expect(verbaLivre.pontos.slice(0, 2).map((p) => p.rotulo)).toEqual(['nov/26', 'dez/26']);
     expect(verbaLivre.ultimoMes).toBe('jun');
     expect(verbaLivre.ultimoCents).toBe(verbaLivre.pontos.at(-1)?.verbaLivreCents);
     expect(verbaLivre.faixaParcelasTerminando).toEqual({ inicioIdx: 0, fimIdx: 0 });

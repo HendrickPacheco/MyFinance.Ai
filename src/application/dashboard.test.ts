@@ -424,11 +424,11 @@ describe('obterEstadoPainel — verbas, poupança real e renda do ciclo (Task 10
   it('parcela não consome extras nem dia a dia (já está em verbaLivre)', async () => {
     const estado = await obterEstadoPainel(depsNov());
     expect(estado.verbas.pisoDiarioCents).toBe(15_000);
-    // TODO(task2): parcelasCents ainda 0 em consumoVerbasDoCiclo; a Task 2 fecha os valores com parcelas.
-    expect(estado.verbas.diaADiaEfetivoCents).toBe(450_000);
+    // verbaLivre = 2.511.600 − 439.388; gastável = verbaLivre − meta 1.800.000 = 272.212 (< piso×30) → tudo dia a dia.
+    expect(estado.verbas.diaADiaEfetivoCents).toBe(272_212);
     expect(estado.verbas.diaADiaUsadoCents).toBe(0);
     expect(estado.verbas.extrasUsadoCents).toBe(0);
-    expect(estado.verbas.extrasRestanteCents).toBe(261_600);
+    expect(estado.verbas.extrasRestanteCents).toBe(0);
   });
 
   it('"Posso gastar hoje" do KPI herói é o dia a dia, não a verba total', async () => {

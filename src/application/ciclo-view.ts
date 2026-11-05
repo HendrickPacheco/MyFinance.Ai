@@ -7,6 +7,7 @@ import type { Categoria, Ciclo, Transacao } from '@/domain/model/entidades';
 import {
   diasTotaisCiclo,
   dividirVerba,
+  somaParcelasCents,
   projetarDiaADiaDiarioCents,
   gastoRealizadoCents,
   type DivisaoVerba,
@@ -72,7 +73,7 @@ async function montar(deps: Deps, { ciclo }: CicloResolvido): Promise<EstadoCicl
   const diasCiclo = diasTotaisCiclo({ inicio: ciclo.dataInicio, fim: ciclo.dataFim });
   const divisao = dividirVerba({
     verbaVariavelCents: ciclo.verbaVariavelCents,
-    parcelasCents: 0, // TODO(task2)
+    parcelasCents: somaParcelasCents(transacoes),
     poupancaAlvoCents: ciclo.poupancaAlvoCents,
     pisoDiarioCents: config?.pisoDiarioVerbaCents ?? 0,
     diasCiclo,

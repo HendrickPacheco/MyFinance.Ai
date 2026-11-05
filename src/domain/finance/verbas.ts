@@ -18,7 +18,16 @@ export function tipoVerbaEfetivo(t: {
 }
 
 /** `parcelamentoId` != null = parcela: já está em `verbaLivre`, não consome verba. */
-export type TransacaoVerba = TransacaoCalc & { tipoVerba: TipoVerba; parcelamentoId?: string | null };
+export type TransacaoVerba = TransacaoCalc & { tipoVerba: TipoVerba; parcelamentoId: string | null };
+
+/** Soma das parcelas (DESPESA com `parcelamentoId`) de um ciclo — o `parcelasCents` de `dividirVerba`. */
+export function somaParcelasCents(
+  transacoes: readonly { tipo: string; valorCents: number; parcelamentoId: string | null }[],
+): number {
+  return transacoes
+    .filter((t) => t.tipo === 'DESPESA' && t.parcelamentoId != null)
+    .reduce((s, t) => s + t.valorCents, 0);
+}
 
 export interface DivisaoVerba {
   /** verbaVariavel − parcelas do ciclo (D-11: parcela é separada, nunca embutida na verba). */

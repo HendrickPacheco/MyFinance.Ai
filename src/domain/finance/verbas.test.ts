@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { formatBRL } from '@/shared/dinheiro';
 import {
-  consumirVerbas, dividirVerba, explicarPiso, projetarDiaADiaDiarioCents, ritmoDiaADiaOk, statusDiaADia, tipoVerbaEfetivo,
+  consumirVerbas, dividirVerba, explicarPiso, projetarDiaADiaDiarioCents, ritmoDiaADiaOk, somaParcelasCents, statusDiaADia, tipoVerbaEfetivo,
   type TransacaoVerba,
 } from './verbas';
 
 const base = { verbaVariavelCents: 2_511_600, parcelasCents: 0, poupancaAlvoCents: 1_800_000, pisoDiarioCents: 15_000, diasCiclo: 30 };
 const div = dividirVerba(base);
 const tx = (o: Partial<TransacaoVerba>): TransacaoVerba => ({
-  data: '2026-11-10', valorCents: 439_388, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', provisaoId: null, tipoVerba: 'EXTRA', ...o,
+  data: '2026-11-10', valorCents: 439_388, tipo: 'DESPESA', grupoCategoria: 'VARIAVEL', provisaoId: null, parcelamentoId: null, tipoVerba: 'EXTRA', ...o,
 });
 const consumo = (transacoes: TransacaoVerba[]) =>
   consumirVerbas({ divisao: div, transacoes, hoje: '2026-11-11', dataFimCiclo: '2026-11-30' });
@@ -141,5 +141,12 @@ describe('Task 1 - parcelas fora do dia a dia', () => {
     const r = { diaADiaCents: 30_000, extrasRestanteCents: 0, gastavelCents: 30_000, diasTotais: 30, diasRestantes: 21 };
     expect(statusDiaADia({ ...r, diaADiaUsadoCents: 3_000 })).toBe('RITMO_OK');
     expect(statusDiaADia({ ...r, diaADiaUsadoCents: 20_000 })).toBe('ACIMA_DO_RITMO');
+  });
+});
+
+describe("somaParcelasCents", () => {
+  it("soma só DESPESA com parcelamentoId", () => {
+    const t = (tipo: string, valorCents: number, parcelamentoId: string | null) => ({ tipo, valorCents, parcelamentoId });
+    expect(somaParcelasCents([t("DESPESA", 100, "p"), t("DESPESA", 50, null), t("RECEITA", 70, "p"), t("DESPESA", 25, "q")])).toBe(125);
   });
 });
