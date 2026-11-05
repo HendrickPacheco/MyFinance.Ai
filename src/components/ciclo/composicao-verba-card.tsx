@@ -80,6 +80,21 @@ export function ComposicaoVerbaCard({
           </span>
         </div>
 
+        {divisao ? (
+          <ul className="mt-3 space-y-2">
+            <li className="flex items-center justify-between text-sm">
+              <span className="text-muted">Parcelas do ciclo</span>
+              <span className="tnum text-fg">
+                − {formatBRL(ciclo.verbaVariavelCents - divisao.verbaLivreCents)}
+              </span>
+            </li>
+            <li className="flex items-center justify-between text-sm">
+              <span className="text-muted">Verba livre</span>
+              <span className="tnum text-fg">= {formatBRL(divisao.verbaLivreCents)}</span>
+            </li>
+          </ul>
+        ) : null}
+
         {divisao && diaADiaDiarioCents != null ? (
           divisao.faltaParaPisoCents > 0 ? (
             <div className="mt-3 space-y-1 text-sm">

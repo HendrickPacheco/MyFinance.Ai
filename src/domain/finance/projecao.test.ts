@@ -127,6 +127,23 @@ describe('projetarCiclos — limites de ciclo', () => {
     }
   });
 
+  it('ciclo congelado em calendário (diaRecebimento 1) projeta meses cheios', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({ dataBase: '2026-11-15', diaRecebimento: 1, numCiclos: 7 }),
+    );
+
+    expect(ciclos.map((c) => [c.inicio, c.fim])).toEqual([
+      ['2026-11-01', '2026-11-30'],
+      ['2026-12-01', '2026-12-31'],
+      ['2027-01-01', '2027-01-31'],
+      ['2027-02-01', '2027-02-28'],
+      ['2027-03-01', '2027-03-31'],
+      ['2027-04-01', '2027-04-30'],
+      ['2027-05-01', '2027-05-31'],
+    ]);
+    expect(ciclos.every((c) => c.diasTotais >= 28)).toBe(true);
+  });
+
   it('encadeia os ciclos sem buraco nem sobreposição', () => {
     const ciclos = projetarCiclos(entradaBase({ diaRecebimento: 5, numCiclos: 12 }));
 
@@ -796,7 +813,7 @@ describe('projetarCiclos — verbas dia a dia e extras', () => {
     pisoDiarioVerbaCents: 15_000,
   } as const;
 
-  it('divide a verba do ciclo e abate as parcelas dos extras', () => {
+  it('divide a verba LIVRE (já sem parcelas) entre dia a dia e extras', () => {
     const [c] = projetarCiclos(
       entradaBase({
         ...nov,
@@ -804,9 +821,10 @@ describe('projetarCiclos — verbas dia a dia e extras', () => {
       }),
     );
     expect(c?.verbaVariavelCents).toBe(2_511_600);
-    expect(c?.diaADiaCents).toBe(450_000);
-    expect(c?.extrasCents).toBe(261_600);
-    expect(c?.extrasRestanteCents).toBe(-177_788);
+    // livre = 2.511.600 − 439.388; gastável = livre − meta 1.800.000 = 272.212 < piso mensal
+    expect(c?.diaADiaCents).toBe(272_212);
+    expect(c?.extrasCents).toBe(0);
+    expect(c?.extrasRestanteCents).toBe(0);
     expect(c?.diaADiaDiarioCents).toBe(9_073);
   });
 

@@ -191,6 +191,7 @@ describe('obterEstadoCiclo: split da verba (Task 11)', () => {
     const estado = await obterEstadoCiclo(deps);
 
     expect(estado.divisao).toEqual({
+      verbaLivreCents: 2_511_600,
       gastavelCents: 711_600,
       diaADiaCents: 450_000,
       extrasCents: 261_600,
@@ -218,6 +219,7 @@ describe('obterEstadoCiclo: split da verba (Task 11)', () => {
     const estado = await obterEstadoCiclo(deps);
 
     expect(estado.divisao).toEqual({
+      verbaLivreCents: 2_511_600,
       gastavelCents: 311_600,
       diaADiaCents: 311_600,
       extrasCents: 0,

@@ -19,6 +19,7 @@ import type { DataCivil } from '@/shared/data';
 import {
   agregarGastoPorCategoria,
   gastoRealizadoCents,
+  parcelamentoEncerrado,
   type FatiaCategoriaAgregada,
   type TransacaoCategorizada,
 } from '@/domain/finance';
@@ -169,7 +170,15 @@ export async function obterContextoAgente(deps: Deps): Promise<ContextoAgente> {
           vencido: c.vencido,
         }))
       : [],
-    parcelamentosAtivos: parcelamentos.filter((p) => p.encerradoEm === null),
+    parcelamentosAtivos: painel
+      ? parcelamentos.filter(
+          (p) =>
+            !parcelamentoEncerrado(
+              { encerradoEm: p.encerradoEm, dataUltimaParcela: p.terminaEm },
+              painel.ciclo.dataInicio,
+            ),
+        )
+      : parcelamentos.filter((p) => p.encerradoEm === null),
     provisoes,
     patrimonioUltimoSnapshot: ultimoSnapshot ? { data: ultimoSnapshot.data, totalCents: ultimoSnapshot.totalCents } : null,
   };

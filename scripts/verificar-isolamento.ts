@@ -161,6 +161,7 @@ async function main(): Promise<void> {
     'obterAtual não devolve o ciclo do A',
     (await repoB.ciclos.obterAtual('2026-09-15')) === null,
   );
+  checar('ultimo não devolve o ciclo do A', (await repoB.ciclos.ultimo()) === null);
 
   console.log('\nESCRITA — B não altera nada do A:');
   await esperaErro('atualizar(transacao do A) é recusado', () =>

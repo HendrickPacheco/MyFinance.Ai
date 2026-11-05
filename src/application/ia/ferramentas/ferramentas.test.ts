@@ -568,7 +568,7 @@ describe('simular_compra_parcelada', () => {
     expect(saida.alerta).toBe(`Essa compra vai reduzir seu dia a dia para ${formatBRL(8_406)}/dia`);
     expect(impacto[0]?.passouAReduzirDiaADia).toBe(true);
     expect(impacto[0]).toHaveProperty('variacaoExtrasRestanteCents');
-    expect(JSON.stringify(saida.rotulos)).toContain('EXCESSO');
+    expect(JSON.stringify(saida.rotulos)).toContain('extrasRestante já é líquido das parcelas');
     expect(JSON.stringify(saida.rotulos)).toContain('negativo = a compra consumiu extras');
     expect(saida.truncado).toBe(false);
   });
@@ -933,10 +933,10 @@ describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
     const saida = await executarFerramenta(depsNov(), 'estado_ciclo', {});
     const verbas = saida.verbas as Record<string, unknown>;
 
-    expect(verbas.formula).toEqual(expect.stringContaining('dia a dia = min(piso × dias, max(gastável, 0))'));
-    expect(verbas.formula).toEqual(expect.stringContaining('faltaParaPiso = piso × dias − dia a dia'));
-    expect(verbas.formulaConsumo).toEqual(expect.stringContaining('diaADiaEfetivo = diaADia − excedenteDosExtras'));
-    expect(verbas.formulaConsumo).toEqual(expect.stringContaining('max(extras, 0)'));
+    expect(verbas.formula).toEqual(expect.stringContaining('diaADia = min(piso × dias, max(0, gastável))'));
+    expect(verbas.formula).toEqual(expect.stringContaining('faltaParaPiso = piso × dias − diaADia'));
+    expect(verbas.formulaConsumo).toEqual(expect.stringContaining('diaADiaEfetivo = diaADia;'));
+    expect(verbas.formulaConsumo).toEqual(expect.stringContaining('excedenteDosExtras = max(0, −extrasRestante)'));
     expect(verbas.diaADiaUsadoCents).toEqual(expect.any(Number));
     expect(verbas.diaADiaUsadoFormatado).toBe(formatBRL(verbas.diaADiaUsadoCents as number));
     expect(verbas.rotuloExtrasUsado).toEqual(expect.stringContaining('FIM do ciclo'));

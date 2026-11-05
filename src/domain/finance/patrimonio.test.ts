@@ -4,6 +4,7 @@ import {
   variacaoMensalCents,
   taxaAcumulacaoMediaCents,
   mesesDeReserva,
+  mesesCobertosPelaReserva,
   totalPorClasseCents,
   divergenciasConciliacao,
   type ItemConciliavel,
@@ -136,5 +137,15 @@ describe('divergenciasConciliacao', () => {
 
     expect(r.map((d) => d.itemId)).toEqual(['diverge']);
     expect(r[0]?.deltaCents).toBe(50);
+  });
+});
+
+describe('mesesCobertosPelaReserva', () => {
+  it('saldo / (fixos + parcelas + dia a dia)', () => {
+    const m = mesesCobertosPelaReserva({ saldoReservaCents: 6_628_035, fixosCents: 762_800, parcelasCents: 399_294, diaADiaMensalCents: 250_000 });
+    expect(m).toBeCloseTo(4.69, 2);
+  });
+  it('divisor 0 → null', () => {
+    expect(mesesCobertosPelaReserva({ saldoReservaCents: 1, fixosCents: 0, parcelasCents: 0, diaADiaMensalCents: 0 })).toBeNull();
   });
 });

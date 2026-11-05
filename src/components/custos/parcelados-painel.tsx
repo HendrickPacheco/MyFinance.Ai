@@ -63,8 +63,8 @@ export function ParceladosPainel({ estado }: { estado: EstadoParcelados }) {
     return () => window.clearTimeout(t);
   }, [mensagem]);
 
-  const emAndamento = estado.linhas.filter((l) => l.resumo.encerradoEm == null);
-  const encerrados = estado.linhas.filter((l) => l.resumo.encerradoEm != null);
+  const emAndamento = estado.linhas.filter((l) => !l.encerrado);
+  const encerrados = estado.linhas.filter((l) => l.encerrado);
   const visiveis = aba === 'andamento' ? emAndamento : encerrados;
 
   const ordenadas = React.useMemo(

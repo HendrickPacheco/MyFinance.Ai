@@ -36,9 +36,10 @@ const ROTULOS = {
   parcelasComprometidas: 'já preso em parcelas que caem no ciclo',
   verbaLivre: 'o que sobra de verdade: verba variável menos parcelas',
   parcelaEExtras:
-    'a parcela NÃO é deduzida da verba variável (D-11): ela consome primeiro os extras ' +
-    '(extrasRestante) e só o EXCESSO além dos extras reduz o dia a dia (diaADiaDiario = ' +
-    'dia a dia ÷ dias do ciclo). passouAReduzirDiaADia diz se a compra empurrou o dia a dia para baixo',
+    'as parcelas saem da verbaLivre ANTES da divisão (a verba variável em si não as embute, D-11): ' +
+    'uma compra parcelada nova reduz primeiro os extras e, esgotados, o dia a dia (via verbaLivre menor; ' +
+    'diaADiaDiario = dia a dia ÷ dias do ciclo). extrasRestante já é líquido das parcelas. ' +
+    'passouAReduzirDiaADia diz se a compra empurrou o dia a dia para baixo',
   variacaoExtrasRestante:
     'variacaoExtrasRestante = extrasRestante com compra − sem compra; negativo = a compra consumiu extras',
 } as const;

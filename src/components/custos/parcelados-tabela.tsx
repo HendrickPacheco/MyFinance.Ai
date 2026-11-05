@@ -72,7 +72,7 @@ export function acoesDaCompra(
       onSelect: () => acoes.onEditar(linha),
     },
   ];
-  if (linha.resumo.encerradoEm == null) {
+  if (!linha.encerrado) {
     itens.push({
       id: 'encerrar',
       label: 'Cancelar parcelas futuras…',
@@ -129,7 +129,7 @@ export function ParceladosTabela({
   ...acoes
 }: ParceladosTabelaProps) {
   const totalMensalCents = somaCents(
-    linhas.filter((l) => l.resumo.encerradoEm == null).map((l) => l.resumo.valorMensalCents),
+    linhas.filter((l) => !l.encerrado).map((l) => l.resumo.valorMensalCents),
   );
 
   return (
@@ -177,7 +177,7 @@ export function ParceladosTabela({
           const { resumo } = linha;
           const aberto = expandidos.has(resumo.id);
           const idPainel = `cronograma-${resumo.id}`;
-          const encerrado = resumo.encerradoEm != null;
+          const encerrado = linha.encerrado;
 
           return (
             <React.Fragment key={resumo.id}>

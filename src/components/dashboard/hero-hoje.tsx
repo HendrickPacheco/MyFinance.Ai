@@ -2,7 +2,15 @@ import type { EstadoHome } from '@/application/home-tipos';
 import { formatBRL } from '@/shared/dinheiro';
 import { Barra, Card, Valor } from './ui-home';
 
+const STATUS: Record<EstadoHome['hero']['status'], { texto: string; ok: boolean }> = {
+  RITMO_OK: { texto: 'dia a dia · ritmo ok', ok: true },
+  ACIMA_DO_RITMO: { texto: 'dia a dia · acima do ritmo', ok: false },
+  ESTOURADO_USANDO_EXTRAS: { texto: 'dia a dia estourado, usando extras', ok: false },
+  SEM_VERBA_PARA_META: { texto: 'ciclo não comporta a meta', ok: false },
+};
+
 export function HeroHoje({ hero }: { hero: EstadoHome['hero'] }) {
+  const status = STATUS[hero.status];
   return (
     <Card className="grid grid-cols-2 items-end gap-8 bg-gradient-to-br from-surface from-55% to-accent-soft p-8 max-[760px]:grid-cols-1 max-[760px]:gap-5 max-[760px]:p-6">
       <div>
@@ -13,12 +21,12 @@ export function HeroHoje({ hero }: { hero: EstadoHome['hero'] }) {
         <div className="text-[13px] font-medium text-muted">
           <span
             className={
-              hero.ritmoOk
+              status.ok
                 ? 'mr-1.5 inline-block size-2 rounded-full bg-positivo-dot shadow-[0_0_0_3px_var(--color-positivo-soft)]'
                 : 'mr-1.5 inline-block size-2 rounded-full bg-atencao shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-atencao)_20%,transparent)]'
             }
           />
-          {hero.ritmoOk ? 'dia a dia · ritmo ok' : 'dia a dia · acima do ritmo'}
+          {status.texto}
         </div>
       </div>
       <div>

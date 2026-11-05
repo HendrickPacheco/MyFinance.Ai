@@ -11,6 +11,7 @@ import {
   ordenarCategoriasPorUso,
   dividirVerba,
   consumirVerbas,
+  somaParcelasCents,
   diasTotaisCiclo,
   type ConsumoVerbas,
   type ResultadoTeto,
@@ -126,6 +127,7 @@ export function consumoVerbasDoCiclo(p: {
 }): ConsumoVerbas {
   const divisao = dividirVerba({
     verbaVariavelCents: p.ciclo.verbaVariavelCents,
+    parcelasCents: somaParcelasCents(p.transacoes),
     poupancaAlvoCents: p.ciclo.poupancaAlvoCents,
     pisoDiarioCents: p.pisoDiarioCents,
     diasCiclo: diasTotaisCiclo({ inicio: p.ciclo.dataInicio, fim: p.ciclo.dataFim }),

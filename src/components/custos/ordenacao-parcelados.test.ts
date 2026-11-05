@@ -19,6 +19,7 @@ function linha(
 ): LinhaParcelamentoGestao {
   return {
     categoriaNome: 'Casa',
+    encerrado: false,
     resumo: {
       id: descricao,
       descricao,

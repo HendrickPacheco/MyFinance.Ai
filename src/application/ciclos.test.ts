@@ -347,16 +347,16 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
     expect(ciclo.verbaVariavelCents).toBe(590_000);
   });
 
-  it('recalcularCicloAtual preserva a renda prevista congelada do ciclo', async () => {
+  it('recalcularCicloAtual adota a renda nova da Config (sem renda real)', async () => {
     const deps = criarDeps({ hoje: '2026-07-20' });
     await garantirCicloAtual(deps);
 
     deps.config.mutar({ rendaBaseCents: 1_000_000 });
     const ciclo = await recalcularCicloAtual(deps);
 
-    // Renda do ciclo é congelada; recalcular não puxa a renda nova da Config.
-    expect(ciclo.rendaPrevistaCents).toBe(800_000);
-    expect(ciclo.verbaVariavelCents).toBe(800_000);
+    // Sem renda real confirmada, o recálculo explícito puxa a renda da Config.
+    expect(ciclo.rendaPrevistaCents).toBe(1_000_000);
+    expect(ciclo.verbaVariavelCents).toBe(1_000_000);
   });
 
   it('recalcularCicloAtualSeVazio ajusta o ciclo sem transações (onboarding)', async () => {
@@ -699,5 +699,93 @@ describe('recalcularCicloAtualSeVazio — renda real confirmada (D8)', () => {
       cotacaoPrevistaMicros: 5_430_000,
       cotacaoPrevistaData: '2026-10-30',
     });
+  });
+});
+
+describe('recalcularCicloAtual — renda da Config vigente', () => {
+  const fixo = {
+    id: 'f1',
+    nome: 'Aluguel',
+    valorCents: 762_800,
+    diaVencimento: 5,
+    ativo: true,
+    contaId: null,
+    categoriaId: null,
+    vigenteDe: null,
+    vigenteAte: null,
+  };
+
+  it('ciclo aberto sem renda real adota a renda nova da Config', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-10',
+      config: {
+        ...CONFIG_PADRAO,
+        diaRecebimento: 1,
+        rendaBaseCents: 3_500_000,
+        metaPoupancaCents: 1_800_000,
+      },
+      custosFixos: [fixo],
+      ciclos: [
+        cicloFake({
+          id: 'nov',
+          dataInicio: '2026-11-01',
+          dataFim: '2026-11-30',
+          rendaPrevistaCents: 3_000_000,
+        }),
+      ],
+    });
+
+    const ciclo = await recalcularCicloAtual(deps);
+
+    expect(ciclo.rendaPrevistaCents).toBe(3_500_000);
+    expect(ciclo.verbaVariavelCents).toBe(2_737_200);
+  });
+
+  it('renda real confirmada permanece (D8)', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-10',
+      config: { ...CONFIG_PADRAO, diaRecebimento: 1, rendaBaseCents: 3_500_000 },
+      ciclos: [
+        cicloFake({
+          id: 'nov',
+          dataInicio: '2026-11-01',
+          dataFim: '2026-11-30',
+          rendaPrevistaCents: 3_000_000,
+          rendaRealLiquidaCents: 3_200_000,
+        }),
+      ],
+    });
+
+    const ciclo = await recalcularCicloAtual(deps);
+
+    expect(ciclo.rendaPrevistaCents).toBe(3_000_000);
+    expect(ciclo.verbaVariavelCents).toBe(3_200_000);
+  });
+});
+
+describe('garantirCicloAtual — guarda de sobreposição (diaRecebimento mudou)', () => {
+  const novembro = () =>
+    cicloFake({ id: 'nov', dataInicio: '2026-11-01', dataFim: '2026-11-30', fechado: true });
+
+  it('diaRecebimento 5: ciclo novo é 12-01..12-04, nunca 11-05..12-04', async () => {
+    const deps = criarDeps({ hoje: '2026-12-01', ciclos: [novembro()] });
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo.dataInicio).toBe('2026-12-01');
+    expect(ciclo.dataFim).toBe('2026-12-04');
+  });
+
+  it('diaRecebimento 1: ciclo novo é 12-01..12-31', async () => {
+    const deps = criarDeps({
+      hoje: '2026-12-01',
+      config: { ...CONFIG_PADRAO, diaRecebimento: 1 },
+      ciclos: [novembro()],
+    });
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo.dataInicio).toBe('2026-12-01');
+    expect(ciclo.dataFim).toBe('2026-12-31');
   });
 });

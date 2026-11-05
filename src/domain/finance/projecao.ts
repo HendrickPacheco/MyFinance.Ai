@@ -162,6 +162,7 @@ function montarCiclo(params: {
   // Split dia a dia / extras: as parcelas do ciclo são os extras comprometidos.
   const divisao = dividirVerba({
     verbaVariavelCents: params.verbaVariavelCents,
+    parcelasCents: parcelasComprometidas,
     poupancaAlvoCents: params.poupancaAlvoCents,
     pisoDiarioCents: params.pisoDiarioVerbaCents,
     diasCiclo: diasTotais,
@@ -185,8 +186,8 @@ function montarCiclo(params: {
     abaixoDoPiso: piso.irreal,
     diaADiaCents: divisao.diaADiaCents,
     extrasCents: divisao.extrasCents,
-    extrasRestanteCents: divisao.extrasCents - parcelasComprometidas,
-    diaADiaDiarioCents: projetarDiaADiaDiarioCents(divisao, parcelasComprometidas, diasTotais),
+    extrasRestanteCents: divisao.extrasCents,
+    diaADiaDiarioCents: projetarDiaADiaDiarioCents(divisao, diasTotais),
   };
 }
 

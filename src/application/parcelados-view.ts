@@ -11,12 +11,15 @@
 import type { Deps } from './deps';
 import type { DataCivil } from '@/shared/data';
 import type { OpcaoCategoria } from './dashboard-tipos';
+import { parcelamentoEncerrado } from '@/domain/finance/parcelamento';
 import { listarParcelamentos, type ParcelamentoResumo } from './parcelamentos';
 
 export interface LinhaParcelamentoGestao {
   resumo: ParcelamentoResumo;
   /** `null` quando a compra não tem categoria — estado aceito pelo cadastro. */
   categoriaNome: string | null;
+  /** `parcelamentoEncerrado`: cancelado OU última parcela antes do ciclo atual. */
+  encerrado: boolean;
 }
 
 export interface EstadoParcelados {
@@ -38,12 +41,20 @@ export async function obterEstadoParcelados(deps: Deps): Promise<EstadoParcelado
     deps.categorias.listar(),
   ]);
 
+  const inicioCiclo = (await deps.ciclos.obterAtual(deps.relogio.hoje()))?.dataInicio ?? null;
   const nomePorId = new Map(categorias.map((c) => [c.id, c.nome]));
 
   return {
     linhas: resumos.map((resumo) => ({
       resumo,
       categoriaNome: resumo.categoriaId ? (nomePorId.get(resumo.categoriaId) ?? null) : null,
+      encerrado:
+        inicioCiclo === null
+          ? resumo.encerradoEm != null
+          : parcelamentoEncerrado(
+              { encerradoEm: resumo.encerradoEm, dataUltimaParcela: resumo.terminaEm },
+              inicioCiclo,
+            ),
     })),
     categorias: categorias
       .filter((c) => c.grupo === 'VARIAVEL')

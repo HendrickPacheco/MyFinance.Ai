@@ -5,7 +5,7 @@ export function ReservaCard({ reserva }: { reserva: EstadoHome['reserva'] }) {
   const sub =
     reserva.meses === null
       ? (reserva.motivoSemDado ?? 'sem dado para calcular')
-      : `${reserva.meses.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} meses · meta ${reserva.metaMeses} meses`;
+      : `${reserva.meses.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} meses ao custo deste ciclo · meta ${reserva.metaMeses} meses`;
   return (
     <Card>
       <div className="text-[13px] font-medium text-muted">Reserva de emergência</div>

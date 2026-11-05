@@ -65,3 +65,14 @@ export function gerarParcelas(params: {
     valorCents,
   }));
 }
+
+/**
+ * Parcelamento encerrado = carimbado (`encerradoEm`) OU com a última parcela
+ * antes do ciclo atual (terminou sozinho). Só leitura: nunca grava `encerradoEm`.
+ */
+export function parcelamentoEncerrado(
+  p: { encerradoEm: DataCivil | null; dataUltimaParcela: DataCivil | null },
+  inicioCicloAtual: DataCivil,
+): boolean {
+  return p.encerradoEm != null || (p.dataUltimaParcela != null && p.dataUltimaParcela < inicioCicloAtual);
+}

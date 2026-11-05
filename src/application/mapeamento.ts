@@ -37,6 +37,7 @@ export function paraCalculoVerba(
       tipo: t.tipo,
       grupoCategoria: categoria?.grupo ?? null,
       provisaoId: t.provisaoId,
+      parcelamentoId: t.parcelamentoId,
       tipoVerba: tipoVerbaEfetivo({
         tipoVerbaOverride: t.tipoVerbaOverride ?? null,
         tipoVerbaCategoria: categoria?.tipoVerba ?? null,

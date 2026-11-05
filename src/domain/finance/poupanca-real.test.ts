@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   snapshotMaisProximo,
+  poupancaEstimadaDoCicloCents,
   medirPoupancaReal,
   estimarPoupancaEmCurso,
   compararComMeta,
@@ -162,5 +163,18 @@ describe('alertaGastoVariavelBaixo', () => {
   it('não dispara em 35% nem sem histórico', () => {
     expect(alertaGastoVariavelBaixo({ gastoVariavelCents: 700_000, gastosAnterioresCents: ant })).toBeNull();
     expect(alertaGastoVariavelBaixo({ gastoVariavelCents: 1, gastosAnterioresCents: [] })).toBeNull();
+  });
+});
+
+describe('poupancaEstimadaDoCicloCents', () => {
+  const base = { verbaLivreCents: 2_337_906, diaADiaCents: 250_000, diaADiaUsadoCents: 0, extrasUsadoCents: 0, extrasRestanteCents: 287_906 };
+  it('verba livre menos dia a dia, extras usado e extras restante', () => {
+    expect(poupancaEstimadaDoCicloCents(base)).toBe(1_800_000);
+  });
+  it('extras restante negativo não soma', () => {
+    expect(poupancaEstimadaDoCicloCents({ ...base, extrasRestanteCents: -50_000 })).toBe(2_087_906);
+  });
+  it('nunca negativo', () => {
+    expect(poupancaEstimadaDoCicloCents({ ...base, extrasUsadoCents: 9_000_000 })).toBe(0);
   });
 });

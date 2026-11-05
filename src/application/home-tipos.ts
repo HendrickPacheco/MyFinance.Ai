@@ -5,7 +5,7 @@
  * ('07/11', '3/5', 'nov/26') já vêm formatados.
  */
 import type { OpcaoCategoria } from './dashboard-tipos';
-import type { ItemVencimento } from '@/domain/finance';
+import type { ItemVencimento, StatusDiaADia } from '@/domain/finance';
 
 /** Uma das maiores despesas de um grupo (fixo ou parcelado). */
 export interface LinhaDespesa {
@@ -47,17 +47,17 @@ export interface EstadoHome {
     possoGastarHojeCents: number;
     /** Dia a dia usado no ciclo até hoje. */
     usadoDiaADiaCents: number;
-    /** Dia a dia efetivo do ciclo (já descontado o estouro dos extras). */
+    /** Dia a dia efetivo do ciclo (teto do ciclo, líquido de parcelas e meta; o estouro do dia a dia sai dos extras). */
     diaADiaCents: number;
     diasRestantes: number;
     /** usadoDiaADia / diaADia. */
     progressoPercent: number;
-    /** Usado ≤ fatia proporcional dos dias já vividos (`ritmoDiaADiaOk`). */
-    ritmoOk: boolean;
+    /** Estado do dia a dia (`statusDiaADia`): ritmo, estouro (usando extras) ou ciclo sem verba para a meta. */
+    status: StatusDiaADia;
     emRecuperacao: boolean;
   };
   extras: {
-    /** Extras restantes no ciclo; NEGATIVO quando estourados (o excedente reduz o dia a dia). */
+    /** Extras restantes no ciclo; NEGATIVO quando estourados (o dia a dia que passou do balde também come os extras). */
     disponivelCents: number;
     totalCents: number;
     /** disponível / total, 0–100 (0 quando estourados). */
@@ -68,7 +68,7 @@ export interface EstadoHome {
     /** Guardado no ciclo (estimado); null sem patrimônio de partida. */
     guardadoCents: number | null;
     alvoCents: number;
-    /** `percentualReal` limitado a 0–100, inteiro; 0 sem guardado. */
+    /** guardado ÷ alvo, limitado a 0–100, inteiro; 0 sem guardado. */
     progressoPercent: number;
     /** Por que `guardadoCents` é null (D-14); null quando há dado. */
     motivoSemGuardado: string | null;

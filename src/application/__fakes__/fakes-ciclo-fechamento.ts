@@ -145,6 +145,11 @@ export class FakeCicloRepo implements CicloRepository {
     return c ? clone(c) : null;
   }
 
+  async ultimo(): Promise<Ciclo | null> {
+    const c = [...this.itens].sort((a, b) => b.dataInicio.localeCompare(a.dataInicio))[0];
+    return c ? clone(c) : null;
+  }
+
   async ultimoFechado(): Promise<Ciclo | null> {
     return (await this.ultimosFechados(1))[0] ?? null;
   }

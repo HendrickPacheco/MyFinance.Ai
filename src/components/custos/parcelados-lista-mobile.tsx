@@ -37,7 +37,7 @@ export function ParceladosListaMobile({
         const { resumo } = linha;
         const aberto = expandidos.has(resumo.id);
         const idPainel = `cronograma-mobile-${resumo.id}`;
-        const encerrado = resumo.encerradoEm != null;
+        const encerrado = linha.encerrado;
 
         return (
           <li key={resumo.id} className="py-2">
