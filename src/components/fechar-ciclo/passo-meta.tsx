@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
 import { formatBRL } from '@/shared/dinheiro';
 
 /**
- * Passo 5: recalibração de meta — o mecanismo de progresso do app. Só se
+ * Passo 6: recalibração de meta — o mecanismo de progresso do app. Só se
  * aplica se `metaSugeridaCents` existir (dois ciclos seguidos com folga).
  */
 export function PassoMeta({
@@ -21,7 +21,7 @@ export function PassoMeta({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>5. Recalibrar meta de poupança</CardTitle>
+        <CardTitle>6. Recalibrar meta de poupança</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {metaSugeridaCents == null ? (
@@ -32,7 +32,8 @@ export function PassoMeta({
         ) : (
           <>
             <p className="text-sm text-muted">
-              Este ciclo e o anterior fecharam com folga. Você pode subir sua meta de poupança:
+              Você sobrou mais do que a meta neste ciclo e no anterior — a sugestão é o menor dos
+              dois, o patamar que você já provou alcançar:
             </p>
             <div className="tnum flex items-center gap-3 text-lg">
               <span className="text-faint line-through">{formatBRL(metaAtualCents)}</span>

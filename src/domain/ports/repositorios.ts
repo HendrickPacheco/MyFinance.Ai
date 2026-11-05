@@ -14,10 +14,12 @@ import type {
   PagamentoFixo,
   ProvisaoAnual,
   Transacao,
+  OrigemTransacao,
   Parcelamento,
   Ciclo,
   SnapshotPatrimonio,
 } from '@/domain/model/entidades';
+import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
 import type { DataCivil } from '@/shared/data';
 
 export interface ConfigRepository {
@@ -161,6 +163,44 @@ export interface LoteTransacional {
   ajustesProvisao?: readonly AjusteProvisao[];
 }
 
+/**
+ * Filtros da consulta paginada do agente externo (`GET /agent/v1/transacoes`).
+ * `ordem`/`direcao`/`limite` sempre presentes (defaults já aplicados pela
+ * camada de aplicação); os demais são "sem filtro" quando ausentes.
+ */
+export interface FiltroTransacoes {
+  de?: DataCivil;
+  ate?: DataCivil;
+  tipo?: TipoTransacao;
+  metodo?: MetodoPagamento;
+  categoriaId?: string;
+  contaId?: string;
+  cicloId?: string;
+  /** Busca em `descricao`, case-insensitive. */
+  texto?: string;
+  valorMinCents?: number;
+  valorMaxCents?: number;
+  parcelamentoId?: string;
+  origem?: OrigemTransacao;
+  ordem: 'data' | 'valor';
+  direcao: 'asc' | 'desc';
+  /** Cursor opaco devolvido por `PaginaTransacoes.proximoCursor`. */
+  cursor?: string;
+  limite: number;
+}
+
+/** `Transacao` com o nome da categoria/conta anexado — barato de buscar junto (join), caro de recalcular por fora. */
+export interface TransacaoComNomes extends Transacao {
+  categoriaNome: string | null;
+  contaNome: string | null;
+}
+
+export interface PaginaTransacoes {
+  itens: readonly TransacaoComNomes[];
+  /** `null` = não há próxima página. */
+  proximoCursor: string | null;
+}
+
 export interface TransacaoRepository {
   obter(id: string): Promise<Transacao | null>;
   listarPorCiclo(cicloId: string): Promise<Transacao[]>;
@@ -209,6 +249,13 @@ export interface TransacaoRepository {
    * Idempotente: marcar a mesma parcela duas vezes só reescreve `pagoEm`.
    */
   marcarPaga(transacaoId: string, pagoEm: DataCivil | null): Promise<Transacao>;
+  /**
+   * Consulta filtrada, ordenada e paginada por cursor (keyset) — a listagem
+   * de `GET /agent/v1/transacoes`. Implementada NO BANCO (nunca filtrando em
+   * memória): roda sobre o conjunto inteiro de transações do dono, que pode
+   * ser grande demais para carregar por completo.
+   */
+  listarFiltrado(filtro: FiltroTransacoes): Promise<PaginaTransacoes>;
 }
 
 export interface ParcelamentoRepository {

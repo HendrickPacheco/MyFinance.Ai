@@ -23,7 +23,13 @@
  */
 import { addDias, addMeses, type DataCivil } from '@/shared/data';
 import { somaCents } from '@/shared/dinheiro';
-import { limitesCiclo, projetarCiclos, projetarComCenario } from '@/domain/finance';
+import {
+  limitesCiclo,
+  projetarCiclos,
+  projetarComCenario,
+  rendaEfetivaCents,
+  rendaLiquidaPrevista,
+} from '@/domain/finance';
 import type {
   CenarioHipotetico,
   CicloCongelado,
@@ -36,6 +42,8 @@ import type {
 import type { Ciclo, Config } from '@/domain/model/entidades';
 import { ConfigAusenteError } from './ciclos';
 import type { Deps } from './deps';
+import { obterCotacaoUsd } from './cotacao';
+import { formatTaxaBRL } from '@/shared/dinheiro';
 
 export interface ResultadoProjecao {
   ciclos: readonly CicloProjetado[];
@@ -50,6 +58,8 @@ export interface ResultadoProjecao {
    * usa a Config vigente (ou a hipótese, se houver).
    */
   cicloAtualCongelado: boolean;
+  /** Cotação que alimentou a renda dos ciclos futuros; `null` em BRL ou sem cotação. */
+  cotacao: { taxaMicros: number | null; simulada: boolean } | null;
 }
 
 const PREMISSAS_BASE = [
@@ -71,6 +81,7 @@ function premissaDeTermino(custos: readonly CustoComVigencia[] | undefined): str
 async function parametrosVigentes(
   deps: Deps,
   config: Config,
+  rendaPrevistaCents: number,
 ): Promise<
   Pick<
     EntradaProjecao,
@@ -88,7 +99,7 @@ async function parametrosVigentes(
   ]);
 
   return {
-    rendaPrevistaCents: config.rendaBaseCents,
+    rendaPrevistaCents,
     metaPoupancaCents: config.metaPoupancaCents,
     metaPoupancaPercent: config.metaPoupancaPercent,
     // O escalar continua sendo emitido: é o fallback do motor e o número que a
@@ -108,7 +119,7 @@ function congelar(ciclo: Ciclo): CicloCongelado {
   return {
     inicio: ciclo.dataInicio,
     fim: ciclo.dataFim,
-    rendaPrevistaCents: ciclo.rendaPrevistaCents,
+    rendaPrevistaCents: rendaEfetivaCents(ciclo),
     poupancaAlvoCents: ciclo.poupancaAlvoCents,
     fixosCents: ciclo.fixosCents,
     provisaoMensalCents: ciclo.provisaoMensalCents,
@@ -157,7 +168,7 @@ async function obrigacoesFuturas(
  */
 export async function obterProjecao(
   deps: Deps,
-  opcoes: { numCiclos: number; cenario?: CenarioHipotetico },
+  opcoes: { numCiclos: number; cenario?: CenarioHipotetico; taxaMicros?: number },
 ): Promise<ResultadoProjecao> {
   const config = await deps.config.obter();
   if (!config) throw new ConfigAusenteError();
@@ -180,8 +191,22 @@ export async function obterProjecao(
     addMeses(inicioJanela, opcoes.numCiclos + 1),
   );
 
+  // Só os ciclos FUTUROS usam esta renda; o atual segue congelado.
+  const simulada = config.moedaRenda === 'USD' && opcoes.taxaMicros != null;
+  const { cotacao, aviso } =
+    config.moedaRenda === 'USD' && !simulada
+      ? await obterCotacaoUsd(deps)
+      : { cotacao: null, aviso: null };
+  const renda = rendaLiquidaPrevista(
+    config,
+    simulada && opcoes.taxaMicros != null
+      ? { data: hoje, taxaMicros: opcoes.taxaMicros }
+      : cotacao,
+  );
+  const taxaUsada = renda.taxaMicros;
+
   const entrada: EntradaProjecao = {
-    ...(await parametrosVigentes(deps, config)),
+    ...(await parametrosVigentes(deps, config, renda.liquidaCents)),
     dataBase: hoje,
     cicloCongelado: congelado,
     numCiclos: opcoes.numCiclos,
@@ -192,7 +217,20 @@ export async function obterProjecao(
     obrigacoesFuturas: obrigacoes,
   };
 
+  const cotacaoUsada =
+    config.moedaRenda === 'USD' ? { taxaMicros: taxaUsada, simulada } : null;
   const premissas: string[] = [...PREMISSAS_BASE];
+  if (config.moedaRenda === 'USD') {
+    premissas.push(`Renda dos ciclos futuros: ${renda.decomposicao}.`);
+    if (simulada) {
+      premissas.push(
+        `Cotação simulada de ${formatTaxaBRL(opcoes.taxaMicros ?? 0)} (não é a PTAX do dia): vale só para esta tela e para ciclos que ainda não nasceram.`,
+      );
+    } else if (renda.dataCotacao) {
+      premissas.push(`Cotação usada: PTAX de ${renda.dataCotacao.split('-').reverse().join('/')}.`);
+    }
+    if (aviso) premissas.push(aviso);
+  }
   const termino = premissaDeTermino(entrada.custosComVigencia);
   if (termino) premissas.push(termino);
   premissas.push(
@@ -202,7 +240,7 @@ export async function obterProjecao(
   );
 
   if (!opcoes.cenario) {
-    return { ciclos: projetarCiclos(entrada), cenario: null, premissas, cicloAtualCongelado: congelado != null };
+    return { ciclos: projetarCiclos(entrada), cenario: null, premissas, cicloAtualCongelado: congelado != null, cotacao: cotacaoUsada };
   }
 
   const { base, comCenario, delta } = projetarComCenario(entrada, opcoes.cenario);
@@ -211,5 +249,6 @@ export async function obterProjecao(
     cenario: { ciclos: comCenario, delta },
     premissas,
     cicloAtualCongelado: congelado != null,
+    cotacao: cotacaoUsada,
   };
 }

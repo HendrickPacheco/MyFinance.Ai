@@ -7,6 +7,7 @@ import { obterEstadoCiclo } from '@/application/ciclo-view';
 import { ComposicaoVerbaCard } from '@/components/ciclo/composicao-verba-card';
 import { RitmoCard } from '@/components/ciclo/ritmo-card';
 import { ExtratoCiclo } from '@/components/ciclo/extrato-ciclo';
+import { RendaCicloAcoes } from '@/components/ciclo/renda-ciclo-acoes';
 import { RecalcularCicloButton } from '@/components/ciclo/recalcular-ciclo-button';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic';
 export default async function CicloPage() {
   const deps = await criarDeps();
   const estado = await obterEstadoCiclo(deps);
+  const config = await deps.config.obter();
 
   return (
     <div className="mx-auto w-full space-y-6 lg:max-w-3xl">
@@ -27,7 +29,19 @@ export default async function CicloPage() {
         <RecalcularCicloButton />
       </header>
 
-      <ComposicaoVerbaCard ciclo={estado.ciclo} />
+      <ComposicaoVerbaCard
+        ciclo={estado.ciclo}
+        divisao={estado.divisao}
+        diaADiaDiarioCents={estado.diaADiaDiarioCents}
+      />
+
+      {!estado.ciclo.fechado ? (
+        <RendaCicloAcoes
+          cicloId={estado.ciclo.id}
+          moeda={config?.moedaRenda ?? 'BRL'}
+          rendaConfirmada={estado.renda.confirmada}
+        />
+      ) : null}
 
       <RitmoCard
         ritmo={estado.ritmo}

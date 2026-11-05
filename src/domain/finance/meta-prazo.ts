@@ -8,12 +8,16 @@
  * `projetarCiclos`, via `application/projecao.ts`) e devolve quanto cabe
  * acumular até `dataLimite`.
  *
- * AJUSTE DO CICLO ATUAL — leia antes de mexer. A meta de poupança do ciclo em
- * curso não é dinheiro garantido: se o gasto já realizado estourou a verba
- * variável, o excedente sai da própria poupança daquele ciclo (é o mesmo
- * dinheiro, não um segundo buraco). Por isso o PRIMEIRO ciclo da lista pode
- * receber um aporte efetivo menor que `poupancaAlvoCents` — e o motivo viaja
- * explícito em `reduzidoPorGastoExcedente` (D-14): nunca reduza em silêncio.
+ * APORTE NÃO É A META (D-16). A meta de poupança não é descontada da verba:
+ * o que dá para guardar num ciclo é o que SOBRA da verba livre depois do
+ * gasto, com teto na própria meta (poupar além dela não é o plano). Então:
+ *
+ *   aporte = max(0, min(meta, verbaLivre − gastoJáRealizado))
+ *
+ * O gasto realizado só existe no ciclo ATUAL (o primeiro da lista); nos
+ * futuros ele é zero e o aporte é `min(meta, verbaLivre)`. Quando o aporte sai
+ * menor que a meta, o motivo viaja explícito em `reduzidoPorGastoExcedente` +
+ * `reducaoPorExcedenteCents` (D-14/D-15): nunca reduza em silêncio.
  */
 import { assertCentavos } from '@/shared/dinheiro';
 import { assertData, type DataCivil } from '@/shared/data';
@@ -24,6 +28,8 @@ export interface CicloParaMeta {
   inicio: DataCivil;
   fim: DataCivil;
   poupancaAlvoCents: number;
+  /** Verba do ciclo já sem as parcelas comprometidas — o teto real do aporte. */
+  verbaLivreCents: number;
 }
 
 /** Um ciclo já considerado na simulação, com o aporte efetivo explicado. */
@@ -32,10 +38,9 @@ export interface CicloDaSimulacaoMeta {
   fim: DataCivil;
   aportePrevistoCents: number;
   /**
-   * `true` só no ciclo atual quando o gasto já realizado supera a verba
-   * variável — o aporte deste ciclo específico é MENOR que `poupancaAlvoCents`
-   * por causa disso, e a diferença é exatamente `excedenteCicloAtualCents`
-   * recebido em `ParametrosSimulacaoMetaPrazo`.
+   * `true` quando o aporte saiu MENOR que `poupancaAlvoCents` — ou porque o
+   * gasto já realizado comeu a verba deste ciclo, ou porque a verba livre do
+   * ciclo não chega à meta. A diferença é `reducaoPorExcedenteCents`.
    */
   reduzidoPorGastoExcedente: boolean;
   /**
@@ -57,11 +62,10 @@ export interface ParametrosSimulacaoMetaPrazo {
    */
   ciclos: readonly CicloParaMeta[];
   /**
-   * `max(0, gastoRealizado − verbaVariavel)` do ciclo ATUAL (o primeiro da
-   * lista). `null` quando não há ciclo aberto — nesse caso nenhum ciclo recebe
-   * ajuste, porque não existe "ciclo atual" para estourar.
+   * Gasto já realizado no ciclo ATUAL (o primeiro da lista). `null` quando não
+   * há ciclo aberto — nesse caso nem o primeiro ciclo tem gasto a descontar.
    */
-  excedenteCicloAtualCents: number | null;
+  gastoRealizadoCicloAtualCents: number | null;
 }
 
 export interface ResultadoSimulacaoMetaPrazo {
@@ -80,7 +84,7 @@ export interface ResultadoSimulacaoMetaPrazo {
   /** `ceil(alvoCents / numCiclos)` — o aporte constante que bateria o alvo exatamente. */
   aportePorCicloNecessarioCents: number;
   /**
-   * `poupancaAlvoCents` de um ciclo SEM o ajuste do excedente — a referência de
+   * Aporte de um ciclo SEM gasto já realizado — a referência de
    * "quanto normalmente sobra por ciclo", usada para responder "e o resto vai
    * pra onde" (ex.: bitcoin).
    */
@@ -103,8 +107,8 @@ export function simularMetaPrazo(
     throw new RangeError(`alvoCents precisa ser positivo, recebido: ${params.alvoCents}`);
   }
   assertData(params.dataLimite, 'dataLimite');
-  if (params.excedenteCicloAtualCents != null) {
-    assertCentavos(params.excedenteCicloAtualCents, 'excedenteCicloAtualCents');
+  if (params.gastoRealizadoCicloAtualCents != null) {
+    assertCentavos(params.gastoRealizadoCicloAtualCents, 'gastoRealizadoCicloAtualCents');
   }
 
   const dentroDoPrazo = params.ciclos.filter((ciclo) => ciclo.inicio <= params.dataLimite);
@@ -114,23 +118,24 @@ export function simularMetaPrazo(
     );
   }
 
-  const excedente = params.excedenteCicloAtualCents ?? 0;
+  const gastoDoCicloAtual = params.gastoRealizadoCicloAtualCents ?? 0;
   const ciclosDaMeta: CicloDaSimulacaoMeta[] = dentroDoPrazo.map((ciclo, indice) => {
-    const ehCicloAtualAjustado = indice === 0 && excedente > 0;
+    const gasto = indice === 0 ? gastoDoCicloAtual : 0;
+    const sobraPossivel = Math.max(0, ciclo.verbaLivreCents - gasto);
+    const aportePrevistoCents = Math.min(ciclo.poupancaAlvoCents, sobraPossivel);
+    const reducao = ciclo.poupancaAlvoCents - aportePrevistoCents;
     return {
       inicio: ciclo.inicio,
       fim: ciclo.fim,
-      aportePrevistoCents: ehCicloAtualAjustado
-        ? ciclo.poupancaAlvoCents - excedente
-        : ciclo.poupancaAlvoCents,
-      reduzidoPorGastoExcedente: ehCicloAtualAjustado,
+      aportePrevistoCents,
+      reduzidoPorGastoExcedente: reducao > 0,
       // D-15: as PARTES viajam junto do derivado. Antes só o booleano saía, e
       // o modelo conseguia dizer QUE o aporte foi reduzido sem dizer de quanto
       // nem a partir de quê — que é exatamente a pergunta seguinte do dono.
       // Mesma falha do `mesesDeReservaDesconhecido` (D-14), com o número
       // presente em vez de nulo.
       poupancaAlvoOriginalCents: ciclo.poupancaAlvoCents,
-      reducaoPorExcedenteCents: ehCicloAtualAjustado ? excedente : 0,
+      reducaoPorExcedenteCents: reducao,
     };
   });
 
@@ -139,11 +144,13 @@ export function simularMetaPrazo(
 
   const alcanca = totalAcumulavelCents >= params.alvoCents;
 
-  // `poupancaAlvoCents` cru (sem ajuste) do ciclo mais representativo: o
-  // SEGUNDO da lista quando existe — o atual pode estar ajustado pelo
-  // excedente e não é "o normal". Com um único ciclo, ele é o único disponível.
+  // O aporte de um ciclo LIMPO (sem gasto já realizado): o SEGUNDO da lista
+  // quando existe — o atual carrega o gasto do mês em curso e não é "o normal".
+  // Com um único ciclo, ele é o único disponível.
   const cicloPadrao = dentroDoPrazo[1] ?? dentroDoPrazo[0];
-  const aporteDisponivelPadraoCents = cicloPadrao ? cicloPadrao.poupancaAlvoCents : 0;
+  const aporteDisponivelPadraoCents = cicloPadrao
+    ? Math.min(cicloPadrao.poupancaAlvoCents, Math.max(0, cicloPadrao.verbaLivreCents))
+    : 0;
 
   const aportePorCicloNecessarioCents = Math.ceil(params.alvoCents / numCiclos);
 

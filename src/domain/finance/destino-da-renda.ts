@@ -46,7 +46,6 @@ import { divergenciaCongelado } from './divergencia-congelado';
 import type { TransacaoCalc } from './tipos';
 
 export type ChaveBlocoDaRenda =
-  | 'POUPANCA'
   | 'CUSTOS_FIXOS'
   | 'PROVISAO'
   | 'AJUSTE_ROLLOVER'
@@ -58,7 +57,6 @@ export type ChaveSubdivisaoDoDisponivel = 'PARCELAMENTOS_DO_CICLO' | 'GASTOS_EVE
 
 /** Os rótulos fixados com o dono em 24/08/2026 (§12.2.1). */
 export const ROTULO_BLOCO = {
-  POUPANCA: 'Poupança (meta)',
   CUSTOS_FIXOS: 'Custos fixos',
   PROVISAO: 'Provisão mensal',
   AJUSTE_ROLLOVER: 'Ajuste de rollover',
@@ -78,9 +76,7 @@ export const NOTA_BLOCO: Partial<Record<ChaveBlocoDaRenda, string>> = {
   PUXADA_DA_RESERVA:
     'Este dinheiro está no seu disponível mas não veio desta renda — ele saiu da sua ' +
     'reserva. Entra com sinal negativo para os blocos continuarem somando exatamente a ' +
-    'renda do ciclo; você não perdeu nada aqui. Se você puxou mais do que isto, a ' +
-    'diferença foi coberta reduzindo a meta de poupança, e já aparece no bloco ' +
-    '"Poupança (meta)" mais baixo.',
+    'renda do ciclo; você não perdeu nada aqui.',
 };
 
 export const ROTULO_SUBDIVISAO = {
@@ -113,7 +109,6 @@ export interface EntradaDestinoDaRenda {
   fimDoCiclo: DataCivil;
 
   rendaPrevistaCents: number;
-  poupancaAlvoCents: number;
   fixosCents: number;
   provisaoMensalCents: number;
   /** A verba GRAVADA. Fonte de verdade — não é recomposta pelas partes. */
@@ -124,9 +119,9 @@ export interface EntradaDestinoDaRenda {
    * do modo recuperação, SPEC 5.4). Dinheiro REAL, com lastro: saiu da conta de
    * reserva e entrou na variável.
    *
-   * Não é o bruto puxado. A parte da puxada coberta pela redução da
-   * poupança-alvo já está declarada — é o bloco "Poupança (meta)" menor —, e
-   * contá-la de novo aqui derrubaria a identidade no caso em que ela fechava.
+   * Desde a D-16 a meta de poupança não deduz verba, então a puxada não abate
+   * poupança-alvo nenhuma: todo o valor puxado é dinheiro que ESTA renda não
+   * explica, e entra inteiro aqui.
    */
   puxadoDaReservaForaDaRendaCents: number;
 
@@ -309,7 +304,6 @@ export function destinoDaRenda(entrada: EntradaDestinoDaRenda): DestinoDaRenda {
   assertData(entrada.hoje, 'hoje');
   assertData(entrada.fimDoCiclo, 'fimDoCiclo');
   const renda = assertCentavos(entrada.rendaPrevistaCents, 'rendaPrevistaCents');
-  assertCentavos(entrada.poupancaAlvoCents, 'poupancaAlvoCents');
   assertCentavos(entrada.fixosCents, 'fixosCents');
   assertCentavos(entrada.provisaoMensalCents, 'provisaoMensalCents');
   assertCentavos(entrada.verbaVariavelCents, 'verbaVariavelCents');
@@ -343,19 +337,16 @@ export function destinoDaRenda(entrada: EntradaDestinoDaRenda): DestinoDaRenda {
  * renda deste ciclo.
  *
  * 🔴 A PUXADA DA RESERVA segue a mesma regra, e é a razão de este bloco
- * existir. `puxarDaReserva` (application/ciclos.ts) soma X à verba e reduz a
- * poupança-alvo em X COM PISO EM ZERO. Enquanto a poupança comporta X, os dois
- * movimentos se cancelam e a identidade fecha sozinha — o bloco entra zerado,
- * porque nada veio de fora: o disponível cresceu com dinheiro que esta renda ia
- * poupar, e isso já está declarado no bloco "Poupança (meta)" menor.
+ * existir. `puxarDaReserva` (application/ciclos.ts) soma X à verba e — desde a
+ * D-16 — não abate poupança-alvo nenhuma, porque a meta nunca foi descontada
+ * da verba. Logo a verba sobe X sem nada descer junto, e a soma dos blocos
+ * passaria da renda em X inteiro. É exatamente isso que
+ * `puxadoDaReservaForaDaRendaCents` guarda: o valor puxado, inteiro.
  *
- * Quando a poupança NÃO comporta X, a verba sobe mais do que a poupança desce e
- * a soma passa da renda em `X − poupançaAlvo`. É exatamente esse excedente que
- * `puxadoDaReservaForaDaRendaCents` guarda — e é por isso que ele não é o valor
- * bruto puxado. O excedente tem lastro: é dinheiro real que saiu da conta de
- * reserva e entrou na variável, e não veio desta renda, como o rollover. Com
- * bloco próprio ele é declarado; sem ele, virava "diferença não explicada"
- * negativa, como se o app tivesse perdido a conta.
+ * Esse dinheiro tem lastro — saiu da conta de reserva e entrou na variável —,
+ * e não veio desta renda, como o rollover. Com bloco próprio ele é declarado;
+ * sem ele, virava "diferença não explicada" negativa, como se o app tivesse
+ * perdido a conta.
  */
 /**
  * Troca o sinal preservando o zero POSITIVO. `-0` é igual a `0` em toda
@@ -372,7 +363,6 @@ function montarBlocos(
   renda: number,
 ): { blocos: BlocoDaRenda[]; somaDosBlocosCents: number; naoExplicadoCents: number } {
   const valores: [ChaveBlocoDaRenda, number][] = [
-    ['POUPANCA', entrada.poupancaAlvoCents],
     ['CUSTOS_FIXOS', entrada.fixosCents],
     ['PROVISAO', entrada.provisaoMensalCents],
     ['AJUSTE_ROLLOVER', inverter(entrada.rolloverRecebidoCents)],

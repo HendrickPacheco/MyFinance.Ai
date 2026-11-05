@@ -39,6 +39,13 @@ model Config {
   // Piso diário configurável (regra 12): abaixo disso, a meta de poupança é
   // considerada irreal. Aviso de CONFIGURAÇÃO apenas — nunca piso no cálculo do teto.
   pisoDiarioVerbaCents Int      @default(1500)
+  // Renda em moeda estrangeira (BRL | USD). Em USD, `rendaBaseCents` segue sendo
+  // a renda LÍQUIDA em BRL derivada; estes campos guardam a origem.
+  moedaRenda                 String  @default("BRL")
+  rendaBrutaMoedaOrigemCents Int?
+  impostoEstimadoCents       Int?
+  impostoEstimadoPercentual  Float? // percentual: único float tolerado
+  fonteRenda                 String?
   updatedAt            DateTime @updatedAt
 }
 
@@ -144,6 +151,7 @@ model Categoria {
   icone      String?
   cor        String?
   ordem      Int         @default(0)
+  tipoVerba  String      @default("EXTRA") // DIA_A_DIA | EXTRA
   transacoes Transacao[]
 
   // Arestas fechadas na G0. Antes disto, `Parcelamento.categoriaId` era uma
@@ -195,6 +203,8 @@ model Transacao {
 
   cicloId   String?
   ciclo     Ciclo?   @relation(fields: [cicloId], references: [id])
+  // Sobrescreve Categoria.tipoVerba neste lançamento (DIA_A_DIA | EXTRA).
+  tipoVerbaOverride String?
   createdAt DateTime @default(now())
 
   // Procedência do lançamento (I1 da importação de fatura). "MANUAL" é todo
@@ -294,6 +304,18 @@ model Ciclo {
   fechadoEm                       String?
   sobraCents                      Int?
   observacao                      String?
+  // Poupança real medida no fechamento e renda real em moeda de origem.
+  poupancaRealCents               Int?
+  patrimonioInicialCents          Int?
+  patrimonioFinalCents            Int?
+  fonteMedicaoPoupanca            String? // SNAPSHOT | SALDO_CONTAS | MANUAL
+  rendaRealBrutaMoedaOrigemCents  Int?
+  cotacaoRealUsadaMicros          Int?
+  impostoRealCents                Int?
+  rendaRealLiquidaCents           Int?
+  // Cotação congelada usada na renda prevista.
+  cotacaoPrevistaMicros           Int?
+  cotacaoPrevistaData             String?
   transacoes                      Transacao[]
   pagamentosFixos                 PagamentoFixo[]
 
@@ -388,6 +410,85 @@ model Usuario {
   mensagensConversa MensagemConversa[]
   importacoes       Importacao[]
   itensImportados   ItemImportado[]
+  apiTokens         ApiToken[]
+  auditoriasAgente  AuditoriaAgente[]
+  idempotenciasAgente IdempotenciaAgente[]
+}
+
+// ── API do agente de IA externo (feat/agent-api-v1) ─────────────────────────
+// Aditivos, no mesmo espírito do bloco de identidade abaixo: nenhuma tabela
+// financeira foi tocada. O agente autentica por token (nunca cookie) e atua
+// SEMPRE como OWNER do `donoId` do token — ver `src/agent-api/`.
+
+/// Credencial do agente de IA. O token CRU ("mfa_...") só existe uma vez, no
+/// momento da criação (`criarToken`); daí em diante só o `hash` (SHA-256)
+/// fica no banco, no mesmo espírito de `Sessao.id` — vazar o banco não
+/// entrega uma credencial reutilizável.
+///
+/// `prefixo` guarda os 12 primeiros caracteres do token CRU (inclui "mfa_")
+/// só para a UI exibir "mfa_AbCd1234…" sem precisar do token inteiro.
+model ApiToken {
+  id          String    @id @default(cuid())
+  donoId      String
+  dono        Usuario   @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  nome        String
+  prefixo     String
+  hash        String    @unique
+  escopos     String[] // 'read' | 'write' | 'admin'
+  criadoEm    DateTime  @default(now())
+  ultimoUsoEm DateTime?
+  expiraEm    DateTime?
+  revogadoEm  DateTime?
+
+  auditorias     AuditoriaAgente[]
+  idempotencias  IdempotenciaAgente[]
+
+  @@index([donoId])
+}
+
+/// Trilha de auditoria de toda escrita do agente (CREATE/UPDATE/DELETE/ACTION).
+/// `antes`/`depois` são o estado da entidade nas bordas da operação — o que
+/// permite reconstruir "o que o agente mudou" sem reler o histórico de outra
+/// tabela. Nunca é escrita financeira em si: é só o relato dela.
+model AuditoriaAgente {
+  id         String   @id @default(cuid())
+  donoId     String
+  dono       Usuario  @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  tokenId    String
+  token      ApiToken @relation(fields: [tokenId], references: [id])
+  metodo     String // GET | POST | PATCH | DELETE
+  rota       String
+  entidade   String
+  entidadeId String?
+  acao       String // CREATE | UPDATE | DELETE | ACTION
+  antes      Json?
+  depois     Json?
+  dryRun     Boolean  @default(false)
+  criadoEm   DateTime @default(now())
+
+  @@index([donoId, criadoEm])
+}
+
+/// Replay de `Idempotency-Key` (24h de TTL — ver `expiraEm`). `hashCorpo`
+/// detecta reuso da mesma chave com um corpo DIFERENTE (422), que é bug do
+/// cliente, não corrida de rede.
+model IdempotenciaAgente {
+  id         String   @id @default(cuid())
+  donoId     String
+  dono       Usuario  @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  tokenId    String
+  token      ApiToken @relation(fields: [tokenId], references: [id])
+  chave      String
+  metodo     String
+  rota       String
+  hashCorpo  String
+  statusHttp Int
+  resposta   Json
+  criadoEm   DateTime @default(now())
+  expiraEm   DateTime
+
+  @@unique([donoId, chave])
+  @@index([expiraEm])
 }
 
 model Sessao {
@@ -605,4 +706,18 @@ model ItemImportado {
   @@unique([donoId, importacaoId, ordem])
   @@index([donoId, chaveDedup])
   @@index([importacaoId])
+}
+
+// Cotação PTAX/manual. Dado PÚBLICO: tabela GLOBAL, deliberadamente SEM `donoId`
+// e sem relação com Usuario (decisão D4). Taxa em micros (taxa x 1.000.000).
+model Cotacao {
+  id            String   @id @default(cuid())
+  data          String
+  moedaOrigem   String
+  moedaDestino  String
+  taxaMicros    Int
+  fonte         String // PTAX_BCB | MANUAL
+  createdAt     DateTime @default(now())
+
+  @@unique([data, moedaOrigem, moedaDestino])
 }

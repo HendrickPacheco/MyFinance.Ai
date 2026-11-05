@@ -41,6 +41,7 @@ import { somaCents } from '@/shared/dinheiro';
 import { diasTotaisCiclo, limitesCiclo, proximoCicloApos } from './ciclo';
 import { gerarParcelas } from './parcelamento';
 import { verificarMetaIrreal } from './sugestoes';
+import { dividirVerba, projetarDiaADiaDiarioCents } from './verbas';
 import {
   fixosVigentesNoCicloCents,
   poupancaAlvoCents,
@@ -153,8 +154,17 @@ function montarCiclo(params: {
   // Reusa a divisão do motor em vez de repeti-la aqui.
   const piso = verificarMetaIrreal({
     verbaVariavelCents: verbaLivre,
+    poupancaAlvoCents: params.poupancaAlvoCents,
     diasCiclo: diasTotais,
     pisoDiarioCents: params.pisoDiarioVerbaCents,
+  });
+
+  // Split dia a dia / extras: as parcelas do ciclo são os extras comprometidos.
+  const divisao = dividirVerba({
+    verbaVariavelCents: params.verbaVariavelCents,
+    poupancaAlvoCents: params.poupancaAlvoCents,
+    pisoDiarioCents: params.pisoDiarioVerbaCents,
+    diasCiclo: diasTotais,
   });
 
   return {
@@ -173,6 +183,10 @@ function montarCiclo(params: {
     verbaDiariaLivreCents: piso.verbaDiariaCents,
     rolloverRecebidoCents: params.rolloverRecebidoCents,
     abaixoDoPiso: piso.irreal,
+    diaADiaCents: divisao.diaADiaCents,
+    extrasCents: divisao.extrasCents,
+    extrasRestanteCents: divisao.extrasCents - parcelasComprometidas,
+    diaADiaDiarioCents: projetarDiaADiaDiarioCents(divisao, parcelasComprometidas, diasTotais),
   };
 }
 
@@ -267,7 +281,6 @@ export function projetarCiclos(entrada: EntradaProjecao): CicloProjetado[] {
     // Chamada idêntica à de `garantirCicloAtual` — SEM parâmetro de parcela.
     const verbaVariavel = verbaVariavelCents({
       rendaPrevistaCents: rendaDosCiclosFuturos,
-      poupancaAlvoCents: poupanca,
       fixosCents: fixosDoCiclo,
       provisaoMensalCents: provisao,
       rolloverRecebidoCents,
@@ -321,6 +334,9 @@ export function projetarComCenario(
       verbaLivreCents: cicloComCenario.verbaLivreCents - cicloBase.verbaLivreCents,
       verbaDiariaLivreCents: cicloComCenario.verbaDiariaLivreCents - cicloBase.verbaDiariaLivreCents,
       passouAFicarAbaixoDoPiso: cicloComCenario.abaixoDoPiso && !cicloBase.abaixoDoPiso,
+      extrasRestanteCents: cicloComCenario.extrasRestanteCents - cicloBase.extrasRestanteCents,
+      diaADiaDiarioCents: cicloComCenario.diaADiaDiarioCents - cicloBase.diaADiaDiarioCents,
+      passouAReduzirDiaADia: cicloComCenario.diaADiaDiarioCents < cicloBase.diaADiaDiarioCents,
     };
   });
 

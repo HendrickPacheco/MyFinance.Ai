@@ -11,7 +11,7 @@ import { addMeses, type DataCivil } from '@/shared/data';
 import { somaCents } from '@/shared/dinheiro';
 import { diasTotaisCiclo, limitesCiclo } from './ciclo';
 import { gerarParcelas } from './parcelamento';
-import { poupancaAlvoCents, verbaVariavelCents, type CustoComVigencia } from './verba';
+import { verbaVariavelCents, type CustoComVigencia } from './verba';
 import { projetarCiclos, projetarComCenario } from './projecao';
 import type { CicloProjetado, EntradaProjecao, ObrigacaoFutura } from './projecao-tipos';
 
@@ -70,11 +70,6 @@ describe('projetarCiclos — regressão da decisão D-11 (parcela não é deduzi
     // (a) a parcela NÃO foi subtraída da verba: bate com a chamada isolada.
     const verbaIsolada = verbaVariavelCents({
       rendaPrevistaCents: entrada.rendaPrevistaCents,
-      poupancaAlvoCents: poupancaAlvoCents({
-        rendaPrevistaCents: entrada.rendaPrevistaCents,
-        metaPoupancaCents: entrada.metaPoupancaCents,
-        metaPoupancaPercent: entrada.metaPoupancaPercent,
-      }),
       fixosCents: entrada.fixosCents,
       provisaoMensalCents: 0,
       rolloverRecebidoCents: 0,
@@ -296,9 +291,12 @@ describe('projetarComCenario — renda hipotética (caso real 11/08/2026)', () =
 
     expect(em(comCenario, 1).rendaPrevistaCents).toBe(1_500_000);
     expect(em(comCenario, 2).rendaPrevistaCents).toBe(1_500_000);
-    // Meta (18.000) já não cabe em 15.000: a verba variável do motor negativa
-    // é o sinal correto de "meta não cabe", não um bug de subtração.
-    expect(em(comCenario, 1).verbaVariavelCents).toBe(1_500_000 - 1_800_000 - 488_400);
+    // D-16: a meta (18.000) não entra na verba, então a verba segue positiva
+    // mesmo com renda de 15.000 — é só renda − fixos.
+    expect(em(comCenario, 1).verbaVariavelCents).toBe(1_500_000 - 488_400);
+    // O sinal de "a meta não cabe nessa renda" migrou para o piso diário, que
+    // é onde `verificarMetaIrreal` desconta o alvo.
+    expect(em(comCenario, 1).abaixoDoPiso).toBe(true);
   });
 
   it('sem ciclo congelado, todos os ciclos (inclusive o primeiro) usam a hipótese', () => {
@@ -442,7 +440,29 @@ describe('projetarCiclos — bordas', () => {
     expect(em(ciclos, 2).inicio).toBe('2026-03-31');
   });
 
-  it('verba negativa (renda menor que fixos + poupança) não vira float nem esconde o aperto', () => {
+  it('verba negativa (renda menor que os fixos) não vira float nem esconde o aperto', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({
+        rendaPrevistaCents: 500_000,
+        metaPoupancaCents: 300_000,
+        fixosCents: 600_000,
+        numCiclos: 3,
+      }),
+    );
+
+    for (const ciclo of ciclos) {
+      expect(ciclo.verbaVariavelCents).toBeLessThan(0);
+      expect(Number.isInteger(ciclo.verbaDiariaLivreCents)).toBe(true);
+      expect(ciclo.verbaDiariaLivreCents).toBeLessThan(0);
+      expect(ciclo.abaixoDoPiso).toBe(true);
+    }
+  });
+
+  it('a meta sozinha NÃO torna a verba negativa — o aperto aparece no piso (D-16)', () => {
+    // Mesmos números de antes da D-16 (renda 5.000, meta 3.000, fixos 4.000),
+    // quando este cenário produzia verba negativa. Agora a verba é renda −
+    // fixos e continua positiva; quem voltar a descontar a meta aqui a conta
+    // duas vezes, porque `verificarMetaIrreal` já a desconta no piso diário.
     const ciclos = projetarCiclos(
       entradaBase({
         rendaPrevistaCents: 500_000,
@@ -453,9 +473,9 @@ describe('projetarCiclos — bordas', () => {
     );
 
     for (const ciclo of ciclos) {
-      expect(ciclo.verbaVariavelCents).toBeLessThan(0);
-      expect(Number.isInteger(ciclo.verbaDiariaLivreCents)).toBe(true);
-      expect(ciclo.verbaDiariaLivreCents).toBeLessThan(0);
+      expect(ciclo.verbaVariavelCents).toBe(100_000);
+      expect(ciclo.poupancaAlvoCents).toBe(300_000); // a meta segue gravada
+      expect(ciclo.verbaDiariaLivreCents).toBeLessThan(0); // (verba − meta) / dias
       expect(ciclo.abaixoDoPiso).toBe(true);
     }
   });
@@ -759,11 +779,6 @@ describe('projetarCiclos — detalhe das obrigações do ciclo (Fase 6)', () => 
     const ciclo = em(projetarCiclos(entrada), 1);
     const doMotor = verbaVariavelCents({
       rendaPrevistaCents: entrada.rendaPrevistaCents,
-      poupancaAlvoCents: poupancaAlvoCents({
-        rendaPrevistaCents: entrada.rendaPrevistaCents,
-        metaPoupancaCents: entrada.metaPoupancaCents,
-        metaPoupancaPercent: entrada.metaPoupancaPercent,
-      }),
       fixosCents: entrada.fixosCents,
       provisaoMensalCents: 0,
       rolloverRecebidoCents: 0,
@@ -771,5 +786,40 @@ describe('projetarCiclos — detalhe das obrigações do ciclo (Fase 6)', () => 
 
     expect(ciclo.obrigacoesDoCiclo.length).toBeGreaterThan(0);
     expect(ciclo.verbaVariavelCents).toBe(doMotor);
+  });
+});
+
+describe('projetarCiclos — verbas dia a dia e extras', () => {
+  const nov = {
+    dataBase: '2026-11-04',
+    numCiclos: 1,
+    pisoDiarioVerbaCents: 15_000,
+  } as const;
+
+  it('divide a verba do ciclo e abate as parcelas dos extras', () => {
+    const [c] = projetarCiclos(
+      entradaBase({
+        ...nov,
+        obrigacoesFuturas: [{ data: '2026-11-10', valorCents: 439_388, parcelamentoId: 'p' }],
+      }),
+    );
+    expect(c?.verbaVariavelCents).toBe(2_511_600);
+    expect(c?.diaADiaCents).toBe(450_000);
+    expect(c?.extrasCents).toBe(261_600);
+    expect(c?.extrasRestanteCents).toBe(-177_788);
+    expect(c?.diaADiaDiarioCents).toBe(9_073);
+  });
+
+  it('passouAReduzirDiaADia só quando a compra estoura os extras', () => {
+    const compra = (valorTotalCents: number) =>
+      projetarComCenario(entradaBase(nov), {
+        tipo: 'compraParcelada',
+        descricao: 'X',
+        valorTotalCents,
+        numParcelas: 3,
+        dataCompra: '2026-11-10',
+      }).delta[0];
+    expect(compra(300_000)?.passouAReduzirDiaADia).toBe(false);
+    expect(compra(900_000)?.passouAReduzirDiaADia).toBe(true);
   });
 });

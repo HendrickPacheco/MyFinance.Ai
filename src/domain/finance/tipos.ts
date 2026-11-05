@@ -26,7 +26,6 @@ export interface LimitesCiclo {
 
 export interface ParametrosVerba {
   rendaPrevistaCents: number;
-  poupancaAlvoCents: number;
   fixosCents: number;
   provisaoMensalCents: number;
   /** Sobra (±) herdada do ciclo anterior quando destino = ROLLOVER (item 5). */

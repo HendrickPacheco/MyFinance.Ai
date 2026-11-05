@@ -24,6 +24,7 @@ import {
   type DestinoDaRenda,
   type LancamentoDoCiclo,
   type LinhaCategoriaDestino,
+  rendaEfetivaCents,
 } from '@/domain/finance';
 import { lerCicloAtual } from './ciclos';
 import { indexarGrupoCategoria } from './mapeamento';
@@ -61,8 +62,7 @@ export async function obterDestinoDaRendaSomenteLeitura(
   const destino = destinoDaRenda({
     hoje,
     fimDoCiclo: ciclo.dataFim,
-    rendaPrevistaCents: ciclo.rendaPrevistaCents,
-    poupancaAlvoCents: ciclo.poupancaAlvoCents,
+    rendaPrevistaCents: rendaEfetivaCents(ciclo),
     fixosCents: ciclo.fixosCents,
     provisaoMensalCents: ciclo.provisaoMensalCents,
     verbaVariavelCents: ciclo.verbaVariavelCents,

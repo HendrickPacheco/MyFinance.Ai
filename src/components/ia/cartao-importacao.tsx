@@ -63,7 +63,8 @@ type EstadoLinha =
   | { tipo: 'CONFIRMADA' }
   | { tipo: 'DESCARTADA' }
   | { tipo: 'JA_PROCESSADA'; decisaoAnterior: string }
-  | { tipo: 'ERRO'; mensagem: string };
+  /** `requerConfirmacao`: a linha cai num ciclo fechado — o próximo clique reenvia com `confirmarRetroativo`. */
+  | { tipo: 'ERRO'; mensagem: string; requerConfirmacao?: boolean };
 
 const ROTULO_FAIXA: Record<Faixa, string> = {
   JA_REGISTRADO: 'Já registrado',
@@ -104,12 +105,18 @@ function LinhaImportacao({
   const confirmar = React.useCallback(async () => {
     // Guarda contra duplo clique local (padrão de `cartao-proposta.tsx`) —
     // a segurança de verdade é do caso de uso (ver docblock do módulo).
-    if (estado.tipo !== 'PENDENTE') return;
+    // ERRO também é clicável: é o "Tentar de novo".
+    if (estado.tipo !== 'PENDENTE' && estado.tipo !== 'ERRO') return;
+    const confirmarRetroativo = estado.tipo === 'ERRO' && estado.requerConfirmacao === true;
     onMudarEstado({ tipo: 'ENVIANDO' });
 
-    const resultado = await confirmarItemImportadoAction({ importacaoId, itemId: item.itemId });
+    const resultado = await confirmarItemImportadoAction({
+      importacaoId,
+      itemId: item.itemId,
+      confirmarRetroativo,
+    });
     if (!resultado.ok) {
-      onMudarEstado({ tipo: 'ERRO', mensagem: resultado.erro });
+      onMudarEstado({ tipo: 'ERRO', mensagem: resultado.erro, requerConfirmacao: resultado.requerConfirmacao });
       return;
     }
     const { data } = resultado;
@@ -120,10 +127,10 @@ function LinhaImportacao({
     } else {
       onMudarEstado({ tipo: 'CONFIRMADA' });
     }
-  }, [estado.tipo, importacaoId, item.itemId, onMudarEstado]);
+  }, [estado, importacaoId, item.itemId, onMudarEstado]);
 
   const descartar = React.useCallback(async () => {
-    if (estado.tipo !== 'PENDENTE') return;
+    if (estado.tipo !== 'PENDENTE' && estado.tipo !== 'ERRO') return;
     onMudarEstado({ tipo: 'ENVIANDO' });
 
     const resultado = await descartarItemImportadoAction({ importacaoId, itemId: item.itemId });
@@ -181,7 +188,11 @@ function LinhaImportacao({
               ) : (
                 <Check className="size-3.5" aria-hidden />
               )}
-              {estado.tipo === 'ERRO' ? 'Tentar de novo' : 'Confirmar'}
+              {estado.tipo === 'ERRO'
+                ? estado.requerConfirmacao
+                  ? 'Confirmar mesmo assim'
+                  : 'Tentar de novo'
+                : 'Confirmar'}
             </Button>
             <Button
               type="button"

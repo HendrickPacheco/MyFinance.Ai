@@ -11,7 +11,7 @@
  *  · a variante das telas continua criando o ciclo, como sempre fez.
  */
 import { describe, expect, it } from 'vitest';
-import { criarDeps, cicloFake, transacaoFake, type FakeDeps } from './__fakes__/fakes-ciclo-fechamento';
+import { criarDeps, cicloFake, transacaoFake, CONFIG_PADRAO, type FakeDeps } from './__fakes__/fakes-ciclo-fechamento';
 import { ConfigAusenteError, garantirCicloAtual, lerCicloAtual } from './ciclos';
 import { obterEstadoHoje, obterEstadoHojeSomenteLeitura } from './hoje';
 import { obterEstadoCiclo, obterEstadoCicloSomenteLeitura } from './ciclo-view';
@@ -166,5 +166,63 @@ describe('as telas continuam criando o ciclo (regressão)', () => {
 
     expect(estado.ciclo.dataInicio).toBe('2026-07-05');
     expect(deps.ciclos.itens).toHaveLength(1);
+  });
+});
+
+describe('obterEstadoCiclo: split da verba (Task 11)', () => {
+  it('devolve divisao e renda do ciclo base (nov/26, piso R$ 150)', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-10',
+      config: { ...CONFIG_PADRAO, pisoDiarioVerbaCents: 15_000 },
+      ciclos: [
+        cicloFake({
+          id: 'nov',
+          dataInicio: '2026-11-01',
+          dataFim: '2026-11-30',
+          rendaPrevistaCents: 3_000_000,
+          fixosCents: 488_400,
+          provisaoMensalCents: 0,
+          verbaVariavelCents: 2_511_600,
+          poupancaAlvoCents: 1_800_000,
+        }),
+      ],
+    });
+
+    const estado = await obterEstadoCiclo(deps);
+
+    expect(estado.divisao).toEqual({
+      gastavelCents: 711_600,
+      diaADiaCents: 450_000,
+      extrasCents: 261_600,
+      faltaParaPisoCents: 0,
+    });
+    expect(estado.renda.liquidaCents).toBe(3_000_000);
+    expect(estado.renda.confirmada).toBe(false);
+  });
+
+  it('meta que não cabe: mostra o dia a dia real e quanto falta para o piso', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-10',
+      config: { ...CONFIG_PADRAO, pisoDiarioVerbaCents: 15_000 },
+      ciclos: [
+        cicloFake({
+          id: 'nov',
+          dataInicio: '2026-11-01',
+          dataFim: '2026-11-30',
+          verbaVariavelCents: 2_511_600,
+          poupancaAlvoCents: 2_200_000,
+        }),
+      ],
+    });
+
+    const estado = await obterEstadoCiclo(deps);
+
+    expect(estado.divisao).toEqual({
+      gastavelCents: 311_600,
+      diaADiaCents: 311_600,
+      extrasCents: 0,
+      faltaParaPisoCents: 138_400,
+    });
+    expect(estado.diaADiaDiarioCents).toBe(10_386);
   });
 });

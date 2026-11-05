@@ -10,7 +10,7 @@
  * `verba.ts`). Por isso os três campos abaixo coexistem, cada um com o rótulo
  * do bolso de onde vem:
  *
- *   verbaVariavelCents        renda − poupança − fixos − provisão (+ rollover)
+ *   verbaVariavelCents        renda − fixos − provisão (+ rollover)
  *   parcelasComprometidasCents  soma das parcelas que caem no ciclo
  *   verbaLivreCents           verbaVariavel − parcelasComprometidas
  *
@@ -178,7 +178,8 @@ export interface CicloProjetado {
   fixosCents: number;
   provisaoMensalCents: number;
 
-  /** Verba do motor: renda − poupança − fixos − provisão (+ rollover).
+  /** Verba do motor: renda − fixos − provisão (+ rollover). A meta de poupança
+   * NÃO entra (D-16) — ver `poupancaAlvoCents`, que viaja ao lado como alvo.
    * NÃO desconta parcela — ver o cabeçalho deste arquivo. */
   verbaVariavelCents: number;
   /** Soma das obrigações futuras que caem no intervalo do ciclo.
@@ -200,6 +201,15 @@ export interface CicloProjetado {
   /** `verbaDiariaLivreCents` abaixo do piso — avaliado sobre a verba LIVRE,
    * porque avaliar sobre a bruta esconderia exatamente o aperto da parcela. */
   abaixoDoPiso: boolean;
+
+  /** Parte da verba (após a meta) até o piso diário × dias. */
+  diaADiaCents: number;
+  /** O que sobra do gastável acima do piso. */
+  extrasCents: number;
+  /** `extrasCents − parcelasComprometidasCents`; negativo = parcelas invadem o dia a dia. */
+  extrasRestanteCents: number;
+  /** Dia a dia por dia após as parcelas que estouram os extras (floor). */
+  diaADiaDiarioCents: number;
 }
 
 /** Saída de `projetarComCenario`: base, cenário sobreposto e a diferença. */
@@ -217,4 +227,10 @@ export interface DeltaCiclo {
   verbaDiariaLivreCents: number;
   /** O cenário derruba este ciclo abaixo do piso sem que a base estivesse. */
   passouAFicarAbaixoDoPiso: boolean;
+  /** Delta de `extrasRestanteCents` (cenário − base). */
+  extrasRestanteCents: number;
+  /** Delta de `diaADiaDiarioCents` (cenário − base). */
+  diaADiaDiarioCents: number;
+  /** O cenário reduz o dia a dia diário vs a base. */
+  passouAReduzirDiaADia: boolean;
 }

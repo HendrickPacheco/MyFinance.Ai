@@ -3,8 +3,9 @@
  * Linha inteira é link para `/historico/[cicloId]` (drill-down).
  *
  * "Gasto total" = fixos + parcelas + variável (os três caminhos que gastam
- * dinheiro, tabela do CLAUDE.md). "Poupança" é dinheiro RESERVADO, nunca
- * gasto — fica em coluna separada com esse rótulo explícito, nunca somada ao
+ * dinheiro, tabela do CLAUDE.md). "Meta" é o ALVO daquele ciclo, não dinheiro
+ * reservado (D-16): o que foi de fato poupado é a coluna "Sobra". As duas ficam
+ * lado a lado de propósito — meta vs. realizado —, e nenhuma delas entra no
  * gasto total (regra 5).
  */
 import Link from 'next/link';
@@ -17,6 +18,10 @@ function corSobra(cents: number | null): string {
   if (cents === null) return 'text-muted';
   if (cents < 0) return 'text-negativo';
   return 'text-fg';
+}
+
+function corDiferenca(cents: number): string {
+  return cents < 0 ? 'text-negativo' : 'text-positivo';
 }
 
 function LinhaHistorico({ mes }: { mes: MesHistorico }) {
@@ -53,6 +58,20 @@ function LinhaHistorico({ mes }: { mes: MesHistorico }) {
         {mes.sobraCents === null ? '—' : formatBRL(mes.sobraCents)}
       </Td>
       <Td numerico className="text-muted">
+        {mes.poupancaRealCents === null ? (
+          <span title={mes.motivoSemPoupancaReal ?? undefined}>—</span>
+        ) : (
+          formatBRL(mes.poupancaRealCents)
+        )}
+      </Td>
+      <Td numerico className={cn('font-semibold', mes.diferencaMetaCents === null ? 'text-muted' : corDiferenca(mes.diferencaMetaCents))}>
+        {mes.diferencaMetaCents === null ? (
+          <span title={mes.motivoSemPoupancaReal ?? undefined}>—</span>
+        ) : (
+          formatBRL(mes.diferencaMetaCents)
+        )}
+      </Td>
+      <Td numerico className="text-muted">
         {mes.patrimonioFimCents === null ? (
           <span title={mes.motivoPatrimonioAusente ?? 'Sem snapshot até o fim do mês'}>—</span>
         ) : (
@@ -68,8 +87,8 @@ export function TabelaHistorico({ estado }: { estado: EstadoHistorico }) {
 
   return (
     <Table
-      legenda={`Histórico mês a mês, ${String(totais.meses)} ciclos fechados, com renda, fixos, parcelas, gasto variável, gasto total, poupança-alvo, sobra e patrimônio.`}
-      className="min-w-[64rem]"
+      legenda={`Histórico mês a mês, ${String(totais.meses)} ciclos fechados, com renda, fixos, parcelas, gasto variável, gasto total, meta de poupança, sobra realizada, poupança real, diferença vs meta e patrimônio.`}
+      className="min-w-[76rem]"
     >
       <THead>
         <Tr>
@@ -79,10 +98,18 @@ export function TabelaHistorico({ estado }: { estado: EstadoHistorico }) {
           <Th numerico>Parcelas</Th>
           <Th numerico>Variável</Th>
           <Th numerico>Gasto total</Th>
-          <Th numerico title="Dinheiro reservado, não gasto">
-            Poupança (meta)
+          <Th numerico title="A meta daquele ciclo — alvo, não dinheiro reservado">
+            Meta
           </Th>
-          <Th numerico>Sobra</Th>
+          <Th numerico title="O que sobrou da verba — a poupança que aconteceu de fato">
+            Sobra
+          </Th>
+          <Th numerico title="Variação do patrimônio no ciclo (início → fim)">
+            Poupança real
+          </Th>
+          <Th numerico title="Poupança real menos a meta do ciclo">
+            Diferença vs meta
+          </Th>
           <Th numerico>Patrimônio</Th>
         </Tr>
       </THead>
@@ -106,9 +133,11 @@ export function TabelaHistorico({ estado }: { estado: EstadoHistorico }) {
           <Td numerico>{formatBRL(totais.poupancaAlvoCents)}</Td>
           <Td numerico>—</Td>
           <Td numerico>—</Td>
+          <Td numerico>—</Td>
+          <Td numerico>—</Td>
         </Tr>
         <Tr className="hover:bg-transparent">
-          <Td colSpan={9} className="pt-1 text-xs text-faint">
+          <Td colSpan={11} className="pt-1 text-xs text-faint">
             Média por mês: renda {formatBRL(totais.rendaMediaCents)} · gasto{' '}
             {formatBRL(totais.gastoMedioCents)}
           </Td>

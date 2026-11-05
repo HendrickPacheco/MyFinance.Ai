@@ -8,10 +8,11 @@
 import type { Deps } from './deps';
 import { exigirEscrita } from '@/domain/auth/permissoes';
 import type { Transacao, OrigemTransacao } from '@/domain/model/entidades';
-import type { TipoTransacao, MetodoPagamento } from '@/domain/model/enums';
+import type { TipoTransacao, MetodoPagamento, TipoVerba } from '@/domain/model/enums';
 import type { AjusteConta, AjusteProvisao } from '@/domain/ports/repositorios';
 import { gerarParcelas } from '@/domain/finance';
 import {
+  CicloFechadoError,
   exigirConfirmacaoSeRetroativo,
   recalcularSobraDosCiclosFechados,
 } from './retroatividade';
@@ -32,6 +33,12 @@ export interface TransacaoInput {
   contaId?: string | null;
   contaDestinoId?: string | null;
   provisaoId?: string | null;
+  /**
+   * Tipo de verba deste lançamento. `undefined` = padrão da categoria (na
+   * edição: preserva o atual); `null` = limpar o override. Parcela é sempre
+   * EXTRA — não aceita override.
+   */
+  tipoVerbaOverride?: TipoVerba | null;
   /**
    * Confirmação explícita (SPEC regra 9) exigida quando a operação toca um
    * ciclo já fechado — seja porque a transação pertence a ele, seja porque a
@@ -208,6 +215,7 @@ export async function criarTransacao(deps: Deps, input: TransacaoInput): Promise
     pagoEm: null,
     origem: input.origem ?? 'MANUAL',
     itemImportadoId: input.itemImportadoId ?? null,
+    tipoVerbaOverride: input.tipoVerbaOverride ?? null,
   });
 
   await aplicarEfeitoSaldo(deps, t, +1);
@@ -290,6 +298,10 @@ export async function editarTransacao(
   const manter = <T>(entrada: T | undefined, atualValor: T): T =>
     entrada !== undefined ? entrada : atualValor;
 
+  if (atual.parcelamentoId != null && input.tipoVerbaOverride != null) {
+    throw new Error('Parcela sempre consome extras');
+  }
+
   const data = manter(input.data, atual.data);
   const novoCicloId = await resolverCicloId(deps, data);
 
@@ -315,6 +327,7 @@ export async function editarTransacao(
     contaId: manter(input.contaId, atual.contaId),
     contaDestinoId: manter(input.contaDestinoId, atual.contaDestinoId),
     provisaoId: manter(input.provisaoId, atual.provisaoId),
+    tipoVerbaOverride: manter(input.tipoVerbaOverride, atual.tipoVerbaOverride ?? null),
     cicloId: novoCicloId,
   };
 
@@ -412,4 +425,56 @@ export async function estornarTransacao(
 
   await recalcularSobraDosCiclosFechados(deps, ciclosFechados);
   return estorno;
+}
+
+/**
+ * Lançado por `criarTransacoesEmLote` quando um item do lote falha por regra
+ * de negócio comum (`Error`) — carrega o ÍNDICE do item, para
+ * `POST /agent/v1/transacoes/lote` devolver qual entrada falhou.
+ *
+ * Nunca envolve `CicloFechadoError`: `criarTransacao` (diferente de
+ * editar/excluir/estornar) não tem guarda de retroatividade — lançar no
+ * passado é permitido sem confirmação, pelo próprio design do caso de uso de
+ * criação. A checagem abaixo existe mesmo assim como defesa: se um guard
+ * desses vier a nascer em `criarTransacao` no futuro, o erro continua
+ * subindo como `CicloFechadoError` (409, erro do LOTE inteiro), nunca
+ * envolto num índice que faria pouco sentido para uma confirmação que cobre
+ * vários ciclos de uma vez.
+ */
+export class LoteTransacaoFalhouError extends Error {
+  constructor(
+    public readonly indice: number,
+    public readonly causa: Error,
+  ) {
+    super(`Item ${indice} do lote falhou: ${causa.message}`);
+    this.name = causa.name.includes('NaoEncontrado') ? causa.name : 'LoteTransacaoFalhouError';
+  }
+}
+
+/**
+ * Cria várias transações em sequência, reusando o MESMO `criarTransacao` que
+ * o lançamento único usa — nenhuma regra de negócio duplicada aqui. "Tudo ou
+ * nada" (SPEC do lote do agente) é garantia do CHAMADOR: a rota
+ * `POST /agent/v1/transacoes/lote` já roda dentro da transação Prisma
+ * interativa do kernel (`rotaEscrita`), então um erro lançado aqui no meio do
+ * laço reverte tudo que já foi escrito — esta função só precisa lançar
+ * cedo e dizer QUAL índice, nunca tentar o próprio rollback.
+ */
+export async function criarTransacoesEmLote(
+  deps: Deps,
+  itens: readonly TransacaoInput[],
+): Promise<Transacao[]> {
+  const criadas: Transacao[] = [];
+  for (let indice = 0; indice < itens.length; indice += 1) {
+    const item = itens[indice];
+    if (!item) continue;
+    try {
+      criadas.push(await criarTransacao(deps, item));
+    } catch (erro) {
+      if (erro instanceof CicloFechadoError) throw erro;
+      if (erro instanceof Error) throw new LoteTransacaoFalhouError(indice, erro);
+      throw erro;
+    }
+  }
+  return criadas;
 }

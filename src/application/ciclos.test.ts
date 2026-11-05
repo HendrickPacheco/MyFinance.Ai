@@ -17,6 +17,7 @@ import {
   primeiro,
   cicloFake,
   contaFake,
+  CONFIG_PADRAO,
   provisaoFake,
   transacaoFake,
 } from './__fakes__/fakes-ciclo-fechamento';
@@ -140,12 +141,13 @@ describe('garantirCicloAtual — regra 10 (ciclo anterior não fechado nunca blo
 
     const { ciclo } = await garantirCicloAtual(deps);
 
-    // renda 800000 − poupança 100000 − fixos 200000 − provisão 10000 = 490000
+    // D-16: renda 800000 − fixos 200000 − provisão 10000 = 590000. A meta de
+    // poupança continua gravada no ciclo como OBJETIVO, mas não é descontada.
     expect(ciclo.rendaPrevistaCents).toBe(800_000);
     expect(ciclo.poupancaAlvoCents).toBe(100_000);
     expect(ciclo.fixosCents).toBe(200_000);
     expect(ciclo.provisaoMensalCents).toBe(10_000);
-    expect(ciclo.verbaVariavelCents).toBe(490_000);
+    expect(ciclo.verbaVariavelCents).toBe(590_000);
     expect(Number.isInteger(ciclo.verbaVariavelCents)).toBe(true);
   });
 
@@ -199,7 +201,7 @@ describe('garantirCicloAtual — rollover (decisão 5: sobra ± entra na verba s
     const { ciclo } = await garantirCicloAtual(deps);
 
     expect(ciclo.rolloverRecebidoCents).toBe(50_000);
-    expect(ciclo.verbaVariavelCents).toBe(750_000); // 700000 + 50000
+    expect(ciclo.verbaVariavelCents).toBe(850_000); // 800000 + 50000
   });
 
   it('sobra NEGATIVA (déficit) também entra — reduzindo a verba do próximo', async () => {
@@ -221,7 +223,7 @@ describe('garantirCicloAtual — rollover (decisão 5: sobra ± entra na verba s
     const { ciclo } = await garantirCicloAtual(deps);
 
     expect(ciclo.rolloverRecebidoCents).toBe(-30_000);
-    expect(ciclo.verbaVariavelCents).toBe(670_000); // 700000 − 30000
+    expect(ciclo.verbaVariavelCents).toBe(770_000); // 800000 − 30000
   });
 
   it('destinoSobra != ROLLOVER ignora a sobra do ciclo anterior', async () => {
@@ -242,7 +244,7 @@ describe('garantirCicloAtual — rollover (decisão 5: sobra ± entra na verba s
     const { ciclo } = await garantirCicloAtual(deps);
 
     expect(ciclo.rolloverRecebidoCents).toBe(0);
-    expect(ciclo.verbaVariavelCents).toBe(700_000);
+    expect(ciclo.verbaVariavelCents).toBe(800_000);
   });
 
   it('[BUG] não deve creditar a mesma sobra duas vezes quando um ciclo fica sem fechar', async () => {
@@ -283,7 +285,7 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
     // Arrange
     const deps = criarDeps({ hoje: '2026-07-20' });
     const { ciclo: original } = await garantirCicloAtual(deps);
-    expect(original.verbaVariavelCents).toBe(700_000);
+    expect(original.verbaVariavelCents).toBe(800_000); // D-16: meta não desconta
 
     // Act: usuário mexe em tudo que compõe a verba.
     deps.config.mutar({ rendaBaseCents: 1_500_000, metaPoupancaCents: 500_000 });
@@ -301,7 +303,7 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
     const { ciclo: depois } = await garantirCicloAtual(deps);
 
     // Assert: nada mudou no ciclo vigente.
-    expect(depois.verbaVariavelCents).toBe(700_000);
+    expect(depois.verbaVariavelCents).toBe(800_000);
     expect(depois.rendaPrevistaCents).toBe(800_000);
     expect(depois.poupancaAlvoCents).toBe(100_000);
     expect(depois.fixosCents).toBe(0);
@@ -315,8 +317,34 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
     deps.config.mutar({ metaPoupancaCents: 200_000 });
     const ciclo = await recalcularCicloAtual(deps);
 
+    // A meta nova é recongelada no ciclo — mas D-16: ela é OBJETIVO, não
+    // dedução. Dobrar a meta não pode derrubar a verba em um centavo.
     expect(ciclo.poupancaAlvoCents).toBe(200_000);
-    expect(ciclo.verbaVariavelCents).toBe(600_000); // 800000 − 200000
+    expect(ciclo.verbaVariavelCents).toBe(800_000);
+  });
+
+  it('recalcularCicloAtual recongela fixos e provisão — esses SIM descontam', async () => {
+    const deps = criarDeps({ hoje: '2026-07-20' });
+    await garantirCicloAtual(deps);
+
+    deps.custosFixos.itens.push({
+      id: 'f-novo',
+      nome: 'Aluguel',
+      valorCents: 200_000,
+      diaVencimento: 10,
+      ativo: true,
+      contaId: null,
+      categoriaId: null,
+      vigenteDe: null,
+      vigenteAte: null,
+    });
+    deps.provisoes.itens.push(provisaoFake({ id: 'p1', valorAnualCents: 120_000 }));
+    const ciclo = await recalcularCicloAtual(deps);
+
+    // 800000 − 200000 (fixos) − 10000 (provisão) = 590000.
+    expect(ciclo.fixosCents).toBe(200_000);
+    expect(ciclo.provisaoMensalCents).toBe(10_000);
+    expect(ciclo.verbaVariavelCents).toBe(590_000);
   });
 
   it('recalcularCicloAtual preserva a renda prevista congelada do ciclo', async () => {
@@ -328,7 +356,7 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
 
     // Renda do ciclo é congelada; recalcular não puxa a renda nova da Config.
     expect(ciclo.rendaPrevistaCents).toBe(800_000);
-    expect(ciclo.verbaVariavelCents).toBe(700_000);
+    expect(ciclo.verbaVariavelCents).toBe(800_000);
   });
 
   it('recalcularCicloAtualSeVazio ajusta o ciclo sem transações (onboarding)', async () => {
@@ -340,7 +368,7 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
     await recalcularCicloAtualSeVazio(deps);
 
     expect(primeiro(deps.ciclos.itens).rendaPrevistaCents).toBe(800_000);
-    expect(primeiro(deps.ciclos.itens).verbaVariavelCents).toBe(700_000);
+    expect(primeiro(deps.ciclos.itens).verbaVariavelCents).toBe(800_000);
   });
 
   it('recalcularCicloAtualSeVazio NÃO mexe em ciclo que já tem histórico', async () => {
@@ -351,7 +379,7 @@ describe('verba CONGELADA (regra inviolável 3)', () => {
     deps.config.mutar({ rendaBaseCents: 1_500_000 });
     await recalcularCicloAtualSeVazio(deps);
 
-    expect(primeiro(deps.ciclos.itens).verbaVariavelCents).toBe(700_000);
+    expect(primeiro(deps.ciclos.itens).verbaVariavelCents).toBe(800_000);
     expect(primeiro(deps.ciclos.itens).rendaPrevistaCents).toBe(800_000);
   });
 
@@ -388,6 +416,11 @@ function deps0Config() {
     destinoSobra: 'RESERVA' as const,
     destinoSobraContaId: null,
     pisoDiarioVerbaCents: 1_500,
+    moedaRenda: 'BRL' as const,
+    rendaBrutaMoedaOrigemCents: null,
+    impostoEstimadoCents: null,
+    impostoEstimadoPercentual: null,
+    fonteRenda: null,
   };
 }
 
@@ -474,7 +507,7 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
     expect(deps.ciclos.criarChamadas).toBe(0);
   });
 
-  it('move o saldo, cria TRANSFERENCIA e reduz a poupança-alvo só neste ciclo', async () => {
+  it('move o saldo, cria TRANSFERENCIA e sobe a verba pelo valor cheio', async () => {
     const deps = criarDeps({
       hoje: '2026-07-20',
       contas: [
@@ -487,12 +520,15 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
 
     expect(deps.contas.saldoDe('reserva')).toBe(450_000);
     expect(deps.contas.saldoDe('variavel')).toBe(70_000);
-    expect(ciclo.poupancaAlvoCents).toBe(50_000); // 100000 − 50000
-    expect(ciclo.verbaVariavelCents).toBe(750_000); // 700000 + 50000
+    // D-16: a meta não é mais descontada da verba, então não há poupança-alvo a
+    // abater — ela fica INTACTA e a verba sobe o valor cheio.
+    expect(ciclo.poupancaAlvoCents).toBe(100_000);
+    expect(ciclo.verbaVariavelCents).toBe(850_000); // 800000 + 50000
     expect(ciclo.observacao).toContain('50000');
-    // A poupança-alvo absorveu a puxada inteira: a renda deste ciclo explica o
-    // aumento do disponível sozinha, e nada entrou de fora.
-    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(0);
+    // A puxada INTEIRA é disponível que a renda deste ciclo não explica: veio da
+    // reserva, e é isso que a coluna registra para os blocos de "Para onde vai a
+    // renda" continuarem somando exatamente a renda.
+    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(50_000);
 
     const transferencias = deps.transacoes.itens.filter((t) => t.tipo === 'TRANSFERENCIA');
     expect(transferencias).toHaveLength(1);
@@ -501,7 +537,7 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
     expect(primeiro(transferencias).categoriaId).toBeNull();
   });
 
-  it('poupança-alvo nunca fica negativa mesmo puxando mais do que a meta', async () => {
+  it('puxar mais do que a meta não mexe na poupança-alvo (D-16)', async () => {
     const deps = criarDeps({
       hoje: '2026-07-20',
       contas: [
@@ -512,16 +548,14 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
 
     const ciclo = await puxarDaReserva(deps, 300_000);
 
-    expect(ciclo.poupancaAlvoCents).toBe(0);
-    expect(ciclo.verbaVariavelCents).toBe(1_000_000);
-    // A poupança-alvo só cobriu 100.000 dos 300.000 puxados. Os 200.000
-    // restantes são disponível que a renda deste ciclo não explica — vieram da
-    // reserva, e é isso que a coluna registra para os blocos continuarem
-    // somando exatamente a renda.
-    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(200_000);
+    // A meta (100.000) é objetivo e continua de pé mesmo puxando o triplo dela.
+    expect(ciclo.poupancaAlvoCents).toBe(100_000);
+    expect(ciclo.verbaVariavelCents).toBe(1_100_000); // 800000 + 300000
+    // Os 300.000 inteiros vieram de fora da renda deste ciclo.
+    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(300_000);
   });
 
-  it('acumula o excedente entre puxadas sucessivas do mesmo ciclo', async () => {
+  it('acumula as puxadas sucessivas do mesmo ciclo', async () => {
     const deps = criarDeps({
       hoje: '2026-07-20',
       contas: [
@@ -530,13 +564,12 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
       ],
     });
 
-    // Primeira puxada: cabe inteira na poupança-alvo de 100.000.
     await puxarDaReserva(deps, 60_000);
-    // Segunda: sobram 40.000 de poupança-alvo, então 60.000 vêm de fora.
     const ciclo = await puxarDaReserva(deps, 100_000);
 
-    expect(ciclo.poupancaAlvoCents).toBe(0);
-    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(60_000);
+    expect(ciclo.poupancaAlvoCents).toBe(100_000);
+    expect(ciclo.verbaVariavelCents).toBe(960_000); // 800000 + 60000 + 100000
+    expect(ciclo.puxadoDaReservaForaDaRendaCents).toBe(160_000);
   });
 
   it('sem conta RESERVA/VARIAVEL ainda ajusta o ciclo, sem criar transação', async () => {
@@ -545,6 +578,126 @@ describe('puxarDaReserva (SPEC 5.4 — saída b do modo recuperação)', () => {
     const ciclo = await puxarDaReserva(deps, 10_000);
 
     expect(deps.transacoes.itens).toHaveLength(0);
-    expect(ciclo.verbaVariavelCents).toBe(710_000);
+    expect(ciclo.verbaVariavelCents).toBe(810_000);
+  });
+});
+
+describe('garantirCicloAtual — renda em USD (só cache de cotação)', () => {
+  const configUsd = {
+    ...CONFIG_PADRAO,
+    rendaBaseCents: 3_000_000,
+    diaRecebimento: 1,
+    moedaRenda: 'USD' as const,
+    rendaBrutaMoedaOrigemCents: 730_000,
+    impostoEstimadoCents: 350_000,
+  };
+
+  it('ciclo novo nasce com a renda líquida convertida pela cotação em cache', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+    await deps.cotacoes.salvar({
+      data: '2026-10-30',
+      moedaOrigem: 'USD',
+      moedaDestino: 'BRL',
+      taxaMicros: 5_430_000,
+      fonte: 'PTAX_BCB',
+    });
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo).toMatchObject({
+      rendaPrevistaCents: 3_613_900,
+      cotacaoPrevistaMicros: 5_430_000,
+      cotacaoPrevistaData: '2026-10-30',
+    });
+  });
+
+  it('sem cotação em cache usa a renda base', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo.rendaPrevistaCents).toBe(3_000_000);
+    expect(ciclo.cotacaoPrevistaMicros).toBeNull();
+  });
+
+  it('repositório de cotação fora do ar não impede o ciclo de nascer', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd });
+    deps.cotacoes.ultimaAte = () => Promise.reject(new Error('db fora'));
+
+    const { ciclo } = await garantirCicloAtual(deps);
+
+    expect(ciclo.rendaPrevistaCents).toBe(3_000_000);
+  });
+});
+
+describe('recalcularCicloAtualSeVazio — renda real confirmada (D8)', () => {
+  const configUsd = {
+    ...CONFIG_PADRAO,
+    rendaBaseCents: 3_000_000,
+    diaRecebimento: 1,
+    metaPoupancaCents: 1_800_000,
+    moedaRenda: 'USD' as const,
+    rendaBrutaMoedaOrigemCents: 730_000,
+    impostoEstimadoCents: 350_000,
+  };
+  const novembro = cicloFake({
+    id: 'nov',
+    dataInicio: '2026-11-01',
+    dataFim: '2026-11-30',
+    rendaPrevistaCents: 3_000_000,
+    poupancaAlvoCents: 1_800_000,
+    verbaVariavelCents: 3_000_000,
+  });
+
+  it('mantém a renda real e recalcula só o que a Config afeta', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-04',
+      config: configUsd,
+      ciclos: [{ ...novembro, rendaRealLiquidaCents: 3_665_000, verbaVariavelCents: 3_665_000 }],
+      custosFixos: [
+        {
+          id: 'f1', nome: 'Fixos', valorCents: 488_400, diaVencimento: 10, ativo: true,
+          contaId: null, categoriaId: null, vigenteDe: null, vigenteAte: null,
+        },
+      ],
+    });
+
+    const efeito = await recalcularCicloAtualSeVazio(deps);
+
+    expect(efeito.recalculou).toBe(true);
+    expect(primeiro(deps.ciclos.itens)).toMatchObject({
+      rendaRealLiquidaCents: 3_665_000,
+      rendaPrevistaCents: 3_000_000,
+      fixosCents: 488_400,
+      verbaVariavelCents: 3_665_000 - 488_400,
+    });
+  });
+
+  it('recalcularCicloAtual (explícito) também usa a renda real', async () => {
+    const deps = criarDeps({
+      hoje: '2026-11-04',
+      config: configUsd,
+      ciclos: [{ ...novembro, rendaRealLiquidaCents: 3_665_000 }],
+    });
+
+    const c = await recalcularCicloAtual(deps);
+
+    expect(c).toMatchObject({ rendaPrevistaCents: 3_000_000, verbaVariavelCents: 3_665_000 });
+  });
+
+  it('sem real, recalcula a prevista USD pelo cache e grava a cotação', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04', config: configUsd, ciclos: [novembro] });
+    await deps.cotacoes.salvar({
+      data: '2026-10-30', moedaOrigem: 'USD', moedaDestino: 'BRL', taxaMicros: 5_430_000, fonte: 'PTAX_BCB',
+    });
+
+    await recalcularCicloAtualSeVazio(deps);
+
+    expect(primeiro(deps.ciclos.itens)).toMatchObject({
+      rendaPrevistaCents: 3_613_900,
+      verbaVariavelCents: 3_613_900,
+      cotacaoPrevistaMicros: 5_430_000,
+      cotacaoPrevistaData: '2026-10-30',
+    });
   });
 });

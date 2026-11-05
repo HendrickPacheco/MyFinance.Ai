@@ -75,13 +75,16 @@ function LinhaTabela({ linha }: { linha: LinhaProjecao }) {
           {formatBRL(linha.provisaoMensalCents)}
         </Td>
         <Td numerico className="text-muted">
-          {formatBRL(linha.poupancaAlvoCents)}
-        </Td>
-        <Td numerico className="text-muted">
           {formatBRL(linha.parcelasComprometidasCents)}
         </Td>
         <Td numerico className={cn('font-semibold', deficit ? 'text-negativo' : 'text-fg')}>
           {formatBRL(linha.verbaLivreCents)}
+        </Td>
+        <Td numerico className="text-muted">
+          {formatBRL(linha.diaADiaCents)}
+        </Td>
+        <Td numerico className={cn(linha.extrasRestanteCents < 0 ? 'text-negativo' : 'text-muted')}>
+          {formatBRL(linha.extrasRestanteCents)}
         </Td>
         <Td numerico className={corDoDelta(linha.deltaVerbaLivreCents)}>
           {formatarDelta(linha.deltaVerbaLivreCents)}
@@ -92,7 +95,7 @@ function LinhaTabela({ linha }: { linha: LinhaProjecao }) {
         <Tr>
           {/* Segunda linha em vez de célula extra: o badge pertence ao mês
               inteiro, não a uma coluna, e assim ele não espreme os números. */}
-          <Td colSpan={8} className="pt-0">
+          <Td colSpan={9} className="pt-0">
             <span className="flex flex-wrap gap-2">
               {linha.terminamNesteCiclo.map((fim) => (
                 <Badge key={fim.parcelamentoId} tone="positivo">
@@ -113,8 +116,8 @@ export function ProjecaoTabela({ linhas }: { linhas: readonly LinhaProjecao[] })
   return (
     <div className="hidden lg:block">
       <Table
-        legenda={`Projeção mês a mês, ${String(linhas.length)} ciclos, com renda prevista, custos fixos, provisão, poupança-alvo, parcelas, verba livre e variação da verba livre.`}
-        className="min-w-[56rem]"
+        legenda={`Projeção mês a mês, ${String(linhas.length)} ciclos, com renda prevista, custos fixos, provisão, parcelas, verba livre, dia a dia, extras restantes e variação da verba livre.`}
+        className="min-w-[68rem]"
       >
         <THead>
           <Tr>
@@ -122,9 +125,10 @@ export function ProjecaoTabela({ linhas }: { linhas: readonly LinhaProjecao[] })
             <Th numerico>Renda</Th>
             <Th numerico>Fixos</Th>
             <Th numerico>Provisão</Th>
-            <Th numerico>Poupança</Th>
             <Th numerico>Parcelas</Th>
             <Th numerico>Verba livre</Th>
+            <Th numerico>Dia a dia</Th>
+            <Th numerico>Extras</Th>
             <Th numerico>Δ</Th>
           </Tr>
         </THead>
@@ -137,12 +141,12 @@ export function ProjecaoTabela({ linhas }: { linhas: readonly LinhaProjecao[] })
 
       {/*
         O topo da pilha NÃO é a renda prevista, e quem somar as colunas vai
-        descobrir isso sozinho — melhor dizer antes. A soma das cinco faixas é
+        descobrir isso sozinho — melhor dizer antes. A soma das quatro faixas é
         `renda + rollover`; e no ciclo atual, se houve `puxarDaReserva`, vale a
         verba congelada (SPEC 5.2), que não é a soma das partes.
       */}
       <p className="mt-3 text-xs text-faint">
-        Fixos + provisão + poupança + parcelas + verba livre somam o total das faixas do gráfico —
+        Fixos + provisão + parcelas + verba livre somam o total das faixas do gráfico —
         que inclui o rollover do ciclo anterior e, no ciclo atual, respeita a verba congelada. Por
         isso essa soma nem sempre é igual à renda prevista. O CSV traz esse total na coluna “Total
         das faixas”.

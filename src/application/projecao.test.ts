@@ -32,7 +32,14 @@ function custoFixoFake(patch: Partial<CustoFixo> = {}): CustoFixo {
   };
 }
 
-/** Ciclo atual congelado cobrindo HOJE (diaRecebimento 5 da CONFIG_PADRAO). */
+/**
+ * Ciclo atual congelado cobrindo HOJE (diaRecebimento 5 da CONFIG_PADRAO).
+ *
+ * A verba gravada é R$ 4.900 — nasceu ANTES da D-16, quando a meta ainda era
+ * descontada (800.000 − 100.000 − 200.000 − 10.000). Com a fórmula de hoje as
+ * mesmas partes dariam 590.000, e é exatamente esse o ponto: a verba do ciclo
+ * é CONGELADA (regra de ouro 3) e nenhuma mudança de regra a reescreve.
+ */
 function cicloAtualFake() {
   return cicloFake({
     id: 'ciclo-atual',
@@ -209,16 +216,18 @@ describe('obterProjecao — decisão D-11 com dado real', () => {
     expect(atual.parcelasComprometidasCents).toBe(50_000);
     expect(atual.verbaLivreCents).toBe(440_000);
 
-    // E confere com a função do motor chamada isoladamente.
-    expect(atual.verbaVariavelCents).toBe(
+    // E o motor chamado isoladamente sobre as MESMAS partes dá outro número:
+    // desde a D-16 a meta de poupança não entra na fórmula, então 590.000. A
+    // projeção não reescreve o congelado com ele — só lê.
+    expect(
       verbaVariavelCents({
         rendaPrevistaCents: 800_000,
-        poupancaAlvoCents: 100_000,
         fixosCents: 200_000,
         provisaoMensalCents: 10_000,
         rolloverRecebidoCents: 0,
       }),
-    );
+    ).toBe(590_000);
+    expect(atual.verbaVariavelCents).not.toBe(590_000);
   });
 
   it('não duplica a parcela quando ela cai na fronteira entre os dois segmentos', async () => {
@@ -552,5 +561,68 @@ describe('obterProjecao — detalhe das obrigações (Fase 6)', () => {
         ciclo.parcelasComprometidasCents,
       );
     }
+  });
+});
+
+describe('obterProjecao — renda em USD (ciclos futuros)', () => {
+  const configUsd = {
+    rendaBaseCents: 3_000_000,
+    diaRecebimento: 1,
+    moedaRenda: 'USD' as const,
+    rendaBrutaMoedaOrigemCents: 730_000,
+    impostoEstimadoCents: 350_000,
+  };
+
+  async function comCache() {
+    const deps = criarDeps({ hoje: '2026-11-04' });
+    deps.config.mutar(configUsd);
+    await deps.cotacoes.salvar({
+      data: '2026-11-03',
+      moedaOrigem: 'USD',
+      moedaDestino: 'BRL',
+      taxaMicros: 5_430_000,
+      fonte: 'PTAX_BCB',
+    });
+    return deps;
+  }
+
+  it('taxaMicros sobrepõe a cotação em cache e a premissa diz que é simulada', async () => {
+    const r = await obterProjecao(await comCache(), { numCiclos: 2, taxaMicros: 6_000_000 });
+
+    expect(r.ciclos[0]?.rendaPrevistaCents).toBe(4_030_000);
+    expect(r.cotacao).toEqual({ taxaMicros: 6_000_000, simulada: true });
+    expect(r.premissas.join('\n')).toMatch(/simulad/i);
+  });
+
+  it('sem override usa a cotação em cache', async () => {
+    const r = await obterProjecao(await comCache(), { numCiclos: 2 });
+
+    expect(r.ciclos[0]?.rendaPrevistaCents).toBe(3_613_900);
+    expect(r.cotacao).toEqual({ taxaMicros: 5_430_000, simulada: false });
+  });
+
+  it('o ciclo atual congelado ignora o override', async () => {
+    const deps = await comCache();
+    deps.ciclos.itens.push(cicloFake({ dataInicio: '2026-11-01', dataFim: '2026-11-30', rendaPrevistaCents: 3_500_000 }));
+
+    const r = await obterProjecao(deps, { numCiclos: 2, taxaMicros: 6_000_000 });
+
+    expect(r.ciclos[0]?.rendaPrevistaCents).toBe(3_500_000);
+    expect(r.ciclos[1]?.rendaPrevistaCents).toBe(4_030_000);
+  });
+
+  it('USD sem cotação alguma: flag USD presente, taxa nula, renda base', async () => {
+    const deps = criarDeps({ hoje: '2026-11-04' });
+    deps.config.mutar(configUsd);
+
+    const r = await obterProjecao(deps, { numCiclos: 2 });
+
+    expect(r.cotacao).toEqual({ taxaMicros: null, simulada: false });
+    expect(r.ciclos[0]?.rendaPrevistaCents).toBe(3_000_000);
+  });
+
+  it('config em BRL: sem cotação na resposta', async () => {
+    const r = await obterProjecao(criarDeps({ hoje: HOJE }), { numCiclos: 2, taxaMicros: 6_000_000 });
+    expect(r.cotacao).toBeNull();
   });
 });

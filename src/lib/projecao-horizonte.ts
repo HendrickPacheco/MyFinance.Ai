@@ -43,10 +43,11 @@ export function lerHorizonte(bruto: string | string[] | undefined): HorizontePro
 }
 
 /** URL canônica da tela para um horizonte — usada pelo seletor e pelo CSV. */
-export function hrefProjecao(horizonte: HorizonteProjecao): string {
-  return `/projecao?horizonte=${String(horizonte)}`;
+export function hrefProjecao(horizonte: HorizonteProjecao, cotacao?: string): string {
+  return `/projecao?horizonte=${String(horizonte)}${cotacao ? `&cotacao=${cotacao}` : ''}`;
 }
 
-export function hrefCsvProjecao(horizonte: HorizonteProjecao): string {
-  return `/api/projecao/csv?horizonte=${String(horizonte)}`;
+/** `cotacao` = o texto simulado ("5.43"), repassado para o CSV bater com a tela. */
+export function hrefCsvProjecao(horizonte: HorizonteProjecao, cotacao?: string): string {
+  return `/api/projecao/csv?horizonte=${String(horizonte)}${cotacao ? `&cotacao=${cotacao}` : ''}`;
 }

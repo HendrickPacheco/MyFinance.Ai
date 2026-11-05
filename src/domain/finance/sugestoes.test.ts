@@ -36,11 +36,22 @@ describe('sugerirRendaPrevistaCents (regra 6 — renda variável)', () => {
   });
 });
 
+/**
+ * D-16: a meta de poupança NÃO é mais descontada da verba pelo motor. Por isso
+ * o aviso desconta a meta AQUI, dentro da própria verificação — comparar a
+ * verba cheia com o piso diria que toda meta cabe, por maior que fosse, e o
+ * aviso nunca mais dispararia.
+ */
 describe('verificarMetaIrreal (regra 12 — piso diário configurável)', () => {
+  // Meta de R$ 18.000,00: depois de descontada, sobram os 45000 centavos de
+  // sempre para dividir pelos dias do ciclo.
+  const META = 1_800_000;
+
   it('verba diária EXATAMENTE no piso não é considerada irreal', () => {
-    // 1500 * 30 = 45000 -> verba diária exata de 1500
+    // (1845000 − 1800000) / 30 = 45000 / 30 -> verba diária exata de 1500
     const r = verificarMetaIrreal({
-      verbaVariavelCents: 45000,
+      verbaVariavelCents: META + 45000,
+      poupancaAlvoCents: META,
       diasCiclo: 30,
       pisoDiarioCents: 1500,
     });
@@ -51,7 +62,8 @@ describe('verificarMetaIrreal (regra 12 — piso diário configurável)', () => 
   it('1 centavo abaixo do piso já é considerado irreal', () => {
     // 44999 / 30 = floor(1499.96) = 1499 -> 1 centavo abaixo de 1500
     const r = verificarMetaIrreal({
-      verbaVariavelCents: 44999,
+      verbaVariavelCents: META + 44999,
+      poupancaAlvoCents: META,
       diasCiclo: 30,
       pisoDiarioCents: 1500,
     });
@@ -59,9 +71,21 @@ describe('verificarMetaIrreal (regra 12 — piso diário configurável)', () => 
     expect(r.irreal).toBe(true);
   });
 
+  it('🔴 D-16: é a META que torna o plano irreal — a mesma verba sem meta passa', () => {
+    // A guarda que substitui "poupança é descontada da verba": o motor não
+    // desconta mais nada, então quem tem que descontar é este aviso. Com a
+    // meta zerada a verba inteira vira gasto diário e o piso é folgado; com a
+    // meta cheia, a mesma verba não sustenta um dia de R$ 15,00.
+    const comum = { verbaVariavelCents: META + 40000, diasCiclo: 30, pisoDiarioCents: 1500 };
+
+    expect(verificarMetaIrreal({ ...comum, poupancaAlvoCents: META }).irreal).toBe(true);
+    expect(verificarMetaIrreal({ ...comum, poupancaAlvoCents: 0 }).irreal).toBe(false);
+  });
+
   it('verba variável negativa é sempre irreal', () => {
     const r = verificarMetaIrreal({
       verbaVariavelCents: -10000,
+      poupancaAlvoCents: 0,
       diasCiclo: 30,
       pisoDiarioCents: 1500,
     });
@@ -70,26 +94,45 @@ describe('verificarMetaIrreal (regra 12 — piso diário configurável)', () => 
 
   it('rejeita diasCiclo zero ou negativo', () => {
     expect(() =>
-      verificarMetaIrreal({ verbaVariavelCents: 45000, diasCiclo: 0, pisoDiarioCents: 1500 }),
+      verificarMetaIrreal({
+        verbaVariavelCents: 45000,
+        poupancaAlvoCents: 0,
+        diasCiclo: 0,
+        pisoDiarioCents: 1500,
+      }),
     ).toThrow(RangeError);
     expect(() =>
-      verificarMetaIrreal({ verbaVariavelCents: 45000, diasCiclo: -5, pisoDiarioCents: 1500 }),
+      verificarMetaIrreal({
+        verbaVariavelCents: 45000,
+        poupancaAlvoCents: 0,
+        diasCiclo: -5,
+        pisoDiarioCents: 1500,
+      }),
     ).toThrow(RangeError);
   });
 });
 
-describe('sugerirMetaPoupancaCents (regra 12 — sugestão a partir da folga)', () => {
+/**
+ * D-16: a sobra do ciclo É a poupança realizada dele — a meta é só o alvo. Por
+ * isso a sugestão é a menor SOBRA dos ciclos considerados, não a menor meta:
+ * sugerir a meta antiga seria repetir um número que o dono nunca provou
+ * alcançar, enquanto a sobra é o patamar que ele de fato guardou.
+ */
+describe('sugerirMetaPoupancaCents (regra 12 — sugestão a partir da sobra)', () => {
   it('sem ciclos suficientes não sugere nada', () => {
     expect(sugerirMetaPoupancaCents([])).toBeNull();
     expect(sugerirMetaPoupancaCents([{ poupancaAlvoCents: 100000, sobraCents: 5000 }])).toBeNull();
   });
 
-  it('bateu a meta com folga nos 2 últimos ciclos -> sugere a menor das duas metas', () => {
+  it('🔴 D-16: com sobra positiva nos 2 últimos ciclos -> sugere a menor SOBRA, não a menor meta', () => {
     const r = sugerirMetaPoupancaCents([
       { poupancaAlvoCents: 90000, sobraCents: 3000 },
       { poupancaAlvoCents: 100000, sobraCents: 8000 },
     ]);
-    expect(r).toBe(90000);
+    expect(r).toBe(3000);
+    // A menor meta (90000) é justamente o número que NÃO pode sair daqui: o
+    // dono só provou guardar 3000 no pior dos dois ciclos.
+    expect(r).not.toBe(90000);
   });
 
   it('sobra negativa em qualquer um dos 2 ciclos não gera sugestão', () => {
@@ -125,6 +168,6 @@ describe('sugerirMetaPoupancaCents (regra 12 — sugestão a partir da folga)', 
       { poupancaAlvoCents: 100000, sobraCents: 8000 },
       { poupancaAlvoCents: 1000, sobraCents: -50000 }, // ciclo antigo ruim, deve ser ignorado
     ]);
-    expect(r).toBe(90000);
+    expect(r).toBe(3000);
   });
 });

@@ -9,16 +9,22 @@ import {
   calcularTeto,
   avaliarRecuperacao,
   ordenarCategoriasPorUso,
+  dividirVerba,
+  consumirVerbas,
+  diasTotaisCiclo,
+  type ConsumoVerbas,
   type ResultadoTeto,
   type SaidaRecuperacao,
 } from '@/domain/finance';
 import { garantirCicloAtual, lerCicloAtual, type CicloResolvido } from './ciclos';
-import { indexarGrupoCategoria, paraCalculo } from './mapeamento';
+import { indexarGrupoCategoria, paraCalculo, paraCalculoVerba } from './mapeamento';
 
 export interface EstadoHoje {
   hoje: string;
   ciclo: Ciclo;
   teto: ResultadoTeto;
+  /** Verba do dia a dia (D1): o "Posso gastar hoje" do mobile é `diaADia.tetoDiaADia`. */
+  diaADia: ConsumoVerbas;
   recuperacao: SaidaRecuperacao;
   restaNoCicloCents: number;
   categoriasRapidas: Categoria[];
@@ -46,9 +52,10 @@ async function montar(
 ): Promise<EstadoHoje> {
   const hoje = deps.relogio.hoje();
 
-  const [transacoes, categorias] = await Promise.all([
+  const [transacoes, categorias, config] = await Promise.all([
     deps.transacoes.listarPorCiclo(ciclo.id),
     deps.categorias.listar(),
+    deps.config.obter(),
   ]);
 
   const grupos = indexarGrupoCategoria(categorias);
@@ -59,6 +66,14 @@ async function montar(
     dataFimCiclo: ciclo.dataFim,
     hoje,
     transacoes: calc,
+  });
+
+  const diaADia = consumoVerbasDoCiclo({
+    ciclo,
+    transacoes,
+    categorias,
+    pisoDiarioCents: config?.pisoDiarioVerbaCents ?? 0,
+    hoje,
   });
 
   const recuperacao = avaliarRecuperacao({
@@ -76,6 +91,7 @@ async function montar(
     hoje,
     ciclo,
     teto,
+    diaADia,
     recuperacao,
     restaNoCicloCents,
     categoriasRapidas,
@@ -98,4 +114,26 @@ function categoriasMaisUsadas(
   return ordenarCategoriasPorUso(categorias, transacoes)
     .filter((c) => c.grupo === 'VARIAVEL')
     .slice(0, n);
+}
+
+/** Split dia a dia / extras do ciclo (D1) — mesma montagem para a tela Hoje e o painel. */
+export function consumoVerbasDoCiclo(p: {
+  ciclo: Ciclo;
+  transacoes: readonly Transacao[];
+  categorias: readonly Categoria[];
+  pisoDiarioCents: number;
+  hoje: string;
+}): ConsumoVerbas {
+  const divisao = dividirVerba({
+    verbaVariavelCents: p.ciclo.verbaVariavelCents,
+    poupancaAlvoCents: p.ciclo.poupancaAlvoCents,
+    pisoDiarioCents: p.pisoDiarioCents,
+    diasCiclo: diasTotaisCiclo({ inicio: p.ciclo.dataInicio, fim: p.ciclo.dataFim }),
+  });
+  return consumirVerbas({
+    divisao,
+    transacoes: paraCalculoVerba(p.transacoes, p.categorias),
+    hoje: p.hoje,
+    dataFimCiclo: p.ciclo.dataFim,
+  });
 }

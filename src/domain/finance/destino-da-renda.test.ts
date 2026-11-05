@@ -9,12 +9,17 @@ import {
 } from './destino-da-renda';
 
 // ── Números REAIS do dono (CLAUDE.md, "em uso real") ───────────────────────
+//
+// 🔴 D-16: a meta de poupança NÃO entra nesta subtração. Ela deixou de ser um
+// bloco da renda — o dinheiro dela vive dentro de "Disponível para gastar", e a
+// poupança do ciclo é o que sobrar dali. Quem reintroduzir `− META_POUPANCA`
+// aqui quebra a identidade dos blocos, e a diferença aparece como
+// `naoExplicadoCents` positivo de R$ 18.000,00.
 const RENDA = 3_000_000; // R$ 30.000,00
-const META_POUPANCA = 1_800_000; // R$ 18.000,00
 const FIXOS = 488_400; // R$ 4.884,00
 const PARCELAS = 439_388; // R$ 4.393,88
 const PROVISAO = 50_000; // R$ 500,00
-const VERBA = RENDA - META_POUPANCA - FIXOS - PROVISAO; // R$ 6.616,00
+const VERBA = RENDA - FIXOS - PROVISAO; // R$ 24.616,00
 
 const HOJE = '2026-08-24';
 const FIM = '2026-08-31';
@@ -50,7 +55,6 @@ function entradaBase(over: Partial<EntradaDestinoDaRenda> = {}): EntradaDestinoD
     hoje: HOJE,
     fimDoCiclo: FIM,
     rendaPrevistaCents: RENDA,
-    poupancaAlvoCents: META_POUPANCA,
     fixosCents: FIXOS,
     provisaoMensalCents: PROVISAO,
     verbaVariavelCents: VERBA,
@@ -108,15 +112,17 @@ describe('destinoDaRenda — os blocos de topo fecham em 100% da renda (§12.4)'
 describe('destinoDaRenda — 🔴 puxada da reserva: fonte externa com bloco próprio', () => {
   const PUXADA = 100_000; // R$ 1.000,00
 
-  it('fecha quando a poupança-alvo COMPORTA a puxada — nada veio de fora', () => {
-    // `puxarDaReserva`: poupança −X, verba +X. Com poupança suficiente, os dois
-    // movimentos se cancelam: o disponível cresceu com dinheiro que ESTA renda
-    // ia poupar. O excedente fora da renda é zero, e a identidade já fechava.
+  it('🔴 D-16: a puxada INTEIRA fica fora da renda — não há poupança para absorvê-la', () => {
+    // Antes, `puxarDaReserva` fazia poupança −X e verba +X: enquanto a
+    // poupança-alvo comportasse X, os dois movimentos se cancelavam e nada
+    // vinha de fora. Sem bloco de poupança (D-16) esse cancelamento não existe
+    // mais — a verba sobe X e o valor cheio é dinheiro que ESTA renda não
+    // explica. Declarar menos que isso reabriria a "diferença não explicada"
+    // negativa que o bloco foi criado para matar.
     const destino = destinoDaRenda(
       entradaBase({
-        poupancaAlvoCents: META_POUPANCA - PUXADA,
         verbaVariavelCents: VERBA + PUXADA,
-        puxadoDaReservaForaDaRendaCents: 0,
+        puxadoDaReservaForaDaRendaCents: PUXADA,
       }),
     );
 
@@ -125,31 +131,26 @@ describe('destinoDaRenda — 🔴 puxada da reserva: fonte externa com bloco pr�
     expect(somaDosBlocos(destino.blocos)).toBe(RENDA);
   });
 
-  it('fecha quando a poupança-alvo NÃO comporta a puxada (piso em zero)', () => {
-    // O caso que produzia "diferença não explicada" NEGATIVA: a poupança desce
-    // só até zero, a verba sobe o valor CHEIO, e a soma dos blocos passa da
-    // renda em (puxada − poupançaAlvo). Esse excedente veio da reserva —
-    // dinheiro real, com lastro — e agora é declarado em vez de virar resíduo.
-    const puxada = META_POUPANCA + 100;
-    const foraDaRenda = puxada - META_POUPANCA; // 100: o que a poupança não cobriu
+  it('declarar só PARTE da puxada deixa o resto exposto, nunca absorvido', () => {
+    // A asserção que morde: se um dia alguém voltar a abater a puxada contra
+    // uma poupança que não existe mais, o pedaço não declarado reaparece aqui
+    // em vez de ser diluído em outro bloco (D-14).
     const destino = destinoDaRenda(
       entradaBase({
-        poupancaAlvoCents: 0,
-        verbaVariavelCents: VERBA + puxada,
-        puxadoDaReservaForaDaRendaCents: foraDaRenda,
+        verbaVariavelCents: VERBA + PUXADA,
+        puxadoDaReservaForaDaRendaCents: PUXADA - 100,
       }),
     );
 
-    expect(destino.naoExplicadoCents).toBe(0);
-    expect(destino.motivoNaoExplicado).toBeNull();
+    expect(destino.naoExplicadoCents).toBe(-100);
+    expect(destino.motivoNaoExplicado).toBeTruthy();
     expect(somaDosBlocos(destino.blocos)).toBe(RENDA);
   });
 
   it('entra INVERTIDO, com nota dizendo por que o sinal é negativo', () => {
     const destino = destinoDaRenda(
       entradaBase({
-        poupancaAlvoCents: 0,
-        verbaVariavelCents: VERBA + META_POUPANCA + PUXADA,
+        verbaVariavelCents: VERBA + PUXADA,
         puxadoDaReservaForaDaRendaCents: PUXADA,
       }),
     );
@@ -187,8 +188,12 @@ describe('destinoDaRenda — 🔴 guarda da D-11: parcela não é bloco de topo'
     expect(destino.blocos.map((b) => b.rotulo)).not.toContain(
       ROTULO_SUBDIVISAO.PARCELAMENTOS_DO_CICLO,
     );
+    // 🔴 D-16: 'POUPANCA' saiu desta lista de propósito. A meta não é destino
+    // da renda — é um alvo sobre o que sobrar do disponível. Reintroduzi-la
+    // como bloco contaria o mesmo dinheiro duas vezes (uma na poupança, outra
+    // dentro de "Disponível para gastar") e estouraria a identidade.
+    expect(destino.blocos.map((b) => b.chave)).not.toContain('POUPANCA');
     expect(destino.blocos.map((b) => b.chave)).toEqual([
-      'POUPANCA',
       'CUSTOS_FIXOS',
       'PROVISAO',
       'AJUSTE_ROLLOVER',
@@ -216,6 +221,20 @@ describe('destinoDaRenda — 🔴 guarda da D-11: parcela não é bloco de topo'
 
     expect(disponivel?.valorCents).toBe(VERBA);
     expect(somaDosBlocos(destino.disponivelParaGastar.subdivisoes)).toBe(VERBA);
+  });
+
+  it('🔴 D-16: o dinheiro da meta está DENTRO de "Disponível para gastar"', () => {
+    // Com renda de R$ 30.000,00, fixos de R$ 4.884,00 e provisão de R$ 500,00,
+    // o disponível é R$ 24.616,00 — folgado o bastante para conter os
+    // R$ 18.000,00 da meta. Se a meta voltasse a ser deduzida, o disponível
+    // cairia para R$ 6.616,00 e o bloco deixaria de comportá-la: é essa
+    // comparação, e não o número solto, que prova a regra nova.
+    const destino = destinoDaRenda(entradaBase());
+    const disponivel = destino.blocos.find((b) => b.chave === 'DISPONIVEL_PARA_GASTAR');
+
+    expect(disponivel?.valorCents).toBe(2_461_600); // R$ 24.616,00
+    expect(disponivel?.valorCents).toBeGreaterThan(1_800_000); // a meta cabe aqui dentro
+    expect(destino.naoExplicadoCents).toBe(0);
   });
 });
 

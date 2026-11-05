@@ -7,9 +7,9 @@
  *
  * A NUANCE que este arquivo existe para não deixar passar: com meta de
  * poupança de R$ 18.000 e renda hipotética de R$ 15.000, a meta sozinha já
- * excede a renda. `verbaVariavelCents = renda − poupança − fixos − provisão`
- * fica um número negativo grande — tecnicamente correto, praticamente inútil.
- * "Sua verba é negativa em R$ 8.605" não responde "dou conta da despesa?".
+ * excede a renda. Desde a D-16 a verba não fica negativa por causa disso — a
+ * meta não é descontada —, mas a pergunta "a meta cabe?" continua existindo, e
+ * responder com a verba (que ignora a meta) seria dizer que cabe sempre.
  *
  * A pergunta real é outra: os CUSTOS FIXOS e as PARCELAS — o que já está
  * comprometido, não a meta — cabem na renda hipotética? Por isso
@@ -61,17 +61,19 @@ export function avaliarRendaHipotetica(ciclo: CicloProjetado): AvaliacaoRendaHip
       ciclo.rolloverRecebidoCents,
   );
 
-  const metaPoupancaCabeNaRenda = ciclo.verbaVariavelCents >= 0;
+  // D-16: a verba não desconta mais a meta, então "a meta cabe?" não pode ser
+  // lida do sinal da verba — cabe quando ainda sobra o alvo depois de fixos,
+  // provisão e parcelas.
+  const metaPoupancaCabeNaRenda = poupancaMaximaPossivelCents >= ciclo.poupancaAlvoCents;
 
   return {
     metaPoupancaCabeNaRenda,
     motivoMetaNaoCabe: metaPoupancaCabeNaRenda
       ? null
-      : 'A meta de poupança configurada, somada a fixos e provisão, é maior que a renda ' +
-        'hipotética — por isso a verba variável do motor fica negativa. Isso não quer dizer ' +
-        'que a renda não sustenta as despesas: veja sobraAposComprometidosCents (renda menos ' +
-        'fixos e parcelas) e poupancaMaximaPossivelCents (o máximo que daria para poupar nessa ' +
-        'renda, com a meta atual não cabendo mais).',
+      : 'Nessa renda hipotética, o que sobra depois de custos fixos, provisão e parcelas é ' +
+        'menor que a meta de poupança configurada — a meta não cabe. Isso não quer dizer que a ' +
+        'renda não sustenta as despesas: veja sobraAposComprometidosCents (renda menos fixos e ' +
+        'parcelas) e poupancaMaximaPossivelCents (o máximo que daria para poupar nessa renda).',
     comprometidoMensalCents,
     sobraAposComprometidosCents,
     poupancaMaximaPossivelCents,

@@ -10,19 +10,33 @@
 import { describe, expect, it } from 'vitest';
 import { formatBRL } from '@/shared/dinheiro';
 import {
+  CONFIG_PADRAO,
   criarDeps,
   cicloFake,
   contaFake,
   transacaoFake,
   type FakeDeps,
 } from '@/application/__fakes__/fakes-ciclo-fechamento';
+import { dinheiro } from './saida';
 import { CATALOGO_FERRAMENTAS } from './catalogo';
 import { NOMES_DE_FERRAMENTA, executarFerramenta } from './index';
+import { obterEstadoPainelSomenteLeitura } from '@/application/dashboard';
 
 const HOJE = '2026-07-20';
 
+/**
+ * Ciclo atual congelado. A verba gravada é `renda − fixos − provisão` (D-16),
+ * e como o fake não tem fixo nem provisão ela é a própria renda: R$ 8.000. O
+ * default de `cicloFake` é R$ 7.000 — a renda menos a meta, a fórmula de antes
+ * da D-16 —, e a composição da verba tem que fechar com o número gravado.
+ */
 function cicloAtual() {
-  return cicloFake({ id: 'ciclo-atual', dataInicio: '2026-07-05', dataFim: '2026-08-04' });
+  return cicloFake({
+    id: 'ciclo-atual',
+    dataInicio: '2026-07-05',
+    dataFim: '2026-08-04',
+    verbaVariavelCents: 800_000,
+  });
 }
 
 const IMPORTACAO_FIXTURE_ID = 'importacao-fixture';
@@ -213,6 +227,8 @@ const ARGUMENTOS: Record<string, unknown> = {
   // Importação de fatura (I3) — leem o rascunho semeado por `semearImportacao`.
   conciliar_importacao: { importacaoId: IMPORTACAO_FIXTURE_ID },
   propor_importacao: { importacaoId: IMPORTACAO_FIXTURE_ID },
+  poupanca_real: {},
+  renda_do_ciclo: {},
 };
 
 function fotografar(deps: FakeDeps): string {
@@ -404,17 +420,19 @@ describe('patrimonio_resumo — o desconhecido tem que vir com motivo', () => {
 });
 
 /**
- * Regressão de um caso real (11/08/2026): o dono afirmou que a meta de poupança
- * já sai da verba — está certo, é a fórmula de `verbaVariavelCents` — e o
- * copiloto respondeu "Não é assim na projeção atual". Ele não tinha como saber:
- * recebia `verbaVariavel` como número atômico, sem renda, poupança, fixos nem
- * provisão, e o rótulo dizia "antes de descontar parcela" — o que sugere que
- * nada foi descontado.
+ * Regressão de um caso real (11/08/2026): o copiloto recebia `verbaVariavel`
+ * como número atômico, sem renda, poupança, fixos nem provisão, e chutava de
+ * onde ele vinha. A cura foi mandar as PARTES junto (D-15).
  *
- * O estrago do erro é dupla contagem: acreditar nele levaria a separar a meta
- * OUTRA VEZ a partir da verba livre.
+ * Desde a D-16 (14/09/2026) o FATO virou o oposto — a meta de poupança NÃO é
+ * descontada da verba, ela é objetivo e continua dentro dela —, e a lição é a
+ * mesma: o que a composição diz sobre a meta precisa ser verdade, porque é
+ * dela que o copiloto tira a frase.
+ *
+ * O estrago do erro continua sendo dupla contagem, agora pelo outro lado:
+ * acreditar que a meta já saiu leva a separá-la OUTRA VEZ a partir da verba.
  */
-describe('composição da verba — a meta de poupança já está descontada', () => {
+describe('composição da verba — a meta de poupança NÃO é descontada (D-16)', () => {
   it.each(['estado_ciclo', 'projetar_ciclos'])(
     '%s expõe as parcelas que formam a verba',
     async (nome) => {
@@ -426,9 +444,16 @@ describe('composição da verba — a meta de poupança já está descontada', (
         | undefined;
 
       expect(composicao, `${nome} sem composicaoDaVerba`).toBeDefined();
-      expect(composicao?.metaDePoupancaJaEstaNaVerba).toBe(true);
-      expect(composicao?.poupancaJaDescontadaCents).toBeTypeOf('number');
-      expect(composicao?.formula).toEqual(expect.stringContaining('poupança'));
+      // O dinheiro da meta ainda está DENTRO da verba: `false` aqui seria o
+      // copiloto dizendo ao dono que ele já separou o que não separou.
+      expect(composicao?.metaDePoupancaJaEstaNaVerba).toBe(false);
+      expect(composicao?.metaDePoupancaNaoDescontadaCents).toBeTypeOf('number');
+      // A fórmula não cita mais a poupança — ela não é dedução (D-16).
+      expect(composicao?.formula).toEqual(expect.stringContaining('renda − fixos − provisão'));
+      expect(composicao?.formula).not.toEqual(expect.stringContaining('poupança'));
+      // E a observação diz em texto o que o dono precisa fazer com a meta,
+      // senão o número solto volta a ser lido como "já descontada".
+      expect(composicao?.observacao).toEqual(expect.stringContaining('NÃO foi subtraída'));
     },
   );
 
@@ -443,12 +468,16 @@ describe('composição da verba — a meta de poupança já está descontada', (
 
     const recomposta =
       n('rendaCents') -
-      n('poupancaJaDescontadaCents') -
       n('fixosJaDescontadosCents') -
       n('provisaoJaDescontadaCents') +
       n('rolloverCents');
 
     expect(recomposta).toBe(saida.verbaVariavelCents);
+
+    // A meta viaja junto da verba, mas FORA da conta (D-16). Descontá-la de
+    // novo é exatamente a dupla contagem que a composição existe para impedir.
+    expect(n('metaDePoupancaNaoDescontadaCents')).toBeGreaterThan(0);
+    expect(recomposta - n('metaDePoupancaNaoDescontadaCents')).not.toBe(saida.verbaVariavelCents);
   });
 
   it('o rótulo não sugere que nada foi descontado', async () => {
@@ -488,6 +517,25 @@ describe('rótulo de bolso — os três campos de verba (SPEC 13)', () => {
   });
 });
 
+function depsNov(): FakeDeps {
+  return criarDeps({
+    hoje: '2026-11-10',
+    config: { ...CONFIG_PADRAO, pisoDiarioVerbaCents: 15_000, diaRecebimento: 1 },
+    ciclos: [
+      cicloFake({
+        id: 'nov',
+        dataInicio: '2026-11-01',
+        dataFim: '2026-11-30',
+        rendaPrevistaCents: 3_000_000,
+        fixosCents: 488_400,
+        provisaoMensalCents: 0,
+        verbaVariavelCents: 2_511_600,
+        poupancaAlvoCents: 1_800_000,
+      }),
+    ],
+  });
+}
+
 describe('simular_compra_parcelada', () => {
   it('a soma das parcelas adicionadas é exatamente o valor da compra', async () => {
     const saida = await executarFerramenta(depsCompletos(), 'simular_compra_parcelada', {
@@ -502,6 +550,68 @@ describe('simular_compra_parcelada', () => {
     const soma = impacto.reduce((s, i) => s + (i.parcelaAdicionadaCents ?? 0), 0);
 
     expect(soma).toBe(300_000);
+  });
+
+  it('mês a mês nas duas verbas: parcela consome extras e reduz o dia a dia', async () => {
+    const deps = depsNov();
+    const saida = await executarFerramenta(deps, 'simular_compra_parcelada', {
+      descricao: 'Notebook',
+      valorTotalCents: 1_318_164,
+      numParcelas: 3,
+      dataCompra: '2026-11-10',
+      numCiclos: null,
+    });
+    const impacto = saida.impactoPorCiclo as Record<string, unknown>[];
+
+    expect(impacto[0]).toMatchObject(dinheiro('diaADiaDiarioDepois', 9_073));
+    expect(saida.reduzDiaADia).toBe(true);
+    expect(saida.alerta).toBe(`Essa compra vai reduzir seu dia a dia para ${formatBRL(8_406)}/dia`);
+    expect(impacto[0]?.passouAReduzirDiaADia).toBe(true);
+    expect(impacto[0]).toHaveProperty('variacaoExtrasRestanteCents');
+    expect(JSON.stringify(saida.rotulos)).toContain('EXCESSO');
+    expect(JSON.stringify(saida.rotulos)).toContain('negativo = a compra consumiu extras');
+    expect(saida.truncado).toBe(false);
+  });
+
+  it('dataCompra 6 meses à frente: horizonte ancorado na compra, reduz e não trunca', async () => {
+    const saida = await executarFerramenta(depsNov(), 'simular_compra_parcelada', {
+      descricao: 'Notebook',
+      valorTotalCents: 1_318_164,
+      numParcelas: 3,
+      dataCompra: '2027-05-10',
+      numCiclos: null,
+    });
+
+    expect(saida.reduzDiaADia).toBe(true);
+    expect(saida.alerta).not.toBeNull();
+    expect(saida.truncado).toBe(false);
+  });
+
+  it('60 parcelas começando em janeiro (horizonte de 60 corta o fim): truncado true', async () => {
+    const saida = await executarFerramenta(depsNov(), 'simular_compra_parcelada', {
+      descricao: 'Carro',
+      valorTotalCents: 6_000_000,
+      numParcelas: 60,
+
+      dataCompra: '2027-01-10',
+      numCiclos: null,
+    });
+
+    expect(saida.truncado).toBe(true);
+  });
+
+  it('compra que só come extras: sem alerta e com motivoSemAlerta', async () => {
+    const saida = await executarFerramenta(depsNov(), 'simular_compra_parcelada', {
+      descricao: 'Fone',
+      valorTotalCents: 300_000,
+      numParcelas: 3,
+      dataCompra: '2026-11-10',
+      numCiclos: null,
+    });
+
+    expect(saida.reduzDiaADia).toBe(false);
+    expect(saida.alerta).toBeNull();
+    expect(saida.motivoSemAlerta).toContain('nenhum mês do horizonte teve o dia a dia reduzido');
   });
 
   it('usa hoje quando dataCompra vem null', async () => {
@@ -530,8 +640,10 @@ describe('simular_meta_prazo — a saída responde a pergunta feita', () => {
   const ATE_OUTUBRO = { alvoCents: 300_000, dataLimite: '2026-10-31' };
 
   /**
-   * Ciclo atual ESTOURADO: verba de R$ 1.000,00 contra R$ 1.500,00 já gastos.
-   * O excedente de R$ 500,00 sai da poupança daquele ciclo, e só dele.
+   * Ciclo atual ESTOURADO: verba livre de R$ 1.000,00 contra R$ 1.500,00 já
+   * gastos. Desde a D-16 o aporte de um ciclo é o que SOBRA da verba livre
+   * depois do gasto (com teto na meta) — aqui não sobra nada, então o aporte
+   * do ciclo atual é zero e a redução é a meta cheia. Só esse ciclo é afetado.
    */
   function depsCicloEstourado(): FakeDeps {
     return criarDeps({
@@ -573,12 +685,14 @@ describe('simular_meta_prazo — a saída responde a pergunta feita', () => {
   });
 
   it('alcançando, devolve folga e NÃO devolve falta', async () => {
-    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', ATE_OUTUBRO);
+    const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', {
+      alvoCents: 250_000,
+      dataLimite: '2026-10-31',
+    });
 
-    // R$ 500,00 (ciclo estourado) + 3 × R$ 1.000,00 = R$ 3.500,00 contra alvo
-    // de R$ 3.000,00.
+    // R$ 0,00 (ciclo estourado) + 3 × R$ 1.000,00 = R$ 3.000,00.
     expect(saida.alcanca).toBe(true);
-    expect(saida.totalAcumulavelCents).toBe(350_000);
+    expect(saida.totalAcumulavelCents).toBe(300_000);
     expect(saida.folgaCents).toBe(50_000);
     // Emitir os dois deixaria o modelo escolher qual narrar.
     expect(saida.faltaCents).toBeUndefined();
@@ -591,7 +705,7 @@ describe('simular_meta_prazo — a saída responde a pergunta feita', () => {
     });
 
     expect(saida.alcanca).toBe(false);
-    expect(saida.faltaCents).toBe(1_000_000 - 350_000);
+    expect(saida.faltaCents).toBe(1_000_000 - 300_000);
     expect(saida.folgaCents).toBeUndefined();
   });
 
@@ -609,7 +723,9 @@ describe('simular_meta_prazo — a saída responde a pergunta feita', () => {
     const ciclos = ciclosDa(saida);
 
     expect(ciclos[0]?.reduzidoPorGastoExcedente).toBe(true);
-    expect(ciclos[0]?.aportePrevistoCents).toBe(50_000);
+    // O gasto (R$ 1.500) passou da verba livre (R$ 1.000): não sobrou nada
+    // para guardar neste ciclo. O aporte é zero, nunca negativo.
+    expect(ciclos[0]?.aportePrevistoCents).toBe(0);
     expect(ciclos.slice(1).every((c) => c.reduzidoPorGastoExcedente === false)).toBe(true);
   });
 
@@ -627,7 +743,11 @@ describe('simular_meta_prazo — a saída responde a pergunta feita', () => {
     const rotulos = saida.rotulos as Record<string, string>;
 
     expect(rotulos.aportePrevisto).toEqual(expect.stringContaining('reduzidoPorGastoExcedente'));
-    expect(rotulos.aportePrevisto).toEqual(expect.stringContaining('estourou a verba variável'));
+    // D-16: o rótulo não pode mais prometer que a redução só acontece em
+    // estouro — o aporte é a sobra da verba livre com teto na meta, então ele
+    // fica abaixo da meta sempre que a verba não chega lá.
+    expect(rotulos.aportePrevisto).toEqual(expect.stringContaining('sobra da verba livre'));
+    expect(rotulos.aportePrevisto).not.toEqual(expect.stringContaining('a poupança-alvo daquele ciclo'));
     expect(rotulos.aportePorCicloNecessario).toBeTypeOf('string');
     expect(rotulos.sobraPorCiclo).toBeTypeOf('string');
   });
@@ -643,11 +763,12 @@ describe('simular_meta_prazo — a saída responde a pergunta feita', () => {
     const saida = await executarFerramenta(depsCicloEstourado(), 'simular_meta_prazo', ATE_OUTUBRO);
     const atual = ciclosDa(saida)[0] ?? {};
 
-    // R$ 1.000,00 de poupança-alvo, reduzidos em R$ 500,00 de excedente.
+    // R$ 1.000,00 de meta cheia, reduzidos nos R$ 1.000,00 inteiros: o gasto
+    // comeu a verba livre toda e não sobrou sobra nenhuma para virar poupança.
     expect(atual.poupancaAlvoOriginalCents).toBe(100_000);
-    expect(atual.reducaoPorExcedenteCents).toBe(50_000);
+    expect(atual.reducaoPorExcedenteCents).toBe(100_000);
     // As partes recompõem o derivado — é isso que a D-15 exige.
-    expect(atual.aportePrevistoCents).toBe(100_000 - 50_000);
+    expect(atual.aportePrevistoCents).toBe(100_000 - 100_000);
   });
 
   /**
@@ -662,7 +783,12 @@ describe('simular_meta_prazo — a saída responde a pergunta feita', () => {
 
     // `formatBRL` emite NBSP entre "R$" e o número — comparar com literal de
     // espaço comum falharia por byte, não por conteúdo.
-    expect(ciclos[0]?.motivoReducao).toEqual(expect.stringContaining(formatBRL(50_000)));
+    expect(ciclos[0]?.motivoReducao).toEqual(expect.stringContaining(formatBRL(100_000)));
+    // O texto tem que dizer POR QUE o aporte encolheu sem repetir a regra
+    // revogada: a meta não é descontada da verba (D-16).
+    expect(ciclos[0]?.motivoReducao).toEqual(
+      expect.stringContaining('A meta não é descontada da verba'),
+    );
     expect(ciclos[1]?.motivoReducao).toBeUndefined();
     expect(ciclos[1]?.reducaoPorExcedenteCents).toBe(0);
   });
@@ -713,5 +839,137 @@ describe('falhas viram retorno legível, nunca exceção', () => {
     const saida = await executarFerramenta(deps, 'situacao_hoje', {});
 
     expect(saida.erro).toMatch(/não consegui obter esse dado/i);
+  });
+});
+
+/**
+ * Task 18 — poupança real, renda do ciclo e verbas separadas. Dados reais do
+ * dono (nov/26): renda R$ 30.000, meta R$ 18.000, fixos R$ 4.884, piso R$ 150.
+ */
+describe('poupança real, renda do ciclo e verbas (Task 18)', () => {
+  const CICLO_NOV = cicloFake({
+    id: 'ciclo-nov',
+    dataInicio: '2026-11-01',
+    dataFim: '2026-11-30',
+    rendaPrevistaCents: 3_000_000,
+    poupancaAlvoCents: 1_800_000,
+    fixosCents: 488_400,
+    verbaVariavelCents: 2_511_600,
+  });
+  const CONFIG_DONO = { ...CONFIG_PADRAO, rendaBaseCents: 3_000_000, metaPoupancaCents: 1_800_000, pisoDiarioVerbaCents: 15_000 };
+
+  function depsNov(extra: Partial<Parameters<typeof criarDeps>[0]> = {}): FakeDeps {
+    return criarDeps({
+      hoje: '2026-11-04',
+      config: CONFIG_DONO,
+      ciclos: [CICLO_NOV],
+      transacoes: [
+        transacaoFake({ id: 'tx-hoje', data: '2026-11-04', valorCents: 5_000, cicloId: CICLO_NOV.id }),
+      ],
+      contas: [contaFake({ saldoCents: 25_200_000 })],
+      ...extra,
+    });
+  }
+
+  it('poupanca_real sem snapshot no ciclo e sem lançamento em conta de patrimônio: null + motivo (D-14), não R$ 0', async () => {
+    const deps = depsNov({
+      contas: [contaFake({ saldoCents: 4_955_032 })],
+      snapshots: [{ id: 's', data: '2026-10-31', totalCents: 6_000_000, itens: [] }],
+    });
+    const atual = (await executarFerramenta(deps, 'poupanca_real', {})).cicloAtual as Record<string, unknown>;
+
+    expect(atual.guardadoEstimado).toBeNull();
+    expect(atual.motivo).toMatch(/registre um snapshot/);
+  });
+
+  it('poupanca_real sem snapshot no ciclo estima pelo razão: efeito das transações do ciclo, não saldo − snapshot (D-13)', async () => {
+    const deps = depsNov({
+      contas: [contaFake({ saldoCents: 4_955_032 })],
+      snapshots: [{ id: 's', data: '2026-10-31', totalCents: 6_000_000, itens: [] }],
+    });
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-aporte', tipo: 'RENDA', data: '2026-11-02', valorCents: 200_000, contaId: 'conta-x', cicloId: CICLO_NOV.id }),
+    );
+    const atual = (await executarFerramenta(deps, 'poupanca_real', {})).cicloAtual as Record<string, unknown>;
+
+    expect(atual.guardadoEstimadoCents).toBe(200_000);
+    expect(atual.fonte).toBe('SALDO_CONTAS');
+    expect(atual.comoFoiEstimado).toMatch(/transações do ciclo/);
+    expect(atual.diferencaParaMetaCents).toBe(200_000 - 1_800_000);
+  });
+
+  it('poupanca_real: fechados com real, sem real (motivo) e médias', async () => {
+    const out = cicloFake({ id: 'out', dataInicio: '2026-10-01', dataFim: '2026-10-31', fechado: true, poupancaAlvoCents: 1_800_000, poupancaRealCents: 425_000 });
+    const set = cicloFake({ id: 'set', dataInicio: '2026-09-01', dataFim: '2026-09-30', fechado: true, poupancaAlvoCents: 1_800_000 });
+    const saida = await executarFerramenta(depsNov({ ciclos: [set, out, CICLO_NOV] }), 'poupanca_real', {});
+    const fechados = saida.ultimosFechados as Record<string, unknown>[];
+
+    expect(fechados[0]).toMatchObject({ inicio: '2026-10-01', realCents: 425_000, diferencaCents: -1_375_000 });
+    expect(fechados[1]).toMatchObject({ inicio: '2026-09-01', real: null });
+    expect(fechados[1]!.motivo).toEqual(expect.any(String));
+    const medias = saida.medias as Record<string, unknown>[];
+    expect(medias.map((m) => m.ciclos)).toEqual([3, 6, 12]);
+    expect(medias[0]).toMatchObject({ mediaCents: 425_000, ciclosConsiderados: 1 });
+  });
+
+  it('renda_do_ciclo USD: decomposição em texto, imposto e renda real ainda null com motivo', async () => {
+    const deps = depsNov({
+      config: { ...CONFIG_DONO, moedaRenda: 'USD', rendaBrutaMoedaOrigemCents: 730_000, impostoEstimadoCents: 350_000 },
+      ciclos: [{ ...CICLO_NOV, rendaPrevistaCents: 3_613_900, cotacaoPrevistaMicros: 5_430_000, cotacaoPrevistaData: '2026-10-30' }],
+    });
+    const saida = await executarFerramenta(deps, 'renda_do_ciclo', {});
+
+    expect(saida.moeda).toBe('USD');
+    expect(saida.decomposicao).toEqual(expect.stringContaining(formatBRL(3_613_900)));
+    expect((saida.decomposicao as string).replace(/\u00a0/g, ' ')).toContain('R$ 36.139,00');
+    expect(saida.impostoCents).toBe(350_000);
+    expect(saida.liquidaCents).toBe(3_613_900);
+    expect(saida.confirmada).toBe(false);
+    expect(saida.rendaReal).toBeNull();
+    expect(saida.motivoSemRendaReal).toEqual(expect.any(String));
+  });
+
+  it('estado_ciclo.verbas: fórmula, partes e dia a dia = piso × dias', async () => {
+    const saida = await executarFerramenta(depsNov(), 'estado_ciclo', {});
+    const verbas = saida.verbas as Record<string, unknown>;
+
+    expect(verbas.formula).toEqual(expect.stringContaining('dia a dia = min(piso × dias, max(gastável, 0))'));
+    expect(verbas.formula).toEqual(expect.stringContaining('faltaParaPiso = piso × dias − dia a dia'));
+    expect(verbas.formulaConsumo).toEqual(expect.stringContaining('diaADiaEfetivo = diaADia − excedenteDosExtras'));
+    expect(verbas.formulaConsumo).toEqual(expect.stringContaining('max(extras, 0)'));
+    expect(verbas.diaADiaUsadoCents).toEqual(expect.any(Number));
+    expect(verbas.diaADiaUsadoFormatado).toBe(formatBRL(verbas.diaADiaUsadoCents as number));
+    expect(verbas.rotuloExtrasUsado).toEqual(expect.stringContaining('FIM do ciclo'));
+    expect(verbas).toMatchObject({ diaADiaCents: 450_000, diaADiaFormatado: formatBRL(450_000) });
+    expect(verbas).toMatchObject({ gastavelCents: 711_600, extrasCents: 261_600, metaDePoupancaJaEstaNaVerba: false });
+    expect(JSON.stringify(verbas)).not.toMatch(/reservad/i);
+  });
+
+  it('situacao_hoje.verbas.podeGastarHojeDiaADia é o mesmo número do painel', async () => {
+    const deps = depsNov();
+    const saida = await executarFerramenta(deps, 'situacao_hoje', {});
+    const painel = await obterEstadoPainelSomenteLeitura(deps);
+
+    expect((saida.verbas as Record<string, unknown>).podeGastarHojeDiaADiaCents).toBe(painel!.kpis.podeGastarHojeCents);
+    expect(saida.rotuloRestaHoje).toEqual(expect.stringContaining('podeGastarHojeDiaADia'));
+  });
+
+  it('dia a dia estourado hoje: copiloto diz 0, como o painel, e não um valor negativo', async () => {
+    const deps = depsNov();
+    deps.transacoes.itens.push(
+      transacaoFake({ id: 'tx-estouro', data: '2026-11-04', valorCents: 900_000, cicloId: CICLO_NOV.id }),
+    );
+    const saida = await executarFerramenta(deps, 'situacao_hoje', {});
+    const painel = await obterEstadoPainelSomenteLeitura(deps);
+
+    expect(painel!.kpis.restaHojeCents).toBeLessThan(0);
+    const v = saida.verbas as Record<string, unknown>;
+    expect(v.podeGastarHojeDiaADiaCents).toBe(0);
+    // D-15: o estouro viaja junto — teto, gasto de hoje e quanto passou.
+    expect(v.tetoHojeDiaADiaCents).toBe(painel!.kpis.tetoHojeCents);
+    expect(v.gastoHojeDiaADiaCents).toBe(painel!.kpis.gastoHojeCents);
+    expect(v.excedidoHojeDiaADiaCents).toBe(-painel!.kpis.restaHojeCents);
+    expect(v.excedidoHojeDiaADiaFormatado).toBe(formatBRL(-painel!.kpis.restaHojeCents));
+    expect(v.rotuloPodeGastarHoje).toMatch(/excedidoHojeDiaADia/);
   });
 });

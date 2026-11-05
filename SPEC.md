@@ -11,11 +11,20 @@ App de uso pessoal (single-user, roda local) para controle financeiro diário. O
 ### Princípio central (inverte a lógica de toda planilha comum)
 
 ```
-ERRADO:  renda − gastos = poupança
-CERTO:   renda − poupança − compromissos = quanto posso gastar
+renda − compromissos (fixos, provisão) = quanto posso gastar
+meta de poupança = o alvo dentro desse disponível, não um desconto
 ```
 
-A poupança é tratada como uma conta a pagar com data de vencimento, nunca como sobra.
+**Revisto em 14/09/2026 (decisão D-16).** A versão original tratava a poupança como
+conta a pagar, descontada da verba antes de qualquer gasto. Não é o comportamento
+desejado: a meta é um OBJETIVO, e transformá-la em gasto certo derrubava o teto diário
+todo mês, inclusive nos meses em que o dono nunca teve intenção de bater a meta.
+
+Agora a meta não entra no cálculo da verba. Ela é a régua: o app diz quanto sobraria no
+fechamento no ritmo de gasto atual e compara com a meta. A poupança do ciclo é o que
+**sobra** da verba — e é por isso que gastar menos hoje continua sendo o que aproxima da
+meta. O limitador continua existindo (fixos e provisão seguem descontados); o que deixou
+de existir é a cobrança automática da meta.
 
 ### Requisito de fricção (define o design)
 
@@ -240,9 +249,10 @@ limitesCiclo(data: string, diaRecebimento: number): { inicio: string; fim: strin
 provisaoMensalCents = soma(provisoesAtivas.valorAnualCents) / 12   // arredonda pra cima
 
 // Verba variável — o único dinheiro livre
+// D-16: a meta de poupança NÃO entra aqui. `poupancaAlvoCents` continua
+// congelada no Ciclo, mas só como alvo de comparação.
 verbaVariavelCents =
     rendaPrevistaCents
-  − poupancaAlvoCents
   − fixosCents
   − provisaoMensalCents
 
@@ -364,9 +374,10 @@ planilha mensal. A home passou a ser responsiva:
 - **< 1024px — a tela Hoje original**, exatamente como especificado abaixo. Sem gráfico,
   sem lista de fixos, sem patrimônio. É o caso "30 segundos na fila do caixa".
 
-Rótulos que enganam são bug, não detalhe: "sobra projetada" sozinha levou o usuário a
-achar que sua poupança do mês era R$ 7.116 quando era R$ 25.116 (meta reservada +
-sobra da verba). Todo número do painel diz de qual bolso ele fala.
+Rótulos que enganam são bug, não detalhe. Desde a D-16 o rótulo perigoso é o oposto do
+original: chamar a meta de "reservada" afirma que o dinheiro já saiu da verba, quando ele
+continua disponível para gastar. A poupança do mês é a sobra projetada da verba, e a meta
+é só a régua. Todo número do painel diz de qual bolso ele fala.
 
 Hierarquia visual da tela Hoje (mobile), do mais para o menos importante:
 
@@ -489,7 +500,8 @@ O app está pronto quando, em uso real:
 1. Lançar um gasto na tela inicial leva **≤ 3 toques e ≤ 10 segundos**.
 2. O teto do dia muda sozinho de um dia para o outro, sem nenhuma ação do usuário.
 3. Um gasto grande hoje reduz o teto de amanhã, e a soma dos tetos dos dias restantes **nunca** ultrapassa o saldo disponível do ciclo.
-4. Nenhuma tela apresenta como disponível dinheiro comprometido com fixos, provisão ou meta de poupança.
+4. Nenhuma tela apresenta como disponível dinheiro comprometido com fixos ou provisão. A
+   meta de poupança NÃO é comprometida (D-16): ela aparece como alvo, nunca como desconto.
 5. Registrar o pagamento da fatura do cartão não altera o gasto do ciclo.
 6. Uma compra em 6x aparece nos 6 ciclos seguintes, e a soma das parcelas é exatamente o valor total.
 7. Fechar o ciclo produz: sobra destinada, patrimônio atualizado e uma sugestão de meta para o próximo ciclo.
@@ -515,6 +527,8 @@ O app está pronto quando, em uso real:
 - Não rotule um número sem dizer de qual bolso ele vem. "Sobra" sozinha é ambígua: existe
   sobra da verba variável e existe poupança do mês, e confundi-las apresenta como
   conquistado dinheiro que ainda pode ser gasto.
+- Não volte a descontar a meta de poupança da verba, em cálculo ou em exibição (D-16). Meta
+  listada com sinal "−" ao lado de fixos e provisão é justamente o que foi removido.
 - Não fabrique número quando falta o insumo: divisor ausente vira estado vazio explicando
   o que falta, nunca `0.0` — que lê como um fato falso.
 - Não gere dados fake/mock nas telas: se não há dado, mostre estado vazio com ação.

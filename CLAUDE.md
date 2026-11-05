@@ -65,6 +65,16 @@ Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçad
 **Antes de rodar `next build` ou apagar `.next`, verifique se há dev server rodando**
 (`lsof -ti:3000`).
 
+### API do agente externo (04/11/2026)
+
+`app/api/agent/v1/**` sobre o kernel `src/agent-api/` (`rotaAgente` para
+leitura, `rotaEscrita` para escrita). A rota só declara escopo + schemas zod e
+chama o caso de uso; auth Bearer, rate limit, transação, dryRun (rollback),
+auditoria, `Idempotency-Key`, `impactoCiclo` e `*Cents`→`*Fmt` são do kernel.
+Deps do agente vêm de `criarDepsAgente(donoId, db)` — o `donoId` sai do token,
+nunca do corpo. Rota nova precisa de `EndpointDoc` em `src/agent-api/openapi/`
+(um teste cobra a bijeção rota ↔ doc). Testes com banco: `pnpm test:integracao`.
+
 ## Regras invioláveis (SPEC seção 13 — "Não faça")
 
 1. **Dinheiro é sempre `Int` em centavos.** Nunca `Float`/`Decimal`/`Number` decimal
@@ -92,6 +102,12 @@ Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçad
 7b. **A IA nunca grava direto** (decisão D-8, revista em 04/08/2026). O copiloto
    PROPÕE, o dono CONFIRMA, e o caso de uso de sempre EXECUTA. Ferramenta de IA
    que chama `criarTransacao` é bug, não feature — ver `TASKS-IA.md` §12.
+   **Exceção (04/11/2026): a API do agente externo** (`/api/agent/v1`, ver
+   `docs/agent-api.md`) grava direto, autenticada por token com escopo
+   `write`/`admin` que o dono criou em `/config/tokens`. Ela passa SEMPRE pelos
+   mesmos casos de uso de `src/application/*`, dentro de transação, com
+   auditoria (`AuditoriaAgente`) e `?dryRun=true`. O copiloto interno continua
+   sob a 7b.
 7c. **Memória do copiloto NUNCA guarda valor em dinheiro** (Fase E). O número de
    hoje é falso amanhã, e dentro de um embedding ninguém percebe que envelheceu.
    A guarda é `validarTextoMemoria` (`src/domain/memoria/regras.ts`), aplicada
@@ -116,8 +132,23 @@ Recuperação: parar o dev server, `rm -rf .next`, `pnpm dev`, e refresh forçad
 - Parcelamento gera N transações com competência `dataCompra + k meses` (clamp de fim de
   mês); o `cicloId` é vinculado por data quando o ciclo nasce.
 - **Sem piso diário hardcoded**: o teto é 100% derivado da verba, e a verba é
-  `renda − poupança − fixos − provisão (+ rollover)` — ver `verbaVariavelCents`
+  `renda − fixos − provisão (+ rollover)` — ver `verbaVariavelCents`
   em `src/domain/finance/verba.ts`.
+- **A meta de poupança é OBJETIVO, não dedução** (decisão D-16, 14/09/2026). Ela
+  não entra em `verbaVariavelCents`: o dinheiro da meta continua dentro da verba,
+  e a poupança do ciclo é o que SOBRA no fechamento. `Ciclo.poupancaAlvoCents`
+  segue congelada, mas só como régua de comparação — nenhuma tela pode chamá-la
+  de "reservada" nem listá-la com sinal "−" ao lado de fixos e provisão.
+  Consequências que já foram aplicadas e não podem regredir:
+  - `projetarPoupanca` devolve a sobra projetada, não `alvo + sobra`.
+  - o bloco `POUPANCA` de "Para onde vai a renda" não existe mais — o dinheiro
+    está em `DISPONIVEL_PARA_GASTAR`, e a identidade dos blocos fecha assim.
+  - `verificarMetaIrreal` desconta a meta ELE MESMO (`(verba − meta)/dias`):
+    comparar a verba cheia com o piso faria o aviso nunca disparar.
+  - `sugerirMetaPoupancaCents` sugere a menor SOBRA dos ciclos recentes, e a
+    taxa de poupança do fechamento conta só o que foi de fato para uma conta.
+  - a saída de IA `composicaoDaVerba` diz `metaDePoupancaJaEstaNaVerba: false` e
+    explica que bater a meta exige gastar no máximo `verba − meta`.
 - **Razão e realidade são fontes distintas, conciliadas — nunca sincronizadas em
   silêncio** (decisão D-13, 11/08/2026). `Conta.saldoCents` é o *razão*: o que o app
   calculou a partir de transações e fechamentos. `ItemPatrimonio.valorCents` é a

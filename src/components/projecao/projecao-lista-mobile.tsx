@@ -37,8 +37,6 @@ function valorDaSerie(linha: LinhaProjecao, serie: SerieProjecao): number {
       return linha.fixosCents;
     case 'provisao':
       return linha.provisaoMensalCents;
-    case 'poupanca':
-      return linha.poupancaAlvoCents;
     case 'parcelas':
       return linha.parcelasComprometidasCents;
     case 'verbaLivre':
@@ -138,6 +136,14 @@ function LinhaMobile({ linha }: { linha: LinhaProjecao }) {
       </div>
       <p className="text-xs text-muted">
         verba livre · renda prevista {formatBRL(linha.rendaPrevistaCents)}
+      </p>
+
+      <p className="text-xs text-muted">
+        dia a dia {formatBRL(linha.diaADiaCents)} ({formatBRL(linha.diaADiaDiarioCents)}/dia) ·
+        extras restantes{' '}
+        <span className={linha.extrasRestanteCents < 0 ? 'text-negativo' : undefined}>
+          {formatBRL(linha.extrasRestanteCents)}
+        </span>
       </p>
 
       <MicroBarra linha={linha} />

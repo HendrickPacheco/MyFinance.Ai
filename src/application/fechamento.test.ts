@@ -4,7 +4,15 @@
  * Tudo roda contra fakes em memória — nenhum acesso ao banco real.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { fecharCiclo, obterResumoFechamento, obterResumoParaFechar } from './fechamento';
+import {
+  fecharCiclo,
+  obterResumoFechamento,
+  obterResumoParaFechar,
+  previaPoupancaReal,
+  PoupancaRealNaoMedidaError,
+  type FechamentoInput,
+  descreverDestinoSobra,
+} from './fechamento';
 import {
   criarDeps,
   primeiro,
@@ -30,6 +38,14 @@ function cicloAberto(patch: Partial<Ciclo> = {}): Ciclo {
   });
 }
 
+/**
+ * Os testes de sobra/provisão/meta não são sobre poupança real: passam um valor
+ * manual para que a falta de snapshot não bloqueie o fechamento.
+ */
+function fechar(deps: FakeDeps, cicloId: string, input: FechamentoInput) {
+  return fecharCiclo(deps, cicloId, { poupancaRealManualCents: 0, ...input });
+}
+
 function cenario(opcoes: OpcoesFakeDeps = {}): FakeDeps {
   const deps = criarDeps({
     hoje: HOJE,
@@ -52,7 +68,7 @@ describe('sobra = verbaVariavel − gastoRealizado (SPEC regra 7)', () => {
     });
 
     // Act
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     // Assert
     expect(r.sobraCents).toBe(450_000);
@@ -67,7 +83,7 @@ describe('sobra = verbaVariavel − gastoRealizado (SPEC regra 7)', () => {
       transacoes: [transacaoFake({ id: 't1', valorCents: 780_000, cicloId: 'c-julho' })],
     });
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(r.sobraCents).toBe(-80_000);
     expect(primeiro(deps.ciclos.itens).sobraCents).toBe(-80_000);
@@ -85,7 +101,7 @@ describe('sobra = verbaVariavel − gastoRealizado (SPEC regra 7)', () => {
       ],
     });
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     // Só os 100.000 do gasto VARIAVEL consomem verba.
     expect(r.sobraCents).toBe(600_000);
@@ -99,7 +115,7 @@ describe('sobra = verbaVariavel − gastoRealizado (SPEC regra 7)', () => {
       ],
     });
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(r.sobraCents).toBe(550_000); // 700000 − (200000 − 50000)
   });
@@ -112,7 +128,7 @@ describe('sobra = verbaVariavel − gastoRealizado (SPEC regra 7)', () => {
       ],
     });
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(r.sobraCents).toBe(600_000);
   });
@@ -124,7 +140,7 @@ describe('destinação da sobra (Config.destinoSobra + destinoSobraContaId)', ()
       transacoes: [transacaoFake({ id: 't1', valorCents: 200_000, cicloId: 'c-julho' })],
     });
 
-    await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(deps.contas.ajustes).toEqual([{ id: 'reserva', deltaCents: 500_000 }]);
     expect(deps.contas.saldoDe('reserva')).toBe(500_000);
@@ -137,12 +153,13 @@ describe('destinação da sobra (Config.destinoSobra + destinoSobraContaId)', ()
     });
     deps.config.mutar({ destinoSobra: 'RESERVA', destinoSobraContaId: 'reserva' });
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(r.sobraCents).toBe(-50_000);
     expect(deps.contas.saldoDe('reserva')).toBe(950_000);
-    // Déficit não conta como poupança extra.
-    expect(r.taxaPoupancaEfetiva).toBeCloseTo(100_000 / 800_000, 10);
+    // D-16: poupado é o que SOBROU e foi para uma conta. Com déficit não sobrou
+    // nada — e a meta não entra na conta: ela é objetivo, não poupança feita.
+    expect(r.taxaPoupancaEfetiva).toBe(0);
   });
 
   it('sobra ZERO não gera ajuste de saldo', async () => {
@@ -150,7 +167,7 @@ describe('destinação da sobra (Config.destinoSobra + destinoSobraContaId)', ()
       transacoes: [transacaoFake({ id: 't1', valorCents: 700_000, cicloId: 'c-julho' })],
     });
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(r.sobraCents).toBe(0);
     expect(deps.contas.ajustes).toEqual([]);
@@ -162,11 +179,13 @@ describe('destinação da sobra (Config.destinoSobra + destinoSobraContaId)', ()
     });
     deps.config.mutar({ destinoSobra: 'ROLLOVER' });
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(deps.contas.ajustes).toEqual([]);
     expect(primeiro(deps.ciclos.itens).sobraCents).toBe(500_000);
-    expect(r.taxaPoupancaEfetiva).toBeCloseTo(100_000 / 800_000, 10);
+    // D-16: no ROLLOVER a sobra não vai para conta nenhuma neste fechamento —
+    // ela vira verba do próximo ciclo. Nada foi poupado aqui.
+    expect(r.taxaPoupancaEfetiva).toBe(0);
   });
 
   it('INVESTIMENTO também usa destinoSobraContaId', async () => {
@@ -176,7 +195,7 @@ describe('destinação da sobra (Config.destinoSobra + destinoSobraContaId)', ()
     });
     deps.config.mutar({ destinoSobra: 'INVESTIMENTO', destinoSobraContaId: 'cdb' });
 
-    await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(deps.contas.saldoDe('cdb')).toBe(410_000);
   });
@@ -187,7 +206,7 @@ describe('destinação da sobra (Config.destinoSobra + destinoSobraContaId)', ()
     });
     deps.config.mutar({ destinoSobra: 'RESERVA', destinoSobraContaId: null });
 
-    await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     // Esperado: algum destino (erro explícito ou conta RESERVA padrão).
     // Observado: `deps.contas.ajustes` fica vazio e a sobra evapora.
@@ -205,7 +224,7 @@ describe('crédito de provisão no fechamento (decisão 4)', () => {
       ],
     });
 
-    await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(deps.provisoes.acumuladoDe('p-ipva')).toBe(10_000);
     expect(deps.provisoes.acumuladoDe('p-seguro')).toBe(5_000);
@@ -218,7 +237,7 @@ describe('crédito de provisão no fechamento (decisão 4)', () => {
       provisoes: [provisaoFake({ id: 'p1', valorAnualCents: 100_000, acumuladoCents: 25_000 })],
     });
 
-    await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     // floor(100000/12) = 8333
     expect(deps.provisoes.acumuladoDe('p1')).toBe(33_333);
@@ -235,7 +254,7 @@ describe('crédito de provisão no fechamento (decisão 4)', () => {
     });
     deps.config.mutar({ destinoSobra: 'RESERVA', destinoSobraContaId: 'reserva' });
 
-    await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     const creditado = deps.provisoes.ajustes.reduce((s, a) => s + a.deltaCents, 0);
     expect(creditado).toBe(183); // observado: 182
@@ -251,8 +270,8 @@ describe('idempotência do fechamento (regra: fechar duas vezes não credita em 
     });
 
     // Act
-    await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
-    const segunda = fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    const segunda = fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     // Assert
     await expect(segunda).rejects.toThrow('Este ciclo já foi fechado.');
@@ -270,7 +289,7 @@ describe('idempotência do fechamento (regra: fechar duas vezes não credita em 
     vi.spyOn(deps.ciclos, 'fecharSePendente').mockResolvedValue(false);
 
     await expect(
-      fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 }),
+      fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 }),
     ).rejects.toThrow('Este ciclo já foi fechado.');
 
     expect(deps.provisoes.ajustes).toEqual([]);
@@ -282,10 +301,10 @@ describe('idempotência do fechamento (regra: fechar duas vezes não credita em 
       ciclos: [cicloAberto({ id: 'c-fechado', fechado: true, fechadoEm: '2026-08-05', sobraCents: 0 })],
     });
 
-    await expect(fecharCiclo(deps, 'nao-existe', { rendaRealizadaCents: 1 })).rejects.toThrow(
+    await expect(fechar(deps, 'nao-existe', { rendaRealizadaCents: 1 })).rejects.toThrow(
       'Ciclo não encontrado.',
     );
-    await expect(fecharCiclo(deps, 'c-fechado', { rendaRealizadaCents: 1 })).rejects.toThrow(
+    await expect(fechar(deps, 'c-fechado', { rendaRealizadaCents: 1 })).rejects.toThrow(
       'Este ciclo já foi fechado.',
     );
     expect(deps.ciclos.fecharSePendenteChamadas).toBe(0);
@@ -294,7 +313,7 @@ describe('idempotência do fechamento (regra: fechar duas vezes não credita em 
   it('rejeita quando não há Config', async () => {
     const deps = criarDeps({ hoje: HOJE, ciclos: [cicloAberto()], config: null });
 
-    await expect(fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 1 })).rejects.toThrow(
+    await expect(fechar(deps, 'c-julho', { rendaRealizadaCents: 1 })).rejects.toThrow(
       'Configuração não encontrada.',
     );
   });
@@ -309,16 +328,18 @@ describe('renda realizada é INPUT do usuário, não somatório de transações'
       ],
     });
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 512_345 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 512_345 });
 
     expect(primeiro(deps.ciclos.itens).rendaRealizadaCents).toBe(512_345);
-    expect(r.taxaPoupancaEfetiva).toBeCloseTo((100_000 + 700_000) / 512_345, 10);
+    // D-16: poupado = só a sobra destinada à reserva (a verba inteira, já que
+    // RENDA não é gasto). A meta-alvo não é somada.
+    expect(r.taxaPoupancaEfetiva).toBeCloseTo(700_000 / 512_345, 10);
   });
 
   it('renda realizada zero não divide por zero — taxa é 0', async () => {
     const deps = cenario();
 
-    const r = await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 0 });
+    const r = await fechar(deps, 'c-julho', { rendaRealizadaCents: 0 });
 
     expect(r.taxaPoupancaEfetiva).toBe(0);
     expect(Number.isFinite(r.taxaPoupancaEfetiva)).toBe(true);
@@ -327,7 +348,7 @@ describe('renda realizada é INPUT do usuário, não somatório de transações'
   it('grava a observação do fechamento (ou null)', async () => {
     const deps = cenario();
 
-    await fecharCiclo(deps, 'c-julho', {
+    await fechar(deps, 'c-julho', {
       rendaRealizadaCents: 800_000,
       observacao: 'mês de férias',
     });
@@ -349,26 +370,43 @@ describe('recalibração de meta (passo 5 do wizard / SPEC regra 12)', () => {
 
   it('sugere aumento só quando SOBROU com folga em 2 ciclos seguidos', async () => {
     const deps = cenario({
+      ciclos: [cicloAberto(), anteriorFechado(200_000)],
+      transacoes: [transacaoFake({ id: 't1', valorCents: 550_000, cicloId: 'c-julho' })],
+    });
+
+    const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
+
+    // D-16: a sobra É a poupança do ciclo (a meta não é mais descontada da
+    // verba), então a sugestão é a MENOR das duas sobras — nunca a soma da meta
+    // com a sobra, que sugeriria um valor que ninguém nunca atingiu.
+    expect(resumo.sobraCents).toBe(150_000);
+    expect(resumo.metaSugeridaCents).toBe(150_000);
+  });
+
+  it('usa a menor sobra quando a anterior foi menor', async () => {
+    const deps = cenario({
+      ciclos: [cicloAberto(), anteriorFechado(120_000)],
+      transacoes: [transacaoFake({ id: 't1', valorCents: 550_000, cicloId: 'c-julho' })],
+    });
+
+    const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
+
+    expect(resumo.metaSugeridaCents).toBe(120_000);
+  });
+
+  it('NÃO sugere quando a menor sobra não supera a meta vigente', async () => {
+    // Sobra atual 50.000 e anterior 80.000, contra uma meta de 100.000: as duas
+    // ficaram ABAIXO do alvo. Sugerir a menor delas seria baixar a meta por ter
+    // gasto muito — incentivo invertido (D-16).
+    const deps = cenario({
       ciclos: [cicloAberto(), anteriorFechado(80_000)],
       transacoes: [transacaoFake({ id: 't1', valorCents: 650_000, cicloId: 'c-julho' })],
     });
 
     const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
 
-    // sobra atual = 50.000; anterior = 80.000 -> sobe pela MENOR das duas.
     expect(resumo.sobraCents).toBe(50_000);
-    expect(resumo.metaSugeridaCents).toBe(150_000); // 100.000 + 50.000
-  });
-
-  it('usa a menor sobra quando a anterior foi menor', async () => {
-    const deps = cenario({
-      ciclos: [cicloAberto(), anteriorFechado(20_000)],
-      transacoes: [transacaoFake({ id: 't1', valorCents: 650_000, cicloId: 'c-julho' })],
-    });
-
-    const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
-
-    expect(resumo.metaSugeridaCents).toBe(120_000);
+    expect(resumo.metaSugeridaCents).toBeNull();
   });
 
   it('NÃO sugere aumento quando o ciclo anterior teve déficit', async () => {
@@ -420,7 +458,7 @@ describe('recalibração de meta (passo 5 do wizard / SPEC regra 12)', () => {
     const deps = cenario();
     deps.config.mutar({ metaPoupancaPercent: 12.5 });
 
-    await fecharCiclo(deps, 'c-julho', {
+    await fechar(deps, 'c-julho', {
       rendaRealizadaCents: 800_000,
       novaMetaPoupancaCents: 150_000,
     });
@@ -434,7 +472,7 @@ describe('recalibração de meta (passo 5 do wizard / SPEC regra 12)', () => {
   it('não toca na Config quando novaMetaPoupancaCents não é informada', async () => {
     const deps = cenario();
 
-    await fecharCiclo(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
+    await fechar(deps, 'c-julho', { rendaRealizadaCents: 800_000 });
 
     expect(deps.config.salvarChamadas).toBe(0);
   });
@@ -514,7 +552,7 @@ describe('snapshot de patrimônio no fechamento (critério de aceite 7)', () => 
       ],
     });
 
-    const r = await fecharCiclo(deps, 'c-julho', {
+    const r = await fechar(deps, 'c-julho', {
       rendaRealizadaCents: 800_000,
       snapshotData: '2026-08-05',
       snapshotItens: [
@@ -533,7 +571,7 @@ describe('snapshot de patrimônio no fechamento (critério de aceite 7)', () => 
   it('sem snapshot anterior a variação é null (não 0)', async () => {
     const deps = cenario();
 
-    const r = await fecharCiclo(deps, 'c-julho', {
+    const r = await fechar(deps, 'c-julho', {
       rendaRealizadaCents: 800_000,
       snapshotData: '2026-08-05',
       snapshotItens: [{ nome: 'Reserva', classe: 'CONTA', valorCents: 500_000 }],
@@ -546,7 +584,7 @@ describe('snapshot de patrimônio no fechamento (critério de aceite 7)', () => 
   it('lista de itens vazia não cria snapshot', async () => {
     const deps = cenario();
 
-    const r = await fecharCiclo(deps, 'c-julho', {
+    const r = await fechar(deps, 'c-julho', {
       rendaRealizadaCents: 800_000,
       snapshotData: '2026-08-05',
       snapshotItens: [],
@@ -554,5 +592,226 @@ describe('snapshot de patrimônio no fechamento (critério de aceite 7)', () => 
 
     expect(r.variacaoPatrimonioCents).toBeNull();
     expect(deps.patrimonio.itens).toHaveLength(0);
+  });
+});
+
+describe('poupança real no fechamento (D3)', () => {
+  const NOV = { id: 'c-nov', dataInicio: '2026-11-01', dataFim: '2026-11-30' };
+  const snap = (data: string, totalCents: number) => ({
+    id: `snap-${data}`,
+    data,
+    totalCents,
+    itens: [{ id: `i-${data}`, snapshotId: `snap-${data}`, nome: 'Reserva', classe: 'CONTA' as const, valorCents: totalCents, contaId: null }],
+  });
+  const cenarioNov = (opcoes: OpcoesFakeDeps = {}) => {
+    const deps = criarDeps({
+      hoje: '2026-12-01',
+      ciclos: [cicloFake(NOV)],
+      contas: [contaFake({ id: 'reserva', tipo: 'RESERVA', saldoCents: 0 })],
+      ...opcoes,
+    });
+    deps.config.mutar({ destinoSobra: 'RESERVA', destinoSobraContaId: 'reserva' });
+    return deps;
+  };
+
+  it('mede pelo snapshot salvo no início + o snapshot do próprio input no fim', async () => {
+    const deps = cenarioNov({ snapshots: [snap('2026-10-31', 25_000_000)] });
+
+    const r = await fecharCiclo(deps, 'c-nov', {
+      rendaRealizadaCents: 3_000_000,
+      snapshotData: '2026-11-30',
+      snapshotItens: [
+        { nome: 'Reserva', classe: 'CONTA', valorCents: 20_000_000 },
+        { nome: 'CDB', classe: 'RENDA_FIXA', valorCents: 5_425_000 },
+      ],
+    });
+
+    const c = primeiro(deps.ciclos.itens);
+    expect(c.fechado).toBe(true);
+    expect(c.poupancaRealCents).toBe(425_000);
+    expect(c.fonteMedicaoPoupanca).toBe('SNAPSHOT');
+    expect(c.patrimonioInicialCents).toBe(25_000_000);
+    expect(c.patrimonioFinalCents).toBe(25_425_000);
+    expect(r.poupancaRealCents).toBe(425_000);
+  });
+
+  it('sem snapshot no fim e sem valor manual: lança ANTES de qualquer escrita', async () => {
+    const deps = cenarioNov({
+      snapshots: [snap('2026-10-31', 25_000_000)],
+      provisoes: [provisaoFake({ id: 'p1', valorAnualCents: 120_000 })],
+    });
+
+    // O snapshot do input está fora da tolerância do fim: não mede, e não pode ser gravado.
+    const fechamento = fecharCiclo(deps, 'c-nov', {
+      rendaRealizadaCents: 3_000_000,
+      snapshotData: '2026-12-20',
+      snapshotItens: [{ nome: 'Reserva', classe: 'CONTA', valorCents: 25_425_000 }],
+    });
+
+    await expect(fechamento).rejects.toBeInstanceOf(PoupancaRealNaoMedidaError);
+    expect(primeiro(deps.ciclos.itens).fechado).toBe(false);
+    expect(deps.ciclos.fecharSePendenteChamadas).toBe(0);
+    expect(deps.provisoes.ajustes).toEqual([]);
+    expect(deps.contas.ajustes).toEqual([]);
+    expect(deps.patrimonio.itens).toHaveLength(1);
+  });
+
+  it('com valor manual fecha mesmo sem snapshot, fonte MANUAL e patrimônio null', async () => {
+    const deps = cenarioNov({ snapshots: [snap('2026-10-31', 25_000_000)] });
+
+    const r = await fecharCiclo(deps, 'c-nov', {
+      rendaRealizadaCents: 3_000_000,
+      poupancaRealManualCents: 400_000,
+    });
+
+    const c = primeiro(deps.ciclos.itens);
+    expect(c.fechado).toBe(true);
+    expect(c.poupancaRealCents).toBe(400_000);
+    expect(c.fonteMedicaoPoupanca).toBe('MANUAL');
+    expect(c.patrimonioInicialCents).toBeNull();
+    expect(c.patrimonioFinalCents).toBeNull();
+    expect(r.poupancaRealCents).toBe(400_000);
+  });
+
+  it('sem snapshot no início usa o patrimônio final do ciclo anterior fechado', async () => {
+    const deps = cenarioNov({
+      ciclos: [
+        cicloFake(NOV),
+        cicloFake({ id: 'c-out', dataInicio: '2026-10-01', dataFim: '2026-10-31', fechado: true, sobraCents: 0, patrimonioFinalCents: 24_000_000 }),
+      ],
+      snapshots: [snap('2026-11-30', 25_425_000)],
+    });
+
+    const r = await fecharCiclo(deps, 'c-nov', { rendaRealizadaCents: 3_000_000 });
+
+    expect(r.poupancaRealCents).toBe(1_425_000);
+    expect(primeiro(deps.ciclos.itens).patrimonioInicialCents).toBe(24_000_000);
+  });
+
+  it('resumo: alerta de lançamentos faltando e renda sugerida = renda real', async () => {
+    const deps = cenarioNov({
+      ciclos: [cicloFake({ ...NOV, rendaPrevistaCents: 3_000_000, rendaRealLiquidaCents: 3_613_900, fixosCents: 488_400, poupancaAlvoCents: 1_800_000 })],
+      snapshots: [snap('2026-10-31', 25_000_000), snap('2026-11-30', 25_425_000)],
+      transacoes: [
+        // Despesas = DESPESA − ESTORNO de TODAS as transações (variável, parcela, provisão).
+        transacaoFake({ id: 't-var', data: '2026-11-10', valorCents: 1_000_000, cicloId: 'c-nov' }),
+        transacaoFake({ id: 't-parc', data: '2026-11-10', valorCents: 200_000, parcelamentoId: 'pc', parcelaNum: 1, cicloId: 'c-nov' }),
+        transacaoFake({ id: 't-prov', data: '2026-11-10', valorCents: 400_000, provisaoId: 'p1', cicloId: 'c-nov' }),
+        transacaoFake({ id: 't-est', data: '2026-11-11', valorCents: 100_000, tipo: 'ESTORNO', cicloId: 'c-nov' }),
+        // Fixo pago como transação já está em fixosCents: não pode contar de novo (R1).
+        transacaoFake({ id: 't-fixo', data: '2026-11-05', valorCents: 488_400, categoriaId: CATEGORIA_FIXA.id, cicloId: 'c-nov' }),
+        transacaoFake({ id: 't-fixo-est', data: '2026-11-06', valorCents: 10_000, tipo: 'ESTORNO', categoriaId: CATEGORIA_FIXA.id, cicloId: 'c-nov' }),
+        transacaoFake({ id: 't-renda', data: '2026-11-01', valorCents: 3_613_900, tipo: 'RENDA', cicloId: 'c-nov' }),
+      ],
+    });
+
+    const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
+
+    expect(resumo.medicao).toMatchObject({ status: 'MEDIDA', realCents: 425_000 });
+    expect(resumo.comparacao?.diferencaCents).toBe(425_000 - 1_800_000);
+    expect(resumo.alertaFaltando?.semExplicacaoCents).toBe(1_200_500);
+    expect(resumo.rendaSugeridaCents).toBe(3_613_900);
+  });
+
+  it('resumo: alerta de gasto variável baixo contra a média dos fechados anteriores', async () => {
+    const fechado = (id: string, dataInicio: string, dataFim: string, gastoCents: number) =>
+      cicloFake({ id, dataInicio, dataFim, fechado: true, verbaVariavelCents: 2_500_000, sobraCents: 2_500_000 - gastoCents });
+    const deps = cenarioNov({
+      ciclos: [
+        cicloFake(NOV),
+        fechado('c-ago', '2026-08-01', '2026-08-31', 2_000_000),
+        fechado('c-set', '2026-09-01', '2026-09-30', 1_800_000),
+        fechado('c-out', '2026-10-01', '2026-10-31', 2_200_000),
+        cicloFake({ id: 'c-jul', dataInicio: '2026-07-01', dataFim: '2026-07-31', fechado: true, sobraCents: null }),
+      ],
+      transacoes: [transacaoFake({ id: 't1', data: '2026-11-10', valorCents: 300_000, cicloId: 'c-nov' })],
+    });
+
+    const resumo = await obterResumoFechamento(deps, primeiro(deps.ciclos.itens));
+
+    expect(resumo.alertaGastoBaixo?.percentual).toBe(15);
+    expect(resumo.medicao.status).toBe('SEM_INICIO');
+    expect(resumo.comparacao).toBeNull();
+    expect(resumo.alertaFaltando).toBeNull();
+  });
+});
+
+describe('previaPoupancaReal — snapshot digitado, ainda não gravado', () => {
+  it('mede com o snapshot do fim informado e não grava nada', async () => {
+    const deps = criarDeps({
+      hoje: '2026-12-01',
+      ciclos: [cicloFake({ id: 'c-nov', dataInicio: '2026-11-01', dataFim: '2026-11-30', poupancaAlvoCents: 400_000 })],
+      snapshots: [{ id: 's0', data: '2026-10-31', totalCents: 25_000_000, itens: [] }],
+    });
+
+    const r = await previaPoupancaReal(deps, 'c-nov', { data: '2026-11-30', totalCents: 25_500_000 });
+
+    expect(r.medicao).toMatchObject({ status: 'MEDIDA', realCents: 500_000 });
+    expect(r.comparacao).toEqual({ diferencaCents: 100_000, percentual: 125 });
+    expect(deps.patrimonio.itens).toHaveLength(1);
+  });
+
+  it('avisa quando o patrimônio final digitado é igual ao último snapshot salvo', async () => {
+    const deps = criarDeps({
+      hoje: '2026-12-01',
+      ciclos: [cicloFake({ id: 'c-nov', dataInicio: '2026-11-01', dataFim: '2026-11-30' })],
+      snapshots: [{ id: 's0', data: '2026-10-31', totalCents: 25_000_000, itens: [] }],
+    });
+    const igual = await previaPoupancaReal(deps, 'c-nov', { data: '2026-11-30', totalCents: 25_000_000 });
+    expect(igual.patrimonioIgualAoUltimoSnapshot).toBe(true);
+    const diferente = await previaPoupancaReal(deps, 'c-nov', { data: '2026-11-30', totalCents: 25_000_001 });
+    expect(diferente.patrimonioIgualAoUltimoSnapshot).toBe(false);
+  });
+
+  it('snapshot fora da tolerância continua sem medição; ciclo inexistente lança', async () => {
+    const deps = criarDeps({
+      hoje: '2026-12-01',
+      ciclos: [cicloFake({ id: 'c-nov', dataInicio: '2026-11-01', dataFim: '2026-11-30' })],
+      snapshots: [{ id: 's0', data: '2026-10-31', totalCents: 25_000_000, itens: [] }],
+    });
+    const r = await previaPoupancaReal(deps, 'c-nov', { data: '2026-12-20', totalCents: 1 });
+    expect(r.medicao.status).toBe('SEM_FIM');
+    await expect(previaPoupancaReal(deps, 'x', { data: '2026-11-30', totalCents: 1 })).rejects.toThrow('Ciclo não encontrado.');
+  });
+});
+
+describe('descreverDestinoSobra — preview para a API do agente (nunca lança)', () => {
+  it('ROLLOVER: nenhuma conta, mesmo com sobra positiva', async () => {
+    const deps = cenario();
+    deps.config.mutar({ destinoSobra: 'ROLLOVER', destinoSobraContaId: null });
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino).toEqual({ tipo: 'ROLLOVER', contaId: null, contaNome: null });
+  });
+
+  it('sobra zero: SEM_DESTINO mesmo com conta configurada', async () => {
+    const deps = cenario();
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 0);
+
+    expect(destino).toEqual({ tipo: 'SEM_DESTINO', contaId: null, contaNome: null });
+  });
+
+  it('CONTA: resolve a configurada e devolve o nome', async () => {
+    const deps = cenario();
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino.tipo).toBe('CONTA');
+    expect(destino.contaId).toBe('reserva');
+  });
+
+  it('SEM_DESTINO quando não há conta RESERVA de fallback nem configurada', async () => {
+    const deps = cenario({ contas: [] });
+    deps.config.mutar({ destinoSobraContaId: null });
+    const config = await deps.config.obter();
+
+    const destino = await descreverDestinoSobra(deps, config!, 10_000);
+
+    expect(destino).toEqual({ tipo: 'SEM_DESTINO', contaId: null, contaNome: null });
   });
 });

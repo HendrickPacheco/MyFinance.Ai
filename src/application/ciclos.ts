@@ -5,13 +5,15 @@
  */
 import type { Deps } from './deps';
 import { exigirEscrita } from '@/domain/auth/permissoes';
-import type { Ciclo } from '@/domain/model/entidades';
+import type { Ciclo, Config } from '@/domain/model/entidades';
 import type { DestinoSobra } from '@/domain/model/enums';
 import { addDias, type DataCivil } from '@/shared/data';
 import {
   limitesCiclo,
   provisaoMensalCents,
   poupancaAlvoCents,
+  rendaEfetivaCents,
+  rendaLiquidaPrevista,
   verbaVariavelCents,
 } from '@/domain/finance';
 
@@ -60,6 +62,21 @@ async function parametrosCongelados(deps: Deps, rendaPrevistaCents: number) {
   });
 
   return { fixosCents, provMensalCents, poupancaCents };
+}
+
+/**
+ * Renda prevista de um ciclo que está nascendo. Roda no layout, então lê só o
+ * CACHE de cotação (nada de rede) e nunca lança: qualquer falha cai na
+ * `rendaBaseCents` da Config, que é o comportamento de antes do USD.
+ */
+async function rendaPrevistaAoNascer(deps: Deps, config: Config, inicio: DataCivil) {
+  const base = { liquidaCents: config.rendaBaseCents, taxaMicros: null, dataCotacao: null };
+  if (config.moedaRenda !== 'USD') return base;
+  try {
+    return rendaLiquidaPrevista(config, await deps.cotacoes.ultimaAte(inicio));
+  } catch {
+    return base;
+  }
 }
 
 /** Ciclo que cobre hoje, mais a pendência de fechamento do anterior. */
@@ -140,7 +157,8 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
       const anterior = await deps.ciclos.ultimoFechado();
       const rollover = rolloverACreditar(anterior, config.destinoSobra, inicio);
 
-      const rendaPrevistaCents = config.rendaBaseCents;
+      const renda = await rendaPrevistaAoNascer(deps, config, inicio);
+      const rendaPrevistaCents = renda.liquidaCents;
       const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
         deps,
         rendaPrevistaCents,
@@ -148,7 +166,6 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
 
       const verba = verbaVariavelCents({
         rendaPrevistaCents,
-        poupancaAlvoCents: poupancaCents,
         fixosCents,
         provisaoMensalCents: provMensalCents,
         rolloverRecebidoCents: rollover,
@@ -175,6 +192,16 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
         fechadoEm: null,
         sobraCents: null,
         observacao: null,
+        poupancaRealCents: null,
+        patrimonioInicialCents: null,
+        patrimonioFinalCents: null,
+        fonteMedicaoPoupanca: null,
+        rendaRealBrutaMoedaOrigemCents: null,
+        cotacaoRealUsadaMicros: null,
+        impostoRealCents: null,
+        rendaRealLiquidaCents: null,
+        cotacaoPrevistaMicros: renda.taxaMicros,
+        cotacaoPrevistaData: renda.dataCotacao,
       });
       ciclo = resultado.ciclo;
 
@@ -204,11 +231,10 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
   const { ciclo } = await garantirCicloAtual(deps);
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    ciclo.rendaPrevistaCents,
+    rendaEfetivaCents(ciclo),
   );
   const verba = verbaVariavelCents({
-    rendaPrevistaCents: ciclo.rendaPrevistaCents,
-    poupancaAlvoCents: poupancaCents,
+    rendaPrevistaCents: rendaEfetivaCents(ciclo),
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -301,21 +327,29 @@ export async function recalcularCicloAtualSeVazio(deps: Deps): Promise<EfeitoNoC
   // em R$ X".
   if (transacoes.length > 0) return { recalculou: false, ciclo: resumirCiclo(ciclo) };
 
-  const rendaPrevistaCents = config.rendaBaseCents;
+  // D8: renda real confirmada substitui a prevista — a Config não a desfaz.
+  // Sem real, a prevista vem do mesmo caminho do nascimento (cache USD).
+  const real = ciclo.rendaRealLiquidaCents;
+  const prevista =
+    real == null ? await rendaPrevistaAoNascer(deps, config, ciclo.dataInicio) : null;
+  const rendaEfetivaCents = real ?? prevista?.liquidaCents ?? ciclo.rendaPrevistaCents;
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    rendaPrevistaCents,
+    rendaEfetivaCents,
   );
   const verba = verbaVariavelCents({
-    rendaPrevistaCents,
-    poupancaAlvoCents: poupancaCents,
+    rendaPrevistaCents: rendaEfetivaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
   });
 
   const atualizado = await deps.ciclos.atualizar(ciclo.id, {
-    rendaPrevistaCents,
+    ...(prevista && {
+      rendaPrevistaCents: prevista.liquidaCents,
+      cotacaoPrevistaMicros: prevista.taxaMicros,
+      cotacaoPrevistaData: prevista.dataCotacao,
+    }),
     poupancaAlvoCents: poupancaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,
@@ -365,7 +399,7 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
 
   const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
     deps,
-    ciclo.rendaPrevistaCents,
+    rendaEfetivaCents(ciclo),
   );
 
   return {
@@ -373,8 +407,7 @@ export async function previaRecalculoCicloAtual(deps: Deps): Promise<PreviaRecal
     fim: ciclo.dataFim,
     verbaAtualCents: ciclo.verbaVariavelCents,
     verbaRecalculadaCents: verbaVariavelCents({
-      rendaPrevistaCents: ciclo.rendaPrevistaCents,
-      poupancaAlvoCents: poupancaCents,
+      rendaPrevistaCents: rendaEfetivaCents(ciclo),
       fixosCents,
       provisaoMensalCents: provMensalCents,
       rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
@@ -422,34 +455,19 @@ export async function puxarDaReserva(deps: Deps, valorCents: number): Promise<Ci
     await deps.contas.ajustarSaldo(variavel.id, +valorCents);
   }
 
-  // A verba sobe o valor CHEIO e a poupança-alvo desce só até onde tinha — e
-  // isso está certo. O dinheiro tem lastro: a TRANSFERENCIA acima o moveu de
-  // verdade da reserva para a conta variável. Clampar a puxada recusaria ao
-  // dono o uso do próprio dinheiro, que é regressão, não correção.
+  // A verba sobe o valor CHEIO: o dinheiro tem lastro, a TRANSFERENCIA acima o
+  // moveu de verdade da reserva para a conta variável.
   //
-  // O que faltava era CONTABILIDADE. Estes dois números separam as duas metades
-  // da puxada:
-  //
-  //  - `poupancaAbatidaCents` é REALOCAÇÃO desta renda — o que ia ser poupado
-  //    passa a ser gasto. Já fica declarado sozinho: é o bloco "Poupança (meta)"
-  //    aparecendo menor.
-  //  - o resto é disponível que esta renda NÃO explica, e é o que precisa de
-  //    bloco próprio. Sem ele, virava "diferença não explicada" negativa em
-  //    "Para onde vai a renda" — o app dizendo que perdeu a conta de um dinheiro
-  //    que está na reserva do dono.
-  //
-  // Guardar o valor bruto no lugar do excedente faria a soma dos blocos fechar
-  // quando a poupança comporta a puxada e quebrar quando não comporta.
-  const poupancaAbatidaCents = Math.min(ciclo.poupancaAlvoCents, valorCents);
-  const foraDaRendaCents = valorCents - poupancaAbatidaCents;
-
-  const nota = `Puxou ${valorCents} centavos da reserva; poupança reduzida em ${poupancaAbatidaCents} neste ciclo.`;
+  // Desde a D-16 a meta de poupança não é descontada da verba, então não há
+  // poupança-alvo a abater aqui — a puxada inteira é disponível que ESTA renda
+  // não explica, e precisa ficar declarada em `puxadoDaReservaForaDaRendaCents`
+  // para "Para onde vai a renda" não acusar diferença não explicada negativa.
+  const nota = `Puxou ${valorCents} centavos da reserva para a verba deste ciclo.`;
   return deps.ciclos.atualizar(ciclo.id, {
-    poupancaAlvoCents: ciclo.poupancaAlvoCents - poupancaAbatidaCents,
     verbaVariavelCents: ciclo.verbaVariavelCents + valorCents,
     // ACUMULA: o dono pode puxar mais de uma vez no mesmo ciclo.
     puxadoDaReservaForaDaRendaCents:
-      ciclo.puxadoDaReservaForaDaRendaCents + foraDaRendaCents,
+      ciclo.puxadoDaReservaForaDaRendaCents + valorCents,
     observacao: ciclo.observacao ? `${ciclo.observacao}\n${nota}` : nota,
   });
 }

@@ -78,12 +78,11 @@ export function atribuirCoresCategoricas<T>(
  * luminosidade no escuro (L 0.729 contra o teto 0.67). Ele segue sendo cor de
  * interação, não de dado.
  */
-export type SerieProjecao = 'fixos' | 'provisao' | 'poupanca' | 'parcelas' | 'verbaLivre';
+export type SerieProjecao = 'fixos' | 'provisao' | 'parcelas' | 'verbaLivre';
 
 export const CORES_PROJECAO: Record<SerieProjecao, string> = {
   fixos: PALETA_CATEGORICA[6], // violeta
   provisao: PALETA_CATEGORICA[3], // amarelo
-  poupanca: PALETA_CATEGORICA[2], // aqua
   parcelas: PALETA_CATEGORICA[1], // laranja
   verbaLivre: PALETA_CATEGORICA[0], // azul
 };
@@ -91,7 +90,6 @@ export const CORES_PROJECAO: Record<SerieProjecao, string> = {
 export const LABEL_PROJECAO: Record<SerieProjecao, string> = {
   fixos: 'Custos fixos',
   provisao: 'Provisão',
-  poupanca: 'Poupança-alvo',
   parcelas: 'Parcelas',
   verbaLivre: 'Verba livre',
 };
@@ -109,7 +107,6 @@ export const LABEL_PROJECAO: Record<SerieProjecao, string> = {
 export const ORDEM_PILHA_PROJECAO: readonly SerieProjecao[] = [
   'fixos',
   'provisao',
-  'poupanca',
   'parcelas',
   'verbaLivre',
 ];
@@ -127,7 +124,6 @@ export const ORDEM_PILHA_PROJECAO: readonly SerieProjecao[] = [
  * ajuste, vermelho para a diferença que ainda não tem explicação.
  */
 export const CORES_DESTINO_RENDA: Record<ChaveBlocoDaRenda, string> = {
-  POUPANCA: PALETA_CATEGORICA[2], // aqua — igual à poupança-alvo da projeção
   CUSTOS_FIXOS: PALETA_CATEGORICA[6], // violeta — igual aos fixos da projeção
   PROVISAO: PALETA_CATEGORICA[3], // amarelo — igual à provisão da projeção
   AJUSTE_ROLLOVER: COR_OUTROS,

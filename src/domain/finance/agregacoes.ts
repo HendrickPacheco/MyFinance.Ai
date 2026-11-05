@@ -417,7 +417,11 @@ export function projetarPoupanca(params: {
   poupancaAlvoCents: number;
   sobraProjetadaCents: number;
 }): ResultadoPoupancaProjetada {
-  const poupancaProjetadaCents = params.poupancaAlvoCents + params.sobraProjetadaCents;
+  // D-16: a projeção de poupança é a SOBRA projetada da verba, e só ela. A meta
+  // não é mais descontada da verba, então somá-la aqui contaria como poupado um
+  // dinheiro que continua disponível para gastar — o alvo entra apenas como
+  // denominador do progresso.
+  const poupancaProjetadaCents = params.sobraProjetadaCents;
   return {
     poupancaProjetadaCents,
     progressoPercentual: percentualDeAlvo(poupancaProjetadaCents, params.poupancaAlvoCents),

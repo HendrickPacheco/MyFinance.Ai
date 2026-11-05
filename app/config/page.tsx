@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Database, Receipt, RefreshCw } from 'lucide-react';
+import { Database, KeyRound, ListChecks, Receipt, RefreshCw } from 'lucide-react';
 import { criarDeps } from '@/composition';
 import { obterEstadoConfig } from '@/application/config';
 import { previaRecalculoCicloAtual } from '@/application/ciclos';
@@ -7,6 +7,7 @@ import { formatBRL } from '@/shared/dinheiro';
 import { verbaVariavelCents, poupancaAlvoCents } from '@/domain/finance';
 import { ConfigGeral } from '@/components/config/config-geral';
 import { ListaContas, ListaCategorias } from '@/components/config/gerenciadores';
+import { TemaToggle } from '@/components/layout/tema-toggle';
 import { RecalcularCiclo } from '@/components/config/recalcular-ciclo';
 
 import { SomenteDono } from '@/components/auth/somente-dono';
@@ -28,7 +29,6 @@ async function ConfigPageConteudo() {
   });
   const verbaPrevista = verbaVariavelCents({
     rendaPrevistaCents: config.rendaBaseCents,
-    poupancaAlvoCents: poupanca,
     fixosCents: fixosTotalCents,
     provisaoMensalCents,
   });
@@ -42,18 +42,29 @@ async function ConfigPageConteudo() {
         </p>
       </header>
 
+      <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-border bg-surface p-5">
+        <p className="text-fg">Tema</p>
+        <TemaToggle />
+      </div>
+
       {/* Prévia da verba (a partir dos parâmetros atuais) */}
       {config.rendaBaseCents > 0 ? (
         <div className="rounded-[var(--radius-card)] border border-border bg-surface p-5">
           <p className="text-sm text-muted">Verba variável prevista para o próximo ciclo</p>
           <p className="tnum mt-1 text-3xl font-bold text-fg">{formatBRL(verbaPrevista)}</p>
           <p className="tnum mt-2 text-xs text-faint">
-            renda {formatBRL(config.rendaBaseCents)} − poupança {formatBRL(poupanca)} − fixos{' '}
-            {formatBRL(fixosTotalCents)} − provisão {formatBRL(provisaoMensalCents)}
+            renda {formatBRL(config.rendaBaseCents)} − fixos {formatBRL(fixosTotalCents)} −
+            provisão {formatBRL(provisaoMensalCents)}
+          </p>
+          <p className="tnum mt-1 text-xs text-faint">
+            A meta de {formatBRL(poupanca)} está DENTRO dessa verba — ela é o alvo, não um
+            desconto. Para bater a meta, gaste no máximo{' '}
+            {formatBRL(Math.max(verbaPrevista - poupanca, 0))} no ciclo.
           </p>
           {verbaPrevista <= 0 ? (
             <p className="mt-2 text-sm text-negativo">
-              A verba ficou zerada ou negativa. Reveja a meta de poupança ou os custos fixos.
+              A verba ficou zerada ou negativa. Reveja os custos fixos, as provisões ou a renda
+              prevista.
             </p>
           ) : null}
         </div>
@@ -65,6 +76,9 @@ async function ConfigPageConteudo() {
         avisoMetaIrreal={estado.avisoMetaIrreal}
         sugestaoRendaVariavelCents={estado.sugestaoRendaVariavelCents}
         sugestaoMetaPoupancaCents={estado.sugestaoMetaPoupancaCents}
+        sugestaoMetaPorPoupancaReal={estado.sugestaoMetaPorPoupancaReal}
+        rendaPrevistaUsd={estado.rendaPrevistaUsd}
+        avisoCotacao={estado.avisoCotacao}
       />
       <ListaContas contas={estado.contas} />
 
@@ -104,6 +118,34 @@ async function ConfigPageConteudo() {
           <div>
             <p className="text-fg">Backup e restauração</p>
             <p className="text-sm text-muted">Exportar / importar todos os dados em JSON</p>
+          </div>
+        </div>
+        <span className="text-faint">→</span>
+      </Link>
+
+      <Link
+        href="/config/tokens"
+        className="flex items-center justify-between rounded-[var(--radius-card)] border border-border bg-surface p-5 hover:border-border-strong"
+      >
+        <div className="flex items-center gap-3">
+          <KeyRound size={18} className="text-accent" />
+          <div>
+            <p className="text-fg">Tokens da API do agente</p>
+            <p className="text-sm text-muted">Credenciais para um agente de IA externo ler e gravar dados</p>
+          </div>
+        </div>
+        <span className="text-faint">→</span>
+      </Link>
+
+      <Link
+        href="/config/auditoria"
+        className="flex items-center justify-between rounded-[var(--radius-card)] border border-border bg-surface p-5 hover:border-border-strong"
+      >
+        <div className="flex items-center gap-3">
+          <ListChecks size={18} className="text-accent" />
+          <div>
+            <p className="text-fg">Auditoria do agente</p>
+            <p className="text-sm text-muted">O que o agente externo gravou em seu lugar</p>
           </div>
         </div>
         <span className="text-faint">→</span>

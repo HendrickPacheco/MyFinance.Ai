@@ -39,32 +39,42 @@ export function sugerirRendaPrevistaCents(rendasRealizadasCents: readonly number
 export interface VerificacaoMetaIrreal {
   /** true quando a verba diária ficou abaixo do piso configurado. */
   irreal: boolean;
-  /** Verba variável do ciclo dividida pelos dias do ciclo (floor). */
+  /** `(verba − meta de poupança)` dividido pelos dias do ciclo (floor). */
   verbaDiariaCents: number;
   /** Piso diário usado na comparação (eco do parâmetro de entrada). */
   pisoDiarioCents: number;
 }
 
 /**
- * Regra 12 — meta irreal: verifica se `verbaVariavelCents / diasCiclo` cai
- * abaixo do piso diário configurável. É um AVISO DE CONFIGURAÇÃO — o teto do
- * dia continua 100% derivado de renda − fixos − parcelas − provisão −
- * poupança, sem piso embutido no cálculo (SPEC 13).
+ * Regra 12 — meta irreal: verifica se, DESCONTANDO a meta de poupança, a verba
+ * diária cai abaixo do piso configurável — `(verba − meta) / diasCiclo`.
+ *
+ * Desde a D-16 a meta não é subtraída da verba pelo motor, então a pergunta
+ * "essa meta é realista?" só pode ser respondida descontando-a AQUI, no aviso.
+ * Comparar a verba cheia com o piso dizia que toda meta cabe, por maior que
+ * fosse — o aviso nunca dispararia de novo.
+ *
+ * É um AVISO DE CONFIGURAÇÃO — o teto do dia continua 100% derivado de
+ * renda − fixos − provisão, sem piso nem meta embutidos no cálculo (SPEC 13).
  *
  * @throws {RangeError} se `diasCiclo` não for um inteiro positivo.
  */
 export function verificarMetaIrreal(params: {
   verbaVariavelCents: number;
+  poupancaAlvoCents: number;
   diasCiclo: number;
   pisoDiarioCents: number;
 }): VerificacaoMetaIrreal {
   assertCentavos(params.verbaVariavelCents, 'verbaVariavelCents');
+  assertCentavos(params.poupancaAlvoCents, 'poupancaAlvoCents');
   assertCentavos(params.pisoDiarioCents, 'pisoDiarioCents');
   if (!Number.isInteger(params.diasCiclo) || params.diasCiclo <= 0) {
     throw new RangeError(`diasCiclo inválido: ${params.diasCiclo}`);
   }
 
-  const verbaDiariaCents = Math.floor(params.verbaVariavelCents / params.diasCiclo);
+  const verbaDiariaCents = Math.floor(
+    (params.verbaVariavelCents - params.poupancaAlvoCents) / params.diasCiclo,
+  );
   return {
     irreal: verbaDiariaCents < params.pisoDiarioCents,
     verbaDiariaCents,
@@ -75,7 +85,8 @@ export function verificarMetaIrreal(params: {
 export interface CicloParaSugestaoMeta {
   /** Meta de poupança congelada daquele ciclo. */
   poupancaAlvoCents: number;
-  /** Sobra do ciclo (`verbaVariavelCents - gastoRealizado`); `null` se ainda em aberto. */
+  /** Sobra do ciclo (`verbaVariavelCents - gastoRealizado`) — desde a D-16 ela É
+   * a poupança realizada daquele ciclo; `null` se ainda em aberto. */
   sobraCents: number | null;
 }
 
@@ -89,10 +100,10 @@ export interface CicloParaSugestaoMeta {
  * (formato de `CicloRepository.ultimosFechados`); só os primeiros
  * `JANELA_META_POUPANCA` elementos são considerados.
  *
- * @returns A menor `poupancaAlvoCents` entre os ciclos considerados (o
- *   patamar mais conservador, já provado alcançável), ou `null` quando faltam
- *   ciclos suficientes ou algum deles não teve sobra positiva — sobra
- *   negativa ou ausente nunca gera sugestão de aumento de meta.
+ * @returns A menor SOBRA entre os ciclos considerados — o patamar de poupança
+ *   que o dono provou alcançar sem apertar (D-16: a sobra é a poupança real do
+ *   ciclo, a meta é só o alvo). `null` quando faltam ciclos suficientes ou
+ *   algum deles não teve sobra positiva.
  */
 export function sugerirMetaPoupancaCents(
   ciclosRecentes: readonly CicloParaSugestaoMeta[],
@@ -103,5 +114,5 @@ export function sugerirMetaPoupancaCents(
   const todosComFolga = considerados.every((c) => c.sobraCents != null && c.sobraCents > 0);
   if (!todosComFolga) return null;
 
-  return Math.min(...considerados.map((c) => c.poupancaAlvoCents));
+  return Math.min(...considerados.map((c) => c.sobraCents ?? 0));
 }

@@ -5,7 +5,23 @@ import { z } from 'zod';
 import { criarDeps } from '@/composition';
 import { executar, type Resultado } from './resultado';
 import { recalcularCicloAtual as ucRecalcular, puxarDaReserva as ucPuxarDaReserva } from '@/application/ciclos';
-import { fecharCiclo as ucFechar, type ResultadoFechamento } from '@/application/fechamento';
+import {
+  fecharCiclo as ucFechar,
+  previaPoupancaReal,
+  type ResultadoFechamento,
+  type ResumoFechamento,
+  type PreviaPoupancaReal,
+} from '@/application/fechamento';
+import {
+  previaRecalculoRenda,
+  recalcularRendaDoCiclo,
+  previaConfirmacaoRendaReal,
+  confirmarRendaReal,
+  type ImpactoRenda,
+  type PreviaConfirmacaoRenda,
+} from '@/application/renda-ciclo';
+import { parseTaxaMicros } from '@/shared/dinheiro';
+import { fechamentoSchema } from '@/application/fechamento-schemas';
 import type { Ciclo } from '@/domain/model/entidades';
 import type { ClassePatrimonio } from '@/domain/model/enums';
 
@@ -36,26 +52,6 @@ export async function puxarDaReserva(valorCents: number): Promise<Resultado<Cicl
   });
 }
 
-const CLASSE = z.enum(['CONTA', 'RENDA_FIXA', 'RENDA_VARIAVEL', 'CRIPTO', 'IMOVEL', 'OUTRO']);
-
-const fechamentoSchema = z.object({
-  rendaRealizadaCents: z.number().int().nonnegative(),
-  novaMetaPoupancaCents: z.number().int().nonnegative().nullish(),
-  snapshotData: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  snapshotItens: z
-    .array(
-      z.object({
-        nome: z.string().min(1),
-        classe: CLASSE,
-        valorCents: z.number().int(),
-        // Quem valida se este id é do dono é `criarSnapshot`, no caso de uso.
-        contaId: z.string().nullable().default(null),
-      }),
-    )
-    .optional(),
-  observacao: z.string().max(300).nullish(),
-});
-
 export async function fecharCiclo(
   cicloId: string,
   input: z.input<typeof fechamentoSchema>,
@@ -71,8 +67,80 @@ export async function fecharCiclo(
         | { nome: string; classe: ClassePatrimonio; valorCents: number; contaId: string | null }[]
         | undefined,
       observacao: dados.observacao ?? null,
+      poupancaRealManualCents: dados.poupancaRealManualCents ?? null,
     });
     for (const p of ['/', '/ciclo', '/analise', '/patrimonio', '/fechar-ciclo']) revalidatePath(p);
     return r;
+  });
+}
+
+/** Prévia da poupança real com o snapshot do fim ainda não gravado (passo de poupança do wizard). */
+export async function previaPoupancaRealAction(
+  cicloId: string,
+  snapshotData: string,
+  snapshotTotalCents: number,
+): Promise<Resultado<PreviaPoupancaReal>> {
+  return executar(async () => {
+    const data = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(snapshotData);
+    const totalCents = z.number().int().parse(snapshotTotalCents);
+    return previaPoupancaReal(await criarDeps(), cicloId, { data, totalCents });
+  });
+}
+
+// ------------------------------------------------------------ renda do ciclo
+// Os erros do caso de uso (RendaJaConfirmadaError, CicloFechadoError,
+// RangeError) já carregam mensagem para o dono; `executar` as repassa.
+
+function revalidarRenda() {
+  for (const p of ['/', '/ciclo']) revalidatePath(p);
+}
+
+export async function previaRecalculoRendaAction(): Promise<Resultado<ImpactoRenda>> {
+  return executar(async () => previaRecalculoRenda(await criarDeps()));
+}
+
+export async function recalcularRendaAction(): Promise<Resultado<Ciclo>> {
+  return executar(async () => {
+    const c = await recalcularRendaDoCiclo(await criarDeps());
+    revalidarRenda();
+    return c;
+  });
+}
+
+const cents = z.number().int().nonnegative().optional();
+const rendaRealSchema = z.object({
+  brutaOrigemCents: cents,
+  // Texto digitado ("5,43"): vira micros aqui, na fronteira, sem float.
+  taxa: z
+    .string()
+    .optional()
+    .transform((t) => (t?.trim() ? parseTaxaMicros(t) : undefined))
+    .pipe(z.number().int().nonnegative().optional()),
+  impostoCents: cents,
+  liquidaCents: cents,
+  gerarLancamento: z.boolean(),
+});
+export type RendaRealEntrada = z.input<typeof rendaRealSchema>;
+
+function lerRendaReal(input: RendaRealEntrada) {
+  const { taxa, ...resto } = rendaRealSchema.parse(input);
+  return { ...resto, taxaMicros: taxa };
+}
+
+export async function previaRendaRealAction(
+  cicloId: string,
+  input: RendaRealEntrada,
+): Promise<Resultado<PreviaConfirmacaoRenda>> {
+  return executar(async () => previaConfirmacaoRendaReal(await criarDeps(), cicloId, lerRendaReal(input)));
+}
+
+export async function confirmarRendaRealAction(
+  cicloId: string,
+  input: RendaRealEntrada,
+): Promise<Resultado<Ciclo>> {
+  return executar(async () => {
+    const c = await confirmarRendaReal(await criarDeps(), cicloId, lerRendaReal(input));
+    revalidarRenda();
+    return c;
   });
 }

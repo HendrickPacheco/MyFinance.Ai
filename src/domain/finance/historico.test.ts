@@ -18,8 +18,9 @@ function ciclo(overrides: Partial<CicloHistoricoInput> = {}): CicloHistoricoInpu
     cicloId: 'ciclo-ago',
     dataInicio: '2026-08-01',
     dataFim: '2026-08-31',
-    rendaPrevistaCents: 3_000_000,
+    rendaCicloCents: 3_000_000,
     rendaRealizadaCents: 3_000_000,
+    poupancaRealCents: null,
     fixosCents: 488_400,
     provisaoMensalCents: 50_000,
     poupancaAlvoCents: 1_800_000,
@@ -92,7 +93,7 @@ describe('montarHistorico', () => {
 
   it('rendaRealizadaCents null cai para a prevista', () => {
     const estado = montarHistorico([
-      ciclo({ rendaPrevistaCents: 3_000_000, rendaRealizadaCents: null }),
+      ciclo({ rendaCicloCents: 3_000_000, rendaRealizadaCents: null }),
     ]);
     expect(estado.serie[0]!.rendaConsideradaCents).toBe(3_000_000);
   });
@@ -157,5 +158,32 @@ describe('montarHistorico', () => {
     expect(estado.totais.meses).toBe(3);
     expect(estado.totais.rendaCents).toBe(301);
     expect(estado.totais.rendaMediaCents).toBe(Math.floor(301 / 3));
+  });
+});
+
+describe('poupança real no histórico', () => {
+  it('diferença vs meta quando há real; null com motivo quando não há', () => {
+    const [com, sem] = montarHistorico([
+      ciclo({ cicloId: 'a', dataInicio: '2026-07-01', dataFim: '2026-07-31', poupancaRealCents: 425_000 }),
+      ciclo({ cicloId: 'b', poupancaRealCents: null }),
+    ]).serie;
+    expect(com!.diferencaMetaCents).toBe(-1_375_000);
+    expect(com!.motivoSemPoupancaReal).toBeNull();
+    expect(sem!.diferencaMetaCents).toBeNull();
+    expect(sem!.motivoSemPoupancaReal).toContain('Ciclo fechado antes da medição de poupança real');
+  });
+
+  it('médias 3/6/12 ignoram ciclos sem real', () => {
+    const cronologico = [500_000, null, 380_000, 600_000, 425_000]; // jan..mai; o mais novo é 425_000
+    const { mediasPoupancaReal } = montarHistorico(
+      cronologico.map((r, i) =>
+        ciclo({ cicloId: `c${i}`, dataInicio: `2026-0${i + 1}-01`, dataFim: `2026-0${i + 1}-28`, poupancaRealCents: r }),
+      ),
+    );
+    expect(mediasPoupancaReal).toEqual([
+      { ciclos: 3, mediaCents: 468_333, ciclosConsiderados: 3 },
+      { ciclos: 6, mediaCents: 476_250, ciclosConsiderados: 4 },
+      { ciclos: 12, mediaCents: 476_250, ciclosConsiderados: 4 },
+    ]);
   });
 });

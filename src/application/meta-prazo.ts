@@ -5,7 +5,7 @@
  * MESMA REGRA DE `application/projecao.ts`: read-only de verdade. Não chama
  * `garantirCicloAtual` — uma pergunta ao copiloto não pode gravar ciclo no
  * banco (decisão D-8). Sem ciclo aberto, a projeção nasce só da Config e o
- * excedente do ciclo atual não existe (`excedenteCicloAtualCents: null`).
+ * gasto do ciclo atual não existe (`gastoRealizadoCicloAtualCents: null`).
  */
 import { diffDias, type DataCivil } from '@/shared/data';
 import { simularMetaPrazo, type ResultadoSimulacaoMetaPrazo } from '@/domain/finance';
@@ -35,16 +35,13 @@ function horizonteNecessario(hoje: DataCivil, dataLimite: DataCivil): number {
 }
 
 /**
- * `max(0, gastoRealizado − verbaVariavel)` do ciclo atual. `null` quando não
- * há ciclo aberto — não existe "gasto do ciclo atual" para comparar.
+ * Gasto já realizado no ciclo atual. `null` quando não há ciclo aberto — não
+ * existe "gasto do ciclo atual" para descontar.
  */
-async function excedenteCicloAtualCents(
-  deps: Deps,
-  verbaVariavelCicloAtualCents: number,
-): Promise<number | null> {
+async function gastoRealizadoCicloAtualCents(deps: Deps): Promise<number | null> {
   const estado = await obterEstadoCicloSomenteLeitura(deps);
   if (!estado) return null;
-  return Math.max(0, estado.gastoRealizadoCents - verbaVariavelCicloAtualCents);
+  return estado.gastoRealizadoCents;
 }
 
 export async function obterSimulacaoMetaPrazo(
@@ -55,11 +52,7 @@ export async function obterSimulacaoMetaPrazo(
   const numCiclos = horizonteNecessario(hoje, argumentos.dataLimite);
 
   const projecao = await obterProjecao(deps, { numCiclos });
-  const cicloAtual = projecao.ciclos[0];
-
-  const excedente = cicloAtual
-    ? await excedenteCicloAtualCents(deps, cicloAtual.verbaVariavelCents)
-    : null;
+  const gastoDoCicloAtual = await gastoRealizadoCicloAtualCents(deps);
 
   return simularMetaPrazo({
     alvoCents: argumentos.alvoCents,
@@ -68,7 +61,8 @@ export async function obterSimulacaoMetaPrazo(
       inicio: ciclo.inicio,
       fim: ciclo.fim,
       poupancaAlvoCents: ciclo.poupancaAlvoCents,
+      verbaLivreCents: ciclo.verbaLivreCents,
     })),
-    excedenteCicloAtualCents: excedente,
+    gastoRealizadoCicloAtualCents: gastoDoCicloAtual,
   });
 }

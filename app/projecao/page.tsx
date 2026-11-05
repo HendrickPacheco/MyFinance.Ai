@@ -9,7 +9,9 @@ import { ProjecaoFiltros } from '@/components/projecao/projecao-filtros';
 import { ProjecaoTabela } from '@/components/projecao/projecao-tabela';
 import { ProjecaoListaMobile } from '@/components/projecao/projecao-lista-mobile';
 import { Premissas } from '@/components/projecao/premissas';
+import { CotacaoSlider } from '@/components/projecao/cotacao-slider';
 import { lerHorizonte } from '@/lib/projecao-horizonte';
+import { lerCotacao } from '@/lib/projecao-cotacao';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,12 +38,14 @@ export default async function ProjecaoPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const horizonte = lerHorizonte((await searchParams).horizonte);
+  const params = await searchParams;
+  const horizonte = lerHorizonte(params.horizonte);
+  const taxaMicros = lerCotacao(params.cotacao) ?? undefined;
   const deps = await criarDeps();
 
   let resumo;
   try {
-    resumo = await obterResumoProjecao(deps, { numCiclos: horizonte });
+    resumo = await obterResumoProjecao(deps, { numCiclos: horizonte, taxaMicros });
   } catch (erro) {
     if (!(erro instanceof ConfigAusenteError)) throw erro;
     return (
@@ -65,12 +69,18 @@ export default async function ProjecaoPage({
       <header>
         <h1 className="text-lg font-semibold text-fg">Projeção</h1>
         <p className="mt-1 text-sm text-muted">
-          Quanto sobra por mês depois de fixos, provisão, poupança e parcelas — e quando a verba
-          respira.
+          Quanto sobra por mês depois de fixos, provisão e parcelas — e quando a verba respira.
         </p>
       </header>
 
-      <ProjecaoFiltros horizonte={horizonte} />
+      <ProjecaoFiltros
+        horizonte={horizonte}
+        cotacao={resumo.cotacao?.simulada && resumo.cotacao.taxaMicros != null ? (resumo.cotacao.taxaMicros / 1_000_000).toFixed(2) : undefined}
+      />
+
+      {resumo.cotacao ? (
+        <CotacaoSlider taxaMicros={resumo.cotacao.taxaMicros} simulada={resumo.cotacao.simulada} />
+      ) : null}
 
       <ProjecaoKpis resumo={resumo} />
 

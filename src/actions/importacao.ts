@@ -21,6 +21,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { criarDeps } from '@/composition';
 import { executar, type Resultado } from './resultado';
+import { executarComConfirmacao, type ResultadoRetroativo } from './resultado-retroativo';
 import { hashDoTexto, normalizarTextoDeFatura } from '@/infrastructure/importacao/texto-fatura';
 import {
   conciliarImportacao,
@@ -37,11 +38,12 @@ import {
   desfazerImportacao,
   type ResultadoDesfazerImportacao,
 } from '@/application/importacao/desfazer';
-
-/** "YYYY-MM" — competência da fatura, sempre informada pelo dono. */
-const competenciaRefSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}$/, 'Competência precisa estar em YYYY-MM.');
+import {
+  ajustesConfirmacaoSchema,
+  competenciaRefSchema,
+  escolhaAmbiguaSchema,
+  idNaoVazioSchema,
+} from '@/application/importacao/schemas';
 
 /** Um texto colado maior que isto é quase sempre um documento errado, não uma fatura. */
 const MAX_CARACTERES_TEXTO_COLADO = 500_000;
@@ -84,24 +86,6 @@ export async function colarTextoImportacaoAction(
   });
 }
 
-const idNaoVazioSchema = z.string().min(1);
-
-const ajustesConfirmacaoSchema = z
-  .object({
-    categoriaId: idNaoVazioSchema.nullable().optional(),
-    data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data precisa estar em YYYY-MM-DD.').optional(),
-    descricao: z.string().trim().min(1).optional(),
-    contaId: idNaoVazioSchema.nullable().optional(),
-  })
-  .optional();
-
-const escolhaAmbiguaSchema = z
-  .union([
-    z.object({ transacaoId: idNaoVazioSchema }),
-    z.object({ semCandidato: z.literal(true) }),
-  ])
-  .optional();
-
 const confirmarItemSchema = z.object({
   importacaoId: idNaoVazioSchema,
   itemId: idNaoVazioSchema,
@@ -119,8 +103,8 @@ const confirmarItemSchema = z.object({
  */
 export async function confirmarItemImportadoAction(
   entrada: unknown,
-): Promise<Resultado<ResultadoConfirmacao>> {
-  return executar(async () => {
+): Promise<ResultadoRetroativo<ResultadoConfirmacao>> {
+  return executarComConfirmacao(async () => {
     const validado = confirmarItemSchema.parse(entrada);
     const deps = await criarDeps();
 

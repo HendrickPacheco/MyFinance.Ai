@@ -116,33 +116,33 @@ describe('contarAbaixoDoPiso', () => {
 });
 
 describe('totalComposicaoCents', () => {
-  it('soma as cinco faixas da coluna empilhada', () => {
+  it('soma as quatro faixas da coluna empilhada', () => {
+    // D-16: a pilha perdeu a faixa de poupança-alvo. O dinheiro que ela
+    // ocupava não sumiu — passou a morar dentro da verba livre, que agora é
+    // renda − fixos − provisão − parcelas.
     expect(
       totalComposicaoCents({
         fixosCents: 488_400,
         provisaoMensalCents: 31_700,
-        poupancaAlvoCents: 1_800_000,
         parcelasComprometidasCents: 421_100,
-        verbaLivreCents: 258_800,
+        verbaLivreCents: 2_058_800,
       }),
     ).toBe(3_000_000);
   });
 
   it('fecha com renda + rollover, e não com a renda sozinha', () => {
-    // renda 3.000.000, rollover 50.000: verba variável = renda − poupança −
-    // fixos − provisão + rollover. A pilha então soma renda + rollover.
+    // renda 3.000.000, rollover 50.000: verba variável = renda − fixos −
+    // provisão + rollover (sem meta, D-16). A pilha então soma renda + rollover.
     const renda = 3_000_000;
     const rollover = 50_000;
     const fixos = 488_400;
     const provisao = 31_700;
-    const poupanca = 1_800_000;
     const parcelas = 421_100;
-    const verbaVariavel = renda - poupanca - fixos - provisao + rollover;
+    const verbaVariavel = renda - fixos - provisao + rollover;
 
     const total = totalComposicaoCents({
       fixosCents: fixos,
       provisaoMensalCents: provisao,
-      poupancaAlvoCents: poupanca,
       parcelasComprometidasCents: parcelas,
       verbaLivreCents: verbaVariavel - parcelas,
     });
@@ -151,12 +151,30 @@ describe('totalComposicaoCents', () => {
     expect(total).not.toBe(renda);
   });
 
+  it('a meta de poupança não é mais uma faixa: a pilha fecha sem ela (D-16)', () => {
+    // Guarda invertida do teste que provava a faixa de poupança. Se alguém
+    // reintroduzir a meta na soma, a altura da barra passa a exceder
+    // renda + rollover e as faixas desenhadas mentem a própria escala.
+    const renda = 3_000_000;
+    const meta = 1_800_000;
+    const fixos = 488_400;
+
+    const total = totalComposicaoCents({
+      fixosCents: fixos,
+      provisaoMensalCents: 0,
+      parcelasComprometidasCents: 0,
+      verbaLivreCents: renda - fixos,
+    });
+
+    expect(total).toBe(renda);
+    expect(total).not.toBe(renda + meta);
+  });
+
   it('aceita verba livre negativa sem clamp', () => {
     expect(
       totalComposicaoCents({
         fixosCents: 100,
         provisaoMensalCents: 0,
-        poupancaAlvoCents: 0,
         parcelasComprometidasCents: 500,
         verbaLivreCents: -400,
       }),
