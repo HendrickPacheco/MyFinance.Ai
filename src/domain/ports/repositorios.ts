@@ -290,6 +290,8 @@ export interface CicloRepository {
   obterPorInicio(dataInicio: DataCivil): Promise<Ciclo | null>;
   obterAtual(hoje: DataCivil): Promise<Ciclo | null>;
   ultimoFechado(): Promise<Ciclo | null>;
+  /** Ciclo de maior `dataInicio` do dono, aberto ou fechado. */
+  ultimo(): Promise<Ciclo | null>;
   ultimosFechados(n: number): Promise<Ciclo[]>;
   /**
    * Cria o ciclo de forma idempotente por `dataInicio` (constraint única no

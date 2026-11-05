@@ -127,6 +127,23 @@ describe('projetarCiclos — limites de ciclo', () => {
     }
   });
 
+  it('ciclo congelado em calendário (diaRecebimento 1) projeta meses cheios', () => {
+    const ciclos = projetarCiclos(
+      entradaBase({ dataBase: '2026-11-15', diaRecebimento: 1, numCiclos: 7 }),
+    );
+
+    expect(ciclos.map((c) => [c.inicio, c.fim])).toEqual([
+      ['2026-11-01', '2026-11-30'],
+      ['2026-12-01', '2026-12-31'],
+      ['2027-01-01', '2027-01-31'],
+      ['2027-02-01', '2027-02-28'],
+      ['2027-03-01', '2027-03-31'],
+      ['2027-04-01', '2027-04-30'],
+      ['2027-05-01', '2027-05-31'],
+    ]);
+    expect(ciclos.every((c) => c.diasTotais >= 28)).toBe(true);
+  });
+
   it('encadeia os ciclos sem buraco nem sobreposição', () => {
     const ciclos = projetarCiclos(entradaBase({ diaRecebimento: 5, numCiclos: 12 }));
 

@@ -10,6 +10,7 @@ import type { DestinoSobra } from '@/domain/model/enums';
 import { addDias, type DataCivil } from '@/shared/data';
 import {
   limitesCiclo,
+  proximoCicloApos,
   provisaoMensalCents,
   poupancaAlvoCents,
   rendaEfetivaCents,
@@ -148,7 +149,13 @@ export async function garantirCicloAtual(deps: Deps): Promise<CicloResolvido> {
   let ciclo = await deps.ciclos.obterAtual(hoje);
 
   if (!ciclo) {
-    const { inicio, fim } = limitesCiclo(hoje, config.diaRecebimento);
+    let { inicio, fim } = limitesCiclo(hoje, config.diaRecebimento);
+    // Guarda de sobreposição: se o diaRecebimento mudou, a grade nova pode
+    // começar antes do fim do último ciclo. Aí o ciclo nasce na véspera+1.
+    const ultimo = await deps.ciclos.ultimo();
+    if (ultimo && ultimo.dataFim >= inicio) {
+      ({ inicio, fim } = proximoCicloApos(ultimo.dataFim, config.diaRecebimento));
+    }
     const existente = await deps.ciclos.obterPorInicio(inicio);
 
     if (existente) {
@@ -229,18 +236,29 @@ export async function recalcularCicloAtual(deps: Deps): Promise<Ciclo> {
   exigirEscrita(deps.ator);
 
   const { ciclo } = await garantirCicloAtual(deps);
-  const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(
-    deps,
-    rendaEfetivaCents(ciclo),
-  );
+  // D8: renda real confirmada vence; sem ela, a prevista vem da Config vigente
+  // (mesmo caminho de `recalcularCicloAtualSeVazio`).
+  const config = await deps.config.obter();
+  if (!config) throw new ConfigAusenteError();
+  const prevista =
+    ciclo.rendaRealLiquidaCents == null && !ciclo.fechado
+      ? await rendaPrevistaAoNascer(deps, config, ciclo.dataInicio)
+      : null;
+  const renda = prevista?.liquidaCents ?? rendaEfetivaCents(ciclo);
+  const { fixosCents, provMensalCents, poupancaCents } = await parametrosCongelados(deps, renda);
   const verba = verbaVariavelCents({
-    rendaPrevistaCents: rendaEfetivaCents(ciclo),
+    rendaPrevistaCents: renda,
     fixosCents,
     provisaoMensalCents: provMensalCents,
     rolloverRecebidoCents: ciclo.rolloverRecebidoCents,
   });
 
   return deps.ciclos.atualizar(ciclo.id, {
+    ...(prevista && {
+      rendaPrevistaCents: prevista.liquidaCents,
+      cotacaoPrevistaMicros: prevista.taxaMicros,
+      cotacaoPrevistaData: prevista.dataCotacao,
+    }),
     poupancaAlvoCents: poupancaCents,
     fixosCents,
     provisaoMensalCents: provMensalCents,

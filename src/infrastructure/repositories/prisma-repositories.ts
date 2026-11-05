@@ -856,6 +856,14 @@ export class PrismaCicloRepository implements CicloRepository {
     return r ? toCiclo(r) : null;
   }
 
+  async ultimo(): Promise<Ciclo | null> {
+    const r = await this.db.ciclo.findFirst({
+      where: { donoId: this.donoId },
+      orderBy: { dataInicio: 'desc' },
+    });
+    return r ? toCiclo(r) : null;
+  }
+
   async ultimoFechado(): Promise<Ciclo | null> {
     const r = await this.db.ciclo.findFirst({
       where: { donoId: this.donoId, fechado: true },
