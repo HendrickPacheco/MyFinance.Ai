@@ -64,9 +64,9 @@ function impacto(ciclo: Ciclo, config: Config, renda: RendaLiquida, aviso: strin
   const nova = aplicarNovaRendaAoCiclo(ciclo, renda.liquidaCents, config.metaPoupancaPercent);
   const diasCiclo = diasTotaisCiclo({ inicio: ciclo.dataInicio, fim: ciclo.dataFim });
   const verbas = (v: { verbaVariavelCents: number; poupancaAlvoCents: number }) => {
-    const divisao = dividirVerba({ ...v, pisoDiarioCents: config.pisoDiarioVerbaCents, diasCiclo });
+    const divisao = dividirVerba({ ...v, parcelasCents: 0 /* TODO(task2) */, pisoDiarioCents: config.pisoDiarioVerbaCents, diasCiclo });
     return {
-      diario: projetarDiaADiaDiarioCents(divisao, 0, diasCiclo),
+      diario: projetarDiaADiaDiarioCents(divisao, diasCiclo),
       extras: divisao.extrasCents,
     };
   };

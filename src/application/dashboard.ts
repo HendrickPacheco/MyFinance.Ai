@@ -142,7 +142,7 @@ async function montar(
   const verbas = {
     ...consumo,
     pisoDiarioCents,
-    diaADiaPorDiaCents: projetarDiaADiaDiarioCents(consumo, consumo.extrasUsadoCents, kpis.diasTotais),
+    diaADiaPorDiaCents: projetarDiaADiaDiarioCents(consumo, kpis.diasTotais),
   };
 
   return {

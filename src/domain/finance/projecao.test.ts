@@ -796,7 +796,7 @@ describe('projetarCiclos — verbas dia a dia e extras', () => {
     pisoDiarioVerbaCents: 15_000,
   } as const;
 
-  it('divide a verba do ciclo e abate as parcelas dos extras', () => {
+  it('divide a verba LIVRE (já sem parcelas) entre dia a dia e extras', () => {
     const [c] = projetarCiclos(
       entradaBase({
         ...nov,
@@ -804,9 +804,10 @@ describe('projetarCiclos — verbas dia a dia e extras', () => {
       }),
     );
     expect(c?.verbaVariavelCents).toBe(2_511_600);
-    expect(c?.diaADiaCents).toBe(450_000);
-    expect(c?.extrasCents).toBe(261_600);
-    expect(c?.extrasRestanteCents).toBe(-177_788);
+    // livre = 2.511.600 − 439.388; gastável = livre − meta 1.800.000 = 272.212 < piso mensal
+    expect(c?.diaADiaCents).toBe(272_212);
+    expect(c?.extrasCents).toBe(0);
+    expect(c?.extrasRestanteCents).toBe(0);
     expect(c?.diaADiaDiarioCents).toBe(9_073);
   });
 

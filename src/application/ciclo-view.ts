@@ -72,6 +72,7 @@ async function montar(deps: Deps, { ciclo }: CicloResolvido): Promise<EstadoCicl
   const diasCiclo = diasTotaisCiclo({ inicio: ciclo.dataInicio, fim: ciclo.dataFim });
   const divisao = dividirVerba({
     verbaVariavelCents: ciclo.verbaVariavelCents,
+    parcelasCents: 0, // TODO(task2)
     poupancaAlvoCents: ciclo.poupancaAlvoCents,
     pisoDiarioCents: config?.pisoDiarioVerbaCents ?? 0,
     diasCiclo,
@@ -85,7 +86,7 @@ async function montar(deps: Deps, { ciclo }: CicloResolvido): Promise<EstadoCicl
     transacoes,
     categorias,
     divisao,
-    diaADiaDiarioCents: projetarDiaADiaDiarioCents(divisao, 0, diasCiclo),
+    diaADiaDiarioCents: projetarDiaADiaDiarioCents(divisao, diasCiclo),
     renda: montarRenda(ciclo, config),
   };
 }

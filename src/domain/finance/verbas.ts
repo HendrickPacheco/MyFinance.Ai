@@ -17,9 +17,12 @@ export function tipoVerbaEfetivo(t: {
   return t.tipoVerbaOverride ?? t.tipoVerbaCategoria ?? 'EXTRA';
 }
 
-export type TransacaoVerba = TransacaoCalc & { tipoVerba: TipoVerba };
+/** `parcelamentoId` != null = parcela: já está em `verbaLivre`, não consome verba. */
+export type TransacaoVerba = TransacaoCalc & { tipoVerba: TipoVerba; parcelamentoId?: string | null };
 
 export interface DivisaoVerba {
+  /** verbaVariavel − parcelas do ciclo (D-11: parcela é separada, nunca embutida na verba). */
+  verbaLivreCents: number;
   gastavelCents: number;
   diaADiaCents: number;
   extrasCents: number;
@@ -28,14 +31,17 @@ export interface DivisaoVerba {
 
 export function dividirVerba(p: {
   verbaVariavelCents: number;
+  parcelasCents: number;
   poupancaAlvoCents: number;
   pisoDiarioCents: number;
   diasCiclo: number;
 }): DivisaoVerba {
-  const gastavelCents = p.verbaVariavelCents - p.poupancaAlvoCents;
+  const verbaLivreCents = p.verbaVariavelCents - p.parcelasCents;
+  const gastavelCents = verbaLivreCents - p.poupancaAlvoCents;
   const pisoTotal = p.pisoDiarioCents * p.diasCiclo;
   const diaADiaCents = Math.min(Math.max(gastavelCents, 0), pisoTotal);
   return {
+    verbaLivreCents,
     gastavelCents,
     diaADiaCents,
     extrasCents: gastavelCents - diaADiaCents,
@@ -63,14 +69,14 @@ export function consumirVerbas(p: {
   hoje: DataCivil;
   dataFimCiclo: DataCivil;
 }): ConsumoVerbas {
-  const elegiveis = p.transacoes.filter(contaComoVerbaVariavel);
+  // Parcela já saiu da verba livre: não consome extras nem dia a dia.
+  const elegiveis = p.transacoes.filter((t) => t.parcelamentoId == null && contaComoVerbaVariavel(t));
   const extrasUsadoCents = gastoRealizadoCents(
     elegiveis.filter((t) => t.tipoVerba === 'EXTRA'),
     p.dataFimCiclo,
   );
   const { diaADiaCents, extrasCents } = p.divisao;
-  const excedenteExtrasCents = Math.max(extrasUsadoCents - Math.max(extrasCents, 0), 0);
-  const diaADiaEfetivoCents = diaADiaCents - excedenteExtrasCents;
+  const diaADiaEfetivoCents = diaADiaCents;
   const doDia = elegiveis.filter((t) => t.tipoVerba === 'DIA_A_DIA');
   const tetoDiaADia = calcularTeto({
     verbaVariavelCents: diaADiaEfetivoCents,
@@ -79,27 +85,51 @@ export function consumirVerbas(p: {
     transacoes: doDia,
   });
   const diaADiaUsadoCents = gastoRealizadoCents(doDia, p.hoje);
+  // Dia a dia que passou do balde come os extras (e não o contrário).
+  const extrasRestanteCents =
+    extrasCents - extrasUsadoCents - Math.max(0, diaADiaUsadoCents - diaADiaCents);
   return {
     ...p.divisao,
     extrasUsadoCents,
-    extrasRestanteCents: extrasCents - extrasUsadoCents,
-    excedenteExtrasCents,
+    extrasRestanteCents,
+    excedenteExtrasCents: Math.max(0, -extrasRestanteCents),
     diaADiaEfetivoCents,
     diaADiaUsadoCents,
-    diaADiaRestanteCents: diaADiaEfetivoCents - diaADiaUsadoCents,
+    diaADiaRestanteCents: Math.max(0, diaADiaCents - diaADiaUsadoCents),
     tetoDiaADia,
     podeGastarHojeCents: Math.max(tetoDiaADia.restaHojeCents, 0),
     excedidoHojeCents: Math.max(-tetoDiaADia.restaHojeCents, 0),
   };
 }
 
-export function projetarDiaADiaDiarioCents(
-  divisao: DivisaoVerba,
-  extrasComprometidosCents: number,
-  diasCiclo: number,
-): number {
-  const excedente = Math.max(extrasComprometidosCents - Math.max(divisao.extrasCents, 0), 0);
-  return Math.floor(Math.max(divisao.diaADiaCents - excedente, 0) / diasCiclo);
+export function projetarDiaADiaDiarioCents(divisao: DivisaoVerba, diasCiclo: number): number {
+  return Math.floor(Math.max(divisao.diaADiaCents, 0) / diasCiclo);
+}
+
+export type StatusDiaADia =
+  | 'SEM_VERBA_PARA_META'
+  | 'ESTOURADO_USANDO_EXTRAS'
+  | 'ACIMA_DO_RITMO'
+  | 'RITMO_OK';
+
+export function statusDiaADia(p: {
+  diaADiaCents: number;
+  diaADiaUsadoCents: number;
+  extrasRestanteCents: number;
+  gastavelCents: number;
+  diasTotais: number;
+  diasRestantes: number;
+}): StatusDiaADia {
+  if (p.gastavelCents < 0) return 'SEM_VERBA_PARA_META';
+  if (p.diaADiaUsadoCents > p.diaADiaCents || p.extrasRestanteCents < 0) return 'ESTOURADO_USANDO_EXTRAS';
+  return ritmoDiaADiaOk({
+    usadoCents: p.diaADiaUsadoCents,
+    totalCents: p.diaADiaCents,
+    diasTotais: p.diasTotais,
+    diasRestantes: p.diasRestantes,
+  })
+    ? 'RITMO_OK'
+    : 'ACIMA_DO_RITMO';
 }
 
 export interface ExplicacaoPiso {

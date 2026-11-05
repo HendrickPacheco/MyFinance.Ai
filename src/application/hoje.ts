@@ -126,6 +126,7 @@ export function consumoVerbasDoCiclo(p: {
 }): ConsumoVerbas {
   const divisao = dividirVerba({
     verbaVariavelCents: p.ciclo.verbaVariavelCents,
+    parcelasCents: 0, // TODO(task2)
     poupancaAlvoCents: p.ciclo.poupancaAlvoCents,
     pisoDiarioCents: p.pisoDiarioCents,
     diasCiclo: diasTotaisCiclo({ inicio: p.ciclo.dataInicio, fim: p.ciclo.dataFim }),
