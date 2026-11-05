@@ -8,7 +8,9 @@
  */
 import {
   dataVencimentoNoCiclo,
+  mesesCobertosPelaReserva,
   percentualDeAlvo,
+  poupancaEstimadaDoCicloCents,
   proximosVencimentos,
   resumoPagamentosCents,
   statusDiaADia,
@@ -19,7 +21,7 @@ import type { Deps } from './deps';
 import { obterEstadoPainel } from './dashboard';
 import type { LinhaParcelada } from './dashboard-tipos';
 import type { EstadoHome, GrupoDespesa, LinhaDespesa } from './home-tipos';
-import { obterPatrimonio, type MotivoMesesDesconhecido } from './patrimonio';
+import { obterPatrimonio } from './patrimonio';
 import { obterProjecao } from './projecao';
 
 const MESES_PT_BR = [
@@ -28,11 +30,6 @@ const MESES_PT_BR = [
 ] as const;
 
 const META_MESES_RESERVA = 6;
-
-const MOTIVO_RESERVA: Record<MotivoMesesDesconhecido, string> = {
-  SEM_CICLO_FECHADO: 'Feche o primeiro ciclo para conhecer o custo mensal médio.',
-  CUSTO_NAO_POSITIVO: 'O custo mensal médio não é positivo.',
-};
 
 const VERBA_LIVRE_VAZIA: EstadoHome['verbaLivre'] = {
   pontos: [],
@@ -54,7 +51,11 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
 
   const [iniciais, reserva, verbaLivre] = await Promise.all([
     lerIniciais(deps),
-    montarReserva(deps),
+    montarReserva(deps, {
+      fixosCents: ciclo.fixosCents,
+      parcelasCents: painel.parceladosTotalCents,
+      diaADiaMensalCents: verbas.diaADiaCents,
+    }),
     montarVerbaLivre(deps),
   ]);
 
@@ -77,6 +78,13 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
   const { faltaPagarCents, jaPagueiCents } = resumoPagamentosCents(fixos, parcelas);
   const totalDespesasCents = grupoFixo.totalCents + grupoParcelado.totalCents;
   const fixoPercent = pct(grupoFixo.totalCents, totalDespesasCents);
+
+  const poupancaEstimada = poupancaEstimadaDoCicloCents({
+    verbaLivreCents: verbas.verbaLivreCents,
+    gastoVariavelSemParcelasCents: painel.transacoesVariaveisTotalCents,
+    diaADiaRestanteCents: verbas.diaADiaRestanteCents,
+    extrasRestanteCents: verbas.extrasRestanteCents,
+  });
 
   const ultimas = painel.parcelados.filter((p) => p.parcelaAtual === p.numParcelas);
 
@@ -135,10 +143,10 @@ export async function obterEstadoHome(deps: Deps): Promise<EstadoHome> {
       progressoPercent: pct(verbas.extrasRestanteCents, verbas.extrasCents),
     },
     metaPoupanca: {
-      guardadoCents: metas.guardadoCents,
+      guardadoCents: poupancaEstimada,
       alvoCents: metas.poupancaAlvoCents,
-      progressoPercent: Math.round(Math.min(100, Math.max(0, metas.percentualReal ?? 0))),
-      motivoSemGuardado: metas.guardadoCents === null ? metas.motivoSemGuardado : null,
+      progressoPercent: Math.min(100, pct(poupancaEstimada, metas.poupancaAlvoCents)),
+      motivoSemGuardado: null,
     },
     reserva,
     despesas: {
@@ -202,15 +210,19 @@ async function lerIniciais(deps: Deps): Promise<string> {
 
 // ponytail: relê o patrimônio (o painel já leu) só para ter saldo de reserva +
 // motivo; expor os dois em `ResumoPatrimonioPainel` se o custo importar.
-async function montarReserva(deps: Deps): Promise<EstadoHome['reserva']> {
+async function montarReserva(
+  deps: Deps,
+  gasto: { fixosCents: number; parcelasCents: number; diaADiaMensalCents: number },
+): Promise<EstadoHome['reserva']> {
   try {
-    const p = await obterPatrimonio(deps);
+    const { saldoReservaCents } = await obterPatrimonio(deps);
+    const meses = mesesCobertosPelaReserva({ saldoReservaCents, ...gasto });
     return {
-      totalCents: p.saldoReservaCents,
-      meses: p.mesesDeReserva,
+      totalCents: saldoReservaCents,
+      meses,
       metaMeses: META_MESES_RESERVA,
-      progressoPercent: p.mesesDeReserva === null ? 0 : pct(p.mesesDeReserva, META_MESES_RESERVA),
-      motivoSemDado: p.motivoMesesDesconhecido ? MOTIVO_RESERVA[p.motivoMesesDesconhecido] : null,
+      progressoPercent: meses === null ? 0 : Math.min(100, pct(meses, META_MESES_RESERVA)),
+      motivoSemDado: meses === null ? 'Sem gasto mensal no ciclo para medir a cobertura.' : null,
     };
   } catch (erro) {
     console.error('[home] falha ao montar a reserva:', erro);

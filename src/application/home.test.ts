@@ -67,8 +67,12 @@ describe('obterEstadoHome', () => {
     });
     expect(e.extras).toEqual({ disponivelCents: 115_000, totalCents: 115_000, progressoPercent: 100 });
     expect(e.metaPoupanca.alvoCents).toBe(100_000);
-    expect(e.reserva).toMatchObject({ totalCents: 6_000_000, meses: null, metaMeses: 6, progressoPercent: 0 });
-    expect(e.reserva.motivoSemDado).toBeTruthy();
+    // poupança estimada = 260k − 15k (gasto) − 30k (dia a dia restante) − 115k (extras) = 100k
+    expect(e.metaPoupanca).toMatchObject({ guardadoCents: 100_000, progressoPercent: 100, motivoSemGuardado: null });
+    // reserva = 6.000.000 / (fixos + parcelas 40k + dia a dia 45k)
+    expect(e.reserva).toMatchObject({ totalCents: 6_000_000, metaMeses: 6, progressoPercent: 100 });
+    expect(e.reserva.meses).toBeCloseTo(6_000_000 / (e.despesas.fixo.totalCents + 85_000), 5);
+    expect(e.reserva.motivoSemDado).toBeNull();
   });
 
   it('gasto lançado hoje abate o hero por inteiro', async () => {

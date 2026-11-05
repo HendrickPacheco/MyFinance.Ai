@@ -146,3 +146,17 @@ export function totalPorClasseCents(itens: readonly ItemPatrimonioClasse[]): Tot
 
   return [...totaisPorClasse.entries()].map(([classe, totalCents]) => ({ classe, totalCents }));
 }
+
+/**
+ * Meses que a reserva cobre se o gasto mensal for o do ciclo atual
+ * (fixos + parcelas + dia a dia). `null` quando o divisor não é positivo.
+ */
+export function mesesCobertosPelaReserva(p: {
+  saldoReservaCents: number;
+  fixosCents: number;
+  parcelasCents: number;
+  diaADiaMensalCents: number;
+}): number | null {
+  const custo = p.fixosCents + p.parcelasCents + p.diaADiaMensalCents;
+  return custo > 0 ? p.saldoReservaCents / custo : null;
+}

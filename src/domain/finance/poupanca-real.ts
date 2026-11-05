@@ -152,3 +152,22 @@ export function alertaGastoVariavelBaixo(p: {
   if (mediaAnteriorCents <= 0 || p.gastoVariavelCents * 100 >= mediaAnteriorCents * 30) return null;
   return { mediaAnteriorCents, percentual: Math.round((p.gastoVariavelCents / mediaAnteriorCents) * 1000) / 10 };
 }
+
+/**
+ * Poupança ESTIMADA do ciclo (D-16): o que sobra da verba livre depois do
+ * gasto variável (sem parcelas) e do que ainda resta nos baldes dia a dia e extras.
+ */
+export function poupancaEstimadaDoCicloCents(p: {
+  verbaLivreCents: number;
+  gastoVariavelSemParcelasCents: number;
+  diaADiaRestanteCents: number;
+  extrasRestanteCents: number;
+}): number {
+  return Math.max(
+    0,
+    p.verbaLivreCents -
+      p.gastoVariavelSemParcelasCents -
+      p.diaADiaRestanteCents -
+      Math.max(p.extrasRestanteCents, 0),
+  );
+}
